@@ -1,0 +1,160 @@
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../assets/fonts/space-grotesk/SpaceGrotesk-Variable.woff2') format('woff2');
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --app-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    --brand-font: 'Space Grotesk', var(--app-font);
+    --background: 240 6% 7.5%;
+    --foreground: 240 5% 96%;
+    --card: 240 5% 11%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 5% 12.5%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 79 93% 65%;
+    --primary-foreground: 240 6% 6%;
+    --secondary: 240 4% 18%;
+    --secondary-foreground: 240 5% 92%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 62%;
+    /* Legacy compatibility: older product UI uses `accent` as the brand lime.
+       New shared primitives use `muted` for neutral hover/focus surfaces. */
+    --accent: 79 93% 65%;
+    --accent-foreground: 240 6% 6%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 4% 24%;
+    --input: 240 4% 26%;
+    --ring: 79 93% 65%;
+    --brand-secondary: 335 100% 62%;
+    --radius: 0.625rem;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--app-font);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.28);
+    color: hsl(var(--foreground));
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.7);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.4);
+  }
+}
+
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  .app-bg {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(1100px 520px at 85% -12%, hsl(var(--primary) / 0.06), transparent 60%),
+      radial-gradient(900px 480px at -8% 112%, hsl(var(--brand-secondary) / 0.04), transparent 55%);
+  }
+  .animate-slide-up {
+    animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out forwards;
+  }
+  .animate-slide-up-center {
+    animation: slideUpCenter 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .animate-drawer-in {
+    animation: drawerIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes drawerIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideUpCenter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install JavaScript dependencies
+        run: npm install
+      - name: Install Python dependencies
+        run: uv sync --locked --python 3.11
+      - name: Run unit tests
+        run: npm test
+        env:
+          POLYKIT_PYTHON: .venv/bin/python
+      - name: Type-check Web
+        run: npx tsc --noEmit -p tsconfig.web.json
+      - name: Build Web app
+        run: npm run web:build

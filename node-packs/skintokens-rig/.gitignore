@@ -1,0 +1,9 @@
+# Runtime state created by Setup/Repair. The bundled source stays tracked;
+# environments, provider checkout, and caches are machine-local.
+venv/
+provider/
+.cache/
+.upstream/
+__pycache__/
+*.py[cod]
+.polykit-*

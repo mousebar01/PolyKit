@@ -1,0 +1,10 @@
+venv/
+provider/
+.provider-staging/
+.provider-old/
+.upstream/
+.cache/
+.modly/
+.modly-setup-summary.json
+__pycache__/
+*.pyc

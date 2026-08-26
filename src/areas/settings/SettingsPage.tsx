@@ -1,0 +1,62 @@
+import { useState } from 'react'
+import { Globe, HardDrive, Info, Plug, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+
+import { Button } from '@shared/components/ui/button'
+import { useI18n, type TranslationKey } from '@shared/i18n'
+import { StorageSection } from './components/StorageSection'
+import { AboutSection } from './components/AboutSection'
+import { IntegrationsSection } from './components/IntegrationsSection'
+import { ApplicationSection } from './components/ApplicationSection'
+import { NetworkSection } from './components/NetworkSection'
+
+type Section = 'application' | 'storage' | 'integrations' | 'network' | 'about'
+
+const SECTIONS: { id: Section; label: TranslationKey; icon: LucideIcon }[] = [
+  { id: 'application', label: 'settings.application', icon: SlidersHorizontal },
+  { id: 'storage', label: 'settings.storage', icon: HardDrive },
+  { id: 'integrations', label: 'settings.integrations', icon: Plug },
+  { id: 'network', label: 'settings.network', icon: Globe },
+  { id: 'about', label: 'settings.about', icon: Info },
+]
+
+export default function SettingsPage(): JSX.Element {
+  const [section, setSection] = useState<Section>('application')
+  const { t } = useI18n()
+
+  return (
+    <div className="flex h-full bg-background">
+      <nav className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border bg-card/60 px-3 py-6" aria-label={t('settings.title')}>
+        <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('settings.title')}</p>
+        {SECTIONS.map((item) => {
+          const Icon = item.icon
+          const active = section === item.id
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              variant="ghost"
+              aria-current={active ? 'page' : undefined}
+              onClick={() => setSection(item.id)}
+              className={active
+                ? 'relative h-9 justify-start gap-2.5 bg-primary/10 px-3 text-primary hover:bg-primary/15 hover:text-primary'
+                : 'relative h-9 justify-start gap-2.5 px-3 text-muted-foreground hover:text-foreground'}
+            >
+              <Icon className="size-4" />
+              {t(item.label)}
+            </Button>
+          )
+        })}
+      </nav>
+
+      <main className="flex-1 overflow-y-auto bg-background">
+        <div className="mx-auto max-w-6xl p-6 lg:p-8">
+          {section === 'application' && <ApplicationSection />}
+          {section === 'storage' && <StorageSection />}
+          {section === 'integrations' && <IntegrationsSection />}
+          {section === 'network' && <NetworkSection />}
+          {section === 'about' && <AboutSection />}
+        </div>
+      </main>
+    </div>
+  )
+}

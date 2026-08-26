@@ -1,0 +1,24 @@
+# Web server
+fastapi>=0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# System resource monitoring
+psutil>=7.2.2
+nvidia-ml-py>=13.610.43
+
+# MCP integration
+httpx>=0.27.0
+mcp>=1.0.0
+
+# Mesh processing (optimize + export endpoints)
+trimesh>=4.5.0
+pymeshlab>=2023.12,<2025; sys_platform == "linux" and platform_machine == "x86_64"
+pymeshlab>=2023.12; sys_platform != "linux" or platform_machine != "x86_64"
+
+# Model downloads (HuggingFace)
+huggingface_hub>=0.27.0
+hf_xet>=0.1.0
+
+cryptography>=42.0.0
+certifi>=2024.0.0

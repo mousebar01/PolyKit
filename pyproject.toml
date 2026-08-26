@@ -1,0 +1,31 @@
+[project]
+name = "polykit"
+dynamic = ["version"]
+description = "Local AI-powered 3D mesh generation from images"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "python-multipart==0.0.20",
+  "psutil>=7.2.2",
+  "nvidia-ml-py>=13.610.43",
+  "httpx>=0.27.0",
+  "mcp>=1.0.0",
+  "trimesh>=4.5.0",
+  # 2025.x wheels require newer manylinux/glibc baselines than some x86 Linux
+  # hosts. Jetson/aarch64 and desktop platforms use the newest compatible line.
+  "pymeshlab>=2023.12,<2025; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "pymeshlab>=2023.12; sys_platform != 'linux' or platform_machine != 'x86_64'",
+  "huggingface_hub>=0.27.0",
+  "hf_xet>=0.1.0",
+  "cryptography>=42.0.0",
+  "certifi>=2024.0.0",
+]
+
+[tool.uv]
+# PolyKit is an application workspace, not an installable Python package.
+package = false
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]

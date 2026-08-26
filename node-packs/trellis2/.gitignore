@@ -1,0 +1,6 @@
+# Runtime state — never commit these into the official pack
+venv/
+__pycache__/
+*.pyc
+.polykit-*
+vendor/

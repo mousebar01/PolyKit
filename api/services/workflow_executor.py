@@ -1,0 +1,505 @@
+"""Workflow graph primitives and node-execution support helpers.
+
+The DAG engine lives in :mod:`services.workflow_engine`. This module contains
+the reusable graph, cache, input-decoding, and node-adapter functions consumed
+by that engine; it does not define a second workflow engine.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import binascii
+import hashlib
+import json
+import threading
+import uuid
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+
+from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
+from services.asset_names import output_name
+from services.model_runtime_registry import model_runtime_registry
+from services.generators.base import smooth_progress
+from services.model_runtime import execute_model
+from services.node_catalog import get_node_definition, process_node_pack
+from services.process_runner import run_processor
+from services.runtime_paths import runtime_paths
+
+
+IMAGE_NODE = "polykit.image"
+TEXT_NODE = "polykit.text"
+MESH_NODE = "polykit.mesh"
+OUTPUT_NODE = "polykit.output"
+PREVIEW_NODE = "polykit.preview"
+SOURCE_NODES = {IMAGE_NODE, TEXT_NODE, MESH_NODE}
+SINK_NODES = {OUTPUT_NODE, PREVIEW_NODE}
+BUILTIN_NODES = SOURCE_NODES | SINK_NODES
+
+
+class WorkflowError(ValueError):
+    """User-facing workflow validation/execution error."""
+
+
+def is_reference(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(isinstance(part, str) for part in value)
+    )
+
+
+def topological_order(prompt: Dict[str, WorkflowExecutionNode]) -> List[str]:
+    """Return node ids in stable topological order, rejecting invalid DAGs."""
+    if not prompt:
+        raise WorkflowError("Workflow prompt is empty")
+
+    for node_id, node in prompt.items():
+        if not node_id.strip():
+            raise WorkflowError("Workflow node id cannot be empty")
+        if not node.class_type.strip():
+            raise WorkflowError(f"Node '{node_id}' has an empty class_type")
+        for input_name, value in node.inputs.items():
+            if not input_name.strip():
+                raise WorkflowError(f"Node '{node_id}' has an empty input name")
+            if is_reference(value):
+                ref_node, output_name = value
+                if ref_node not in prompt:
+                    raise WorkflowError(
+                        f"Node '{node_id}' input '{input_name}' references missing node '{ref_node}'"
+                    )
+                if not output_name.strip():
+                    raise WorkflowError(
+                        f"Node '{node_id}' input '{input_name}' has an empty output name"
+                    )
+
+    indegree: Dict[str, int] = {node_id: 0 for node_id in prompt}
+    dependents: Dict[str, List[str]] = {node_id: [] for node_id in prompt}
+    for node_id, node in prompt.items():
+        for value in node.inputs.values():
+            if is_reference(value):
+                ref_node = value[0]
+                indegree[node_id] += 1
+                dependents[ref_node].append(node_id)
+
+    order: List[str] = []
+    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
+    while queue:
+        node_id = queue.pop(0)
+        order.append(node_id)
+        for dependent in dependents[node_id]:
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                queue.append(dependent)
+
+    if len(order) != len(prompt):
+        raise WorkflowError("Workflow contains a cyclic node reference")
+    return order
+
+
+def resolve_reference(value: Any, outputs: Dict[str, Dict[str, Any]]) -> Any:
+    if not is_reference(value):
+        raise WorkflowError(f"Expected a [node_id, output_name] reference, got: {value!r}")
+    node_id, output_name = value
+    node_outputs = outputs.get(node_id)
+    if node_outputs is None:
+        raise WorkflowError(
+            f"Reference points to node '{node_id}' which has not produced output yet"
+        )
+    if output_name not in node_outputs:
+        raise WorkflowError(f"Node '{node_id}' has no output named '{output_name}'")
+    return node_outputs[output_name]
+
+
+def validate_prompt_links(request: WorkflowExecutionRequest) -> None:
+    """Validate typed reference links before any execution starts."""
+    defn_cache: Dict[str, Optional[Any]] = {}
+
+    def _definition(class_type: str) -> Optional[Any]:
+        if class_type not in defn_cache:
+            defn_cache[class_type] = get_node_definition(class_type)
+        return defn_cache[class_type]
+
+    for node_id, node in request.prompt.items():
+        for input_name, value in node.inputs.items():
+            if not is_reference(value):
+                continue
+            ref_node_id = value[0]
+            if ref_node_id not in request.prompt:
+                continue
+            upstream_def = _definition(request.prompt[ref_node_id].class_type)
+            upstream_outputs = upstream_def.outputs if upstream_def else []
+            upstream_type = upstream_outputs[0] if upstream_outputs else None
+            if input_name in {"image", "mesh", "text"} and upstream_type and upstream_type != input_name:
+                raise WorkflowError(
+                    f"Node '{node_id}' input '{input_name}' expects '{input_name}' but "
+                    f"node '{ref_node_id}' outputs '{upstream_type}'"
+                )
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    try:
+        stat = path.stat()
+        return {
+            "path": str(path),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    except OSError:
+        return {"path": str(path), "missing": True}
+
+
+def _canonical(value: Any) -> Any:
+    """Canonical cache-key value including file-backed input identity."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return {"__bytes__": hashlib.sha256(value).hexdigest()}
+    if isinstance(value, Path):
+        return {"__path__": _file_identity(value)}
+    if isinstance(value, dict):
+        kind = value.get("kind")
+        if kind == "workspace_path" and isinstance(value.get("path"), str):
+            from services.workspace_paths import resolve_workspace_path
+
+            raw_path = value["path"]
+            try:
+                resolved = resolve_workspace_path(runtime_paths.workspace, raw_path)
+                identity = _file_identity(resolved)
+            except (TypeError, ValueError):
+                identity = {"path": raw_path, "invalid": True}
+            return {"__workspace_path__": identity}
+        if kind == "base64" and isinstance(value.get("data"), str):
+            encoded = value["data"]
+            return {
+                "__base64__": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+                "meta": {
+                    str(k): _canonical(v)
+                    for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+                    if k != "data"
+                },
+            }
+        return {str(k): _canonical(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_canonical(v) for v in value]
+    return {"__repr__": repr(value)}
+
+
+class NodeOutputCache:
+    """Output cache keyed by transitive input signature."""
+
+    def __init__(self) -> None:
+        self._store: Dict[str, Dict[str, Any]] = {}
+
+    def signature(self, class_type: str, inputs: Dict[str, Any], ref_sigs: Dict[str, str]) -> str:
+        parts: List[Any] = [class_type]
+        for name in sorted(inputs.keys()):
+            value = inputs[name]
+            if is_reference(value):
+                ref_node = value[0]
+                parts.append((name, "ref", ref_node, ref_sigs.get(ref_node, "?")))
+            else:
+                parts.append((name, "lit", _canonical(value)))
+        raw = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def get(self, sig: str) -> Optional[Dict[str, Any]]:
+        value = self._store.get(sig)
+        if value is None:
+            return None
+        mesh = value.get("mesh")
+        if isinstance(mesh, Path) and not mesh.exists():
+            self._store.pop(sig, None)
+            return None
+        return value
+
+    def set(self, sig: str, value: Dict[str, Any]) -> None:
+        self._store[sig] = value
+
+    def clear(self) -> None:
+        self._store.clear()
+
+
+def _is_deterministic(params: Dict[str, Any]) -> bool:
+    seed = params.get("seed")
+    return seed is not None and seed != -1
+
+
+def _decode_image_payload(value: object) -> bytes:
+    if not isinstance(value, dict):
+        raise WorkflowError("Image input must be an object")
+
+    kind = value.get("kind")
+    if kind == "base64":
+        encoded = value.get("data")
+        if not isinstance(encoded, str) or not encoded:
+            raise WorkflowError("Base64 image input is empty")
+        if "," in encoded and encoded.startswith("data:"):
+            encoded = encoded.split(",", 1)[1]
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise WorkflowError("Invalid base64 image input") from exc
+    elif kind == "workspace_path":
+        from services.workspace_paths import resolve_workspace_path
+
+        raw_path = value.get("path")
+        try:
+            image_path = resolve_workspace_path(runtime_paths.workspace, raw_path)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError(str(exc)) from exc
+        if not image_path.is_file():
+            raise WorkflowError(f"Image file not found: {raw_path}")
+        image_bytes = image_path.read_bytes()
+    else:
+        raise WorkflowError("Image input kind must be 'base64' or 'workspace_path'")
+
+    if not image_bytes:
+        raise WorkflowError("Image input is empty")
+    if len(image_bytes) > 50 * 1024 * 1024:
+        raise WorkflowError("Image input is larger than 50 MiB")
+    return image_bytes
+
+
+def _decode_mesh_payload(value: object, temp_dir: Path) -> Path:
+    if not isinstance(value, dict):
+        raise WorkflowError("Mesh input must be an object")
+
+    kind = value.get("kind")
+    if kind == "workspace_path":
+        from services.workspace_paths import resolve_workspace_path
+
+        raw_path = value.get("path")
+        try:
+            mesh_path = resolve_workspace_path(runtime_paths.workspace, raw_path)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError(str(exc)) from exc
+        if not mesh_path.is_file():
+            raise WorkflowError(f"Mesh file not found: {raw_path}")
+        return mesh_path
+    if kind == "base64":
+        encoded = value.get("data")
+        if not isinstance(encoded, str) or not encoded:
+            raise WorkflowError("Base64 mesh input is empty")
+        if "," in encoded and encoded.startswith("data:"):
+            encoded = encoded.split(",", 1)[1]
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise WorkflowError("Invalid base64 mesh input") from exc
+        if not data:
+            raise WorkflowError("Base64 mesh input is empty")
+        if len(data) > 1 * 1024 * 1024 * 1024:
+            raise WorkflowError("Mesh input is larger than 1 GiB")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        dest = temp_dir / f"mesh-{uuid.uuid4().hex[:8]}.glb"
+        dest.write_bytes(data)
+        return dest
+    raise WorkflowError("Mesh input kind must be 'workspace_path' or 'base64'")
+
+
+def _phase_cb(job, start: int, end: int, persist: Callable[[], None]):
+    def callback(pct: int, step: str = "") -> None:
+        bounded = max(0, min(100, int(pct)))
+        job.progress = max(job.progress, start + round((end - start) * bounded / 100))
+        if step:
+            job.step = step
+        persist()
+    return callback
+
+
+async def _load_model(
+    loop: asyncio.AbstractEventLoop,
+    phase_cb,
+    cancel_event: Optional[threading.Event],
+):
+    if not model_runtime_registry.active_status()["loaded"]:
+        active = model_runtime_registry.active_status()
+        model_name = active["name"]
+        init_label = (
+            f"Downloading {model_name}…" if not active["downloaded"] else f"Loading {model_name}…"
+        )
+        phase_cb(0, init_label)
+        stop_load_evt = threading.Event()
+        load_thread = threading.Thread(
+            target=smooth_progress,
+            args=(phase_cb, 0, 9, init_label, stop_load_evt, 4.0),
+            daemon=True,
+        )
+        load_thread.start()
+        try:
+            return await loop.run_in_executor(None, model_runtime_registry.get_active)
+        finally:
+            stop_load_evt.set()
+    return await loop.run_in_executor(None, model_runtime_registry.get_active)
+
+
+async def _run_model_node(
+    loop: asyncio.AbstractEventLoop,
+    node: WorkflowExecutionNode,
+    resolve: Callable[[Any], Any],
+    output_dir: Path,
+    cancel_event: Optional[threading.Event],
+    phase_cb,
+) -> Dict[str, Any]:
+    image_value = node.inputs.get("image")
+    if image_value is not None:
+        resolved = resolve(image_value)
+        if isinstance(resolved, list):
+            outputs = []
+            for item in resolved:
+                item_node = WorkflowExecutionNode(
+                    class_type=node.class_type,
+                    inputs={**node.inputs, "image": item},
+                )
+                out = await _run_model_node(
+                    loop, item_node, resolve, output_dir, cancel_event, phase_cb
+                )
+                outputs.append(out.get("mesh"))
+            return {"mesh": outputs}
+
+    model_id = node.class_type
+    try:
+        model_runtime_registry.get_generator(model_id)
+    except ValueError as exc:
+        raise WorkflowError(f"Unknown executable node '{model_id}'") from exc
+    manifest = model_runtime_registry.get_manifest(model_id)
+
+    params_value = resolve(node.inputs.get("params", {}))
+    params = dict(params_value) if isinstance(params_value, dict) else {}
+    params.setdefault("remesh", "none")
+    params.setdefault("enable_texture", False)
+    params.setdefault("texture_resolution", 1024)
+
+    image_bytes: bytes | None = None
+    if image_value is not None:
+        resolved = resolve(image_value)
+        image_bytes = resolved if isinstance(resolved, bytes) else _decode_image_payload(resolved)
+
+    mesh_value = node.inputs.get("mesh")
+    if mesh_value is not None:
+        mesh_path = resolve(mesh_value)
+        if not isinstance(mesh_path, Path):
+            raise WorkflowError(f"Model node '{model_id}' mesh input must reference a mesh output")
+        params["mesh_path"] = str(mesh_path)
+        params["enable_texture"] = True
+
+    if image_bytes is None:
+        raise WorkflowError(f"Model node '{model_id}' requires an image input")
+
+    model_runtime_registry.switch_model(model_id, allow_during_generation=True)
+    await _load_model(loop, phase_cb, cancel_event)
+    output_path = await loop.run_in_executor(
+        None,
+        lambda: execute_model(
+            model_id,
+            image_bytes,
+            params,
+            output_dir,
+            phase_cb,
+            cancel_event,
+        ),
+    )
+    if not isinstance(output_path, Path):
+        raise WorkflowError(f"Model node '{model_id}' did not return a mesh path")
+
+    try:
+        raw_image = node.inputs.get("image")
+        stem = ""
+        if isinstance(raw_image, dict) and raw_image.get("kind") == "workspace_path":
+            stem = Path(str(raw_image.get("path", ""))).stem
+        if not stem:
+            stem = str((manifest or {}).get("name") or model_id)
+        tag = "textured" if params.get("enable_texture") else None
+        renamed = output_path.with_name(output_name(stem, tag=tag, ext=output_path.suffix))
+        output_path.rename(renamed)
+        output_path = renamed
+    except OSError:
+        pass
+
+    return {"mesh": output_path}
+
+
+async def _run_process_node(
+    loop: asyncio.AbstractEventLoop,
+    node: WorkflowExecutionNode,
+    resolve: Callable[[Any], Any],
+    workspace_dir: Path,
+    temp_dir: Path,
+    cancel_event: Optional[threading.Event],
+    phase_cb,
+) -> Dict[str, Any]:
+    class_type = node.class_type
+    mesh_value = node.inputs.get("mesh")
+    if mesh_value is not None and isinstance(resolve(mesh_value), list):
+        outputs = []
+        for item in resolve(mesh_value):
+            item_node = WorkflowExecutionNode(
+                class_type=class_type,
+                inputs={**node.inputs, "mesh": item},
+            )
+            out = await _run_process_node(
+                loop,
+                item_node,
+                resolve,
+                workspace_dir,
+                temp_dir,
+                cancel_event,
+                phase_cb,
+            )
+            outputs.append(out.get("mesh"))
+        return {"mesh": outputs}
+
+    process = process_node_pack(class_type)
+    if process is None:
+        raise WorkflowError(f"Unknown process node '{class_type}'")
+    pack_dir, process_manifest, node_manifest = process
+
+    input_data: Dict[str, Any] = {}
+    image_value = node.inputs.get("image")
+    if image_value is not None:
+        resolved = resolve(image_value)
+        if isinstance(resolved, Path):
+            input_data["filePath"] = str(resolved)
+        elif isinstance(resolved, bytes):
+            img_path = temp_dir / f"proc-image-{uuid.uuid4().hex[:8]}.png"
+            img_path.write_bytes(resolved)
+            input_data["filePath"] = str(img_path)
+
+    if mesh_value is not None:
+        resolved = resolve(mesh_value)
+        if isinstance(resolved, Path):
+            input_data["filePath"] = str(resolved)
+        elif isinstance(resolved, str):
+            input_data["filePath"] = resolved
+
+    text_value = node.inputs.get("text")
+    if text_value is not None:
+        input_data["text"] = str(resolve(text_value))
+
+    params_value = resolve(node.inputs.get("params", {}))
+    params = dict(params_value) if isinstance(params_value, dict) else {}
+
+    def _run() -> Dict[str, Any]:
+        return run_processor(
+            pack_dir,
+            str(process_manifest.get("entry", "")),
+            input_data,
+            params,
+            str(workspace_dir),
+            str(temp_dir),
+            progress_cb=phase_cb,
+            cancel_event=cancel_event,
+        )
+
+    result = await loop.run_in_executor(None, _run)
+    out_kind = node_manifest.get("output", "mesh")
+    if out_kind == "mesh" and result.get("filePath"):
+        return {"mesh": Path(str(result["filePath"]))}
+    if out_kind == "text" and result.get("text") is not None:
+        return {"text": str(result["text"])}
+    raise WorkflowError(f"Process node '{class_type}' produced no {out_kind} output")
+
+def os_cache_enabled() -> bool:
+    import os
+
+    return os.environ.get("POLYKIT_DISABLE_NODE_CACHE", "0") != "1"

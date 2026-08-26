@@ -1,0 +1,31 @@
+{
+  "templateId": "trellis2-geometry-mesh",
+  "nodePackId": "trellis2",
+  "requires": ["trellis2"],
+  "name": "Trellis Geometry Mesh",
+  "description": "Generate a clean geometry mesh from an image (no texture). The fastest path: image → mesh → scene.",
+  "nodes": [
+    {
+      "id": "image-input",
+      "type": "imageNode",
+      "position": { "x": 80, "y": 220 },
+      "data": { "enabled": true, "params": {} }
+    },
+    {
+      "id": "generate-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 380, "y": 100 },
+      "data": { "nodePackId": "trellis2/generate", "enabled": true, "params": {} }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 700, "y": 180 },
+      "data": { "enabled": true, "params": {} }
+    }
+  ],
+  "edges": [
+    { "id": "image-to-generate", "source": "image-input", "target": "generate-mesh", "targetHandle": "input-0" },
+    { "id": "mesh-to-scene", "source": "generate-mesh", "sourceHandle": "output", "target": "scene-output" }
+  ]
+}

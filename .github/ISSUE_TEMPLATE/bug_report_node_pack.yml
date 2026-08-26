@@ -1,0 +1,74 @@
+name: 🧩 Bug report — Official node pack
+description: Report a bug in a bundled PolyKit node pack
+labels: [bug, node-pack, "pending triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening an issue:
+        - Use the regular bug report for core app bugs.
+        - Search existing issues first.
+        - Update the node pack, then retry repair or reinstall if available.
+        - For usage questions, join the [Discord Chat](https://discord.gg/BvjDCvS3yr).
+  - type: input
+    id: node_pack
+    attributes:
+      label: Official node pack
+      placeholder: e.g. trellis2
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Run ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PolyKit version
+      description: Version shown in Settings → About.
+      placeholder: e.g. 0.4.x
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11 / macOS 14 arm64 / Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: e.g. NVIDIA RTX 4070 / Apple M3 / AMD RX 7800 XT
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots & logs
+      description: Add anything that helps reproduce or diagnose the problem.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I can reproduce this on the latest PolyKit version.
+          required: true

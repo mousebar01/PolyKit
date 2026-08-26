@@ -1,0 +1,39 @@
+{
+  "templateId": "trellis2-textured-mesh",
+  "nodePackId": "trellis2",
+  "requires": ["trellis2"],
+  "name": "Trellis Textured Mesh",
+  "description": "Generate a mesh from an image, create its texture, and add the final result to the scene.",
+  "nodes": [
+    {
+      "id": "image-input",
+      "type": "imageNode",
+      "position": { "x": 80, "y": 220 },
+      "data": { "enabled": true, "params": {} }
+    },
+    {
+      "id": "generate-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 380, "y": 100 },
+      "data": { "nodePackId": "trellis2/generate", "enabled": true, "params": {} }
+    },
+    {
+      "id": "texture-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 700, "y": 290 },
+      "data": { "nodePackId": "trellis2/refine", "enabled": true, "params": {} }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 1040, "y": 310 },
+      "data": { "enabled": true, "params": {} }
+    }
+  ],
+  "edges": [
+    { "id": "image-to-generate", "source": "image-input", "target": "generate-mesh", "targetHandle": "input-0" },
+    { "id": "image-to-texture", "source": "image-input", "target": "texture-mesh", "targetHandle": "input-0" },
+    { "id": "mesh-to-texture", "source": "generate-mesh", "sourceHandle": "output", "target": "texture-mesh", "targetHandle": "input-1" },
+    { "id": "texture-to-scene", "source": "texture-mesh", "sourceHandle": "output", "target": "scene-output" }
+  ]
+}

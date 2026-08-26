@@ -1,0 +1,166 @@
+{
+  "id": "skintokens-rig",
+  "name": "SkinTokens Rigging",
+  "type": "model",
+  "source": "https://github.com/VAST-AI-Research/SkinTokens",
+  "version": "0.1.0",
+  "author": "PolyKit / VAST-AI-Research adapter",
+  "generator_class": "SkinTokensRigGenerator",
+  "output_tag": "rigged",
+  "output_capability": "rigged-mesh",
+  "input_formats": ["glb"],
+  "vram_gb": 14,
+  "env": "isolated",
+  "python_min": "3.11",
+  "trusted": true,
+  "builtin": true,
+  "tags": ["mesh-rigging", "skeleton", "skinning", "animation-ready"],
+  "description": "Generate a mesh-specific skeleton and skin weights for animation-ready GLB assets.",
+  "requirements": [
+    "PyTorch + CUDA",
+    "transformers",
+    "diffusers",
+    "python-box",
+    "einops",
+    "omegaconf",
+    "lightning",
+    "addict",
+    "fast-simplification",
+    "bpy",
+    "trimesh",
+    "open3d",
+    "huggingface_hub",
+    "numpy",
+    "gradio",
+    "bottle",
+    "tornado"
+  ],
+  "download": {
+    "kind": "huggingface",
+    "repo": "VAST-AI/SkinTokens",
+    "location": "skintokens-rig/auto-rig",
+    "check": "experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt",
+    "include_prefixes": [
+      "experiments/skin_vae_2_10_32768/",
+      "experiments/articulation_xl_quantization_256_token_4/"
+    ],
+    "note": "SkinTokens checkpoints are approximately 1.6 GB. Qwen3 model metadata (~16 MB) is fetched automatically on first load."
+  },
+  "models": [
+    {
+      "id": "tokenrig",
+      "name": "SkinTokens TokenRig",
+      "kind": "huggingface",
+      "repo": "VAST-AI/SkinTokens",
+      "location": "skintokens-rig/auto-rig",
+      "check": "experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt",
+      "include_prefixes": [
+        "experiments/skin_vae_2_10_32768/",
+        "experiments/articulation_xl_quantization_256_token_4/"
+      ],
+      "required_for": ["auto-rig"],
+      "size_note": "~1.6 GB",
+      "note": "Both SkinVAE and TokenRig checkpoints are required; Qwen3 metadata is fetched automatically on first load."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "auto-rig",
+      "name": "Auto Rig Mesh",
+      "i18n": {
+        "zh-CN": { "name": "自动绑定骨骼" }
+      },
+      "input": "mesh",
+      "inputs": ["mesh"],
+      "output": "mesh",
+      "hf_repo": "VAST-AI/SkinTokens",
+      "download_check": "experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt",
+      "hf_include_prefixes": [
+        "experiments/skin_vae_2_10_32768/",
+        "experiments/articulation_xl_quantization_256_token_4/"
+      ],
+      "params_schema": [
+        {
+          "id": "use_transfer",
+          "label": "Preserve Source Mesh",
+          "type": "boolean",
+          "default": true,
+          "tooltip": "Keep the input mesh materials and textures while transferring generated skin weights.",
+          "i18n": {
+            "zh-CN": {
+              "label": "保留原始网格",
+              "tooltip": "保留输入网格的材质和纹理，只转移生成的骨骼权重。"
+            }
+          }
+        },
+        {
+          "id": "top_k",
+          "label": "Top K",
+          "type": "int",
+          "default": 5,
+          "min": 1,
+          "max": 200,
+          "tooltip": "Token sampling limit. Lower values are more deterministic.",
+          "i18n": { "zh-CN": { "label": "Top K", "tooltip": "采样候选数量上限。数值越低越稳定。" } }
+        },
+        {
+          "id": "top_p",
+          "label": "Top P",
+          "type": "float",
+          "default": 0.95,
+          "min": 0.1,
+          "max": 1.0,
+          "step": 0.01,
+          "tooltip": "Nucleus sampling probability.",
+          "i18n": { "zh-CN": { "label": "Top P", "tooltip": "核采样概率。" } }
+        },
+        {
+          "id": "temperature",
+          "label": "Temperature",
+          "type": "float",
+          "default": 1.0,
+          "min": 0.1,
+          "max": 2.0,
+          "step": 0.05,
+          "tooltip": "Sampling temperature. Lower values reduce variation.",
+          "i18n": { "zh-CN": { "label": "温度", "tooltip": "采样温度。数值越低变化越小。" } }
+        },
+        {
+          "id": "repetition_penalty",
+          "label": "Repetition Penalty",
+          "type": "float",
+          "default": 2.0,
+          "min": 1.0,
+          "max": 4.0,
+          "step": 0.05,
+          "tooltip": "Penalty applied to repeated skeleton tokens.",
+          "i18n": { "zh-CN": { "label": "重复惩罚", "tooltip": "对重复骨骼 token 应用的惩罚。" } }
+        },
+        {
+          "id": "num_beams",
+          "label": "Beam Count",
+          "type": "int",
+          "default": 10,
+          "min": 1,
+          "max": 32,
+          "tooltip": "Beam search width. Higher values use more time and memory.",
+          "i18n": { "zh-CN": { "label": "Beam 数量", "tooltip": "Beam search 宽度。数值越高越耗时和显存。" } }
+        },
+        {
+          "id": "use_postprocess",
+          "label": "Voxel Postprocess",
+          "type": "boolean",
+          "default": false,
+          "tooltip": "Apply SkinTokens' voxel-based skin cleanup. This costs extra time and memory.",
+          "i18n": { "zh-CN": { "label": "体素后处理", "tooltip": "应用 SkinTokens 的体素蒙皮清理，会增加耗时和显存。" } }
+        }
+      ]
+    }
+  ],
+  "i18n": {
+    "zh-CN": {
+      "name": "SkinTokens 自动绑定",
+      "description": "为输入网格生成适配自身形状的骨架与蒙皮权重，输出可继续制作动画的 GLB。"
+    }
+  }
+}

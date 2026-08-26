@@ -1,0 +1,59 @@
+{
+  "templateId": "hunyuan3d-part-segmentation",
+  "nodePackId": "hunyuan3d-part",
+  "requires": ["hunyuan3d-part"],
+  "name": "Mesh Part Segmentation (P3-SAM)",
+  "description": "Split an existing mesh into geometric parts with Hunyuan3D-Part P3-SAM and publish one multipart GLB.",
+  "nodes": [
+    {
+      "id": "mesh-input",
+      "type": "meshNode",
+      "position": { "x": 80, "y": 180 },
+      "data": {
+        "enabled": true,
+        "params": { "source": "file" }
+      }
+    },
+    {
+      "id": "segment-parts",
+      "type": "nodePackNode",
+      "position": { "x": 390, "y": 180 },
+      "data": {
+        "nodePackId": "hunyuan3d-part/decompose-mesh",
+        "enabled": true,
+        "params": {
+          "pipeline_stage": "p3-sam",
+          "max_parts": 32,
+          "output_mode": "primary",
+          "semantic_resolver": "off",
+          "seed": 42,
+          "export_format": "glb",
+          "quality_preset": "balanced"
+        }
+      }
+    },
+    {
+      "id": "parts-output",
+      "type": "outputNode",
+      "position": { "x": 720, "y": 180 },
+      "data": {
+        "enabled": true,
+        "params": {}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-mesh-segment",
+      "source": "mesh-input",
+      "target": "segment-parts",
+      "targetHandle": "input-0"
+    },
+    {
+      "id": "e-segment-output",
+      "source": "segment-parts",
+      "sourceHandle": "output",
+      "target": "parts-output"
+    }
+  ]
+}

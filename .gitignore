@@ -1,0 +1,47 @@
+node_modules/
+out/
+dist/
+dist-web/
+# Python
+.venv/
+# Python bytecode/cache can be emitted by any source tree, including node packs.
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+api/.venv/
+api/venv/
+api/**/build/
+api/**/dist/
+api/**/*.egg-info/
+api/**/*.pyd
+api/**/*.so
+api/**/*.dylib
+.hermes-e2e/
+
+# Models (heavy, downloaded at runtime)
+/models/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
+
+# TypeScript incremental build output
+*.tsbuildinfo
+
+# Local dev helpers
+install.bat
+
+# ComfyUI reference checkout (own git repo, not part of PolyKit)
+comfyui/

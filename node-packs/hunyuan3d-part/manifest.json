@@ -1,0 +1,200 @@
+{
+  "id": "hunyuan3d-part",
+  "name": "Hunyuan3D-Part",
+  "type": "model",
+  "source": "https://github.com/DrHepa/Hunyuan3D-Part-modly-extension",
+  "version": "1.0.0",
+  "author": "PolyKit / DrHepa adapter",
+  "generator_class": "Hunyuan3DPartGenerator",
+  "vram_gb": 24,
+  "env": "isolated",
+  "trusted": true,
+  "builtin": true,
+  "tags": ["mesh-segmentation", "part-decomposition", "p3-sam"],
+  "description": "Managed Hunyuan3D-Part P3-SAM node pack for geometric mesh part segmentation. PolyKit manages the isolated runtime and checkpoint; Tencent model code and weights remain external.",
+  "requirements": [
+    "PyTorch + CUDA",
+    "trimesh",
+    "safetensors",
+    "huggingface_hub",
+    "spconv",
+    "torch-scatter",
+    "torch-cluster",
+    "P3-SAM runtime dependencies"
+  ],
+  "download": {
+    "kind": "huggingface",
+    "repo": "tencent/Hunyuan3D-Part",
+    "location": "hunyuan3d-part/decompose-mesh",
+    "check": "p3sam/p3sam.safetensors",
+    "note": "P3-SAM safetensors checkpoint (~451 MB). The Sonata backbone/cache is managed by the node-pack setup because upstream loads it through Hugging Face cache semantics."
+  },
+  "models": [
+    {
+      "id": "p3-sam",
+      "name": "P3-SAM",
+      "kind": "huggingface",
+      "repo": "tencent/Hunyuan3D-Part",
+      "location": "hunyuan3d-part/decompose-mesh",
+      "check": "p3sam/p3sam.safetensors",
+      "include_prefixes": ["p3sam/p3sam.safetensors"],
+      "required_for": ["decompose-mesh"],
+      "size_note": "~451 MB",
+      "note": "Geometric part segmentation checkpoint. Downloaded independently from the isolated runtime."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "decompose-mesh",
+      "name": "Segment Mesh Parts",
+      "i18n": {
+        "zh-CN": { "name": "网格分件" }
+      },
+      "input": "mesh",
+      "inputs": ["mesh"],
+      "output": "mesh",
+      "hf_repo": "tencent/Hunyuan3D-Part",
+      "download_check": "p3sam/p3sam.safetensors",
+      "hf_include_prefixes": ["p3sam/p3sam.safetensors"],
+      "params_schema": [
+        {
+          "id": "pipeline_stage",
+          "label": "Pipeline Stage",
+          "type": "select",
+          "default": "p3-sam",
+          "options": [
+            { "value": "p3-sam", "label": "P3-SAM Segmentation", "i18n": { "zh-CN": { "label": "P3-SAM 分件" } } }
+          ],
+          "tooltip": "Geometric part segmentation with P3-SAM. This official workflow currently exposes the validated P3-SAM stage only.",
+          "i18n": {
+            "zh-CN": {
+              "label": "处理阶段",
+              "tooltip": "使用 P3-SAM 进行几何分件。当前官方工作流仅开放已验证的 P3-SAM 阶段。"
+            }
+          }
+        },
+        {
+          "id": "max_parts",
+          "label": "Max Parts",
+          "type": "int",
+          "default": 32,
+          "min": 1,
+          "max": 512,
+          "tooltip": "Maximum number of geometric parts kept in the segmentation result.",
+          "i18n": {
+            "zh-CN": {
+              "label": "最大部件数",
+              "tooltip": "分件结果中保留的几何部件数量上限。"
+            }
+          }
+        },
+        {
+          "id": "part_separation",
+          "label": "Part Separation",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 2,
+          "step": 0.05,
+          "tooltip": "Spread the segmented parts outward from the model center for easier inspection (0 = original pose).",
+          "i18n": {
+            "zh-CN": {
+              "label": "分离程度",
+              "tooltip": "分件后将部件从模型中心向外散开，便于观察（0 = 保持原始位置）。"
+            }
+          }
+        },
+        {
+          "id": "output_mode",
+          "label": "Output Mode",
+          "type": "select",
+          "default": "primary",
+          "options": [
+            { "value": "primary", "label": "Primary mesh only", "i18n": { "zh-CN": { "label": "仅主网格" } } },
+            { "value": "analysis", "label": "Mesh + analysis metadata", "i18n": { "zh-CN": { "label": "网格 + 分析元数据" } } },
+            { "value": "debug", "label": "Mesh + debug part GLBs", "i18n": { "zh-CN": { "label": "网格 + 调试部件 GLB" } } }
+          ],
+          "tooltip": "The workflow mesh output remains one multipart GLB; analysis/debug data is kept as provider sidecars.",
+          "i18n": {
+            "zh-CN": {
+              "label": "输出模式",
+              "tooltip": "工作流的 mesh 输出始终保持为一个 multipart GLB；分析/调试数据由 provider 作为 sidecar 保存。"
+            }
+          }
+        },
+        {
+          "id": "semantic_resolver",
+          "label": "Semantic Resolver",
+          "type": "select",
+          "default": "off",
+          "options": [
+            { "value": "off", "label": "Off", "i18n": { "zh-CN": { "label": "关闭" } } },
+            { "value": "analysis", "label": "Analysis report only", "i18n": { "zh-CN": { "label": "仅分析报告" } } }
+          ],
+          "tooltip": "P3-SAM parts are geometric, not authoritative semantic labels. Analysis only writes a diagnostic report.",
+          "i18n": {
+            "zh-CN": {
+              "label": "语义解析",
+              "tooltip": "P3-SAM 的部件是几何分件，并非权威语义标签。分析模式只生成诊断报告。"
+            }
+          }
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": 42,
+          "min": 0,
+          "max": 2147483647,
+          "tooltip": "Deterministic seed forwarded to the P3-SAM runtime.",
+          "i18n": {
+            "zh-CN": {
+              "label": "Seed",
+              "tooltip": "传递给 P3-SAM runtime 的确定性 Seed。"
+            }
+          }
+        },
+        {
+          "id": "export_format",
+          "label": "Export Format",
+          "type": "select",
+          "default": "glb",
+          "options": [
+            { "value": "glb", "label": "GLB" }
+          ],
+          "tooltip": "Multipart primary output format.",
+          "i18n": {
+            "zh-CN": {
+              "label": "导出格式",
+              "tooltip": "multipart 主输出的文件格式。"
+            }
+          }
+        },
+        {
+          "id": "quality_preset",
+          "label": "Quality Preset",
+          "type": "select",
+          "default": "balanced",
+          "options": [
+            { "value": "fast", "label": "Fast", "i18n": { "zh-CN": { "label": "快速" } } },
+            { "value": "balanced", "label": "Balanced", "i18n": { "zh-CN": { "label": "均衡" } } },
+            { "value": "quality", "label": "Quality", "i18n": { "zh-CN": { "label": "高质量" } } }
+          ],
+          "tooltip": "Provider runtime preset. Balanced is the recommended validation default.",
+          "i18n": {
+            "zh-CN": {
+              "label": "质量预设",
+              "tooltip": "Provider runtime 预设。首次验证建议使用“均衡”。"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "i18n": {
+    "zh-CN": {
+      "name": "Hunyuan3D-Part",
+      "description": "由 PolyKit 管理运行环境和 P3-SAM checkpoint 的网格几何分件节点包。Tencent 模型代码和权重保持为外部资源。"
+    }
+  }
+}
