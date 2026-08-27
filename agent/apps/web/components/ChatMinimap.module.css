@@ -109,6 +109,8 @@
 .searchResults{max-height:min(420px,56dvh);overflow-y:auto;padding:5px}
 .searchResult{display:flex;width:100%;min-width:0;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;text-align:left}
 .searchResult:hover,.searchResult[data-selected]{background:var(--bg-hover)}
+.searchResult[data-current]{background:color-mix(in srgb,var(--text) 5%,transparent)}
+.searchResult[data-current] .turnNumber{color:var(--text-muted);font-weight:600}
 .turnNumber{width:28px;flex:0 0 28px;color:var(--text-dim);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
 .searchResultPrompt{display:block;min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:12px;font-weight:500;line-height:20px;text-overflow:ellipsis;white-space:nowrap}
 .searchEmpty{padding:14px 10px;color:var(--text-dim);font-size:11px;line-height:1.5;text-align:center}
