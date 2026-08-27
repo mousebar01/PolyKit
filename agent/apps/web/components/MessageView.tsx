@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo, useCallback, type RefObject } from "react";
-import { Brain, ChevronDown, Eye, FileText, Pencil, Search, Terminal, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, Copy, Eye, FileText, GitBranch, Pencil, Search, Terminal, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { MessageSelectionPopover, useMessageSelectionState, type MessageSelectionSnapshot } from "./MessageSelectionPopover";
 import { copyText } from "@/lib/clipboard";
@@ -179,6 +179,7 @@ interface Props {
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  assistantIdentity?: string;
   entryId?: string;
   onFork?: (entryId: string) => void;
   forking?: boolean;
@@ -221,12 +222,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, assistantIdentity, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} assistantIdentity={assistantIdentity} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -247,6 +248,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.isStreaming === next.isStreaming
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && prev.modelNames === next.modelNames
+    && prev.assistantIdentity === next.assistantIdentity
     && prev.entryId === next.entryId
     && prev.onFork === next.onFork
     && prev.forking === next.forking
@@ -475,6 +477,7 @@ function AssistantMessageView({
   message,
   isStreaming,
   toolResults,
+  assistantIdentity,
   showTimestamp,
   prevTimestamp,
   sessionId,
@@ -489,6 +492,7 @@ function AssistantMessageView({
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
+  assistantIdentity?: string;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -654,84 +658,51 @@ function AssistantMessageView({
         </div>
       )}
 
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginTop: 4,
-      }}>
-        {message.usage && !isStreaming && !processDetails && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
-          </div>
-        )}
-        {textContent && !isStreaming && !processDetails && (
-          <button
-            onClick={copyContent}
-            aria-label={copied ? t("i18n.copied") : t("i18n.copyMessage")}
-            title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 24, height: 24, padding: 0, flex: "0 0 auto",
-              background: "none", border: "none",
-              borderRadius: 5,
-              color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11, fontWeight: 400,
-              whiteSpace: "nowrap",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-              transition: "opacity 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-          >
-            {copied ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
+      {!isStreaming && !processDetails && (message.usage || textContent || canFork || time || assistantIdentity) && (
+        <div className="assistant-message-chrome">
+          <div className="assistant-message-metadata">
+            {assistantIdentity && (
+              <span className="assistant-model-identity">{assistantIdentity}</span>
             )}
-          </button>
-        )}
-        {canFork && (
-          <button
-            type="button"
-            onClick={() => onFork(entryId)}
-            disabled={forking}
-            aria-label={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChat")}
-            title={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChatTitle")}
-            className="assistant-message-action"
-            style={{
-              width: 24,
-              height: 24,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flex: "0 0 auto",
-              padding: 0,
-              border: "none",
-              borderRadius: 5,
-              background: "transparent",
-              color: forking ? "var(--accent)" : "var(--text-dim)",
-              cursor: forking ? "wait" : "pointer",
-              opacity: !hasVisibleBody || hovered || forking ? 1 : 0,
-              pointerEvents: !hasVisibleBody || hovered || forking ? "auto" : "none",
-            }}
+            {message.usage && (
+              <span className="assistant-usage">{formatUsage(message.usage)}</span>
+            )}
+            {time && <span className="assistant-message-time">{time}</span>}
+          </div>
+          <div
+            className="assistant-message-actions"
+            data-visible={hovered || forking || copied || undefined}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
-          </button>
-        )}
-        {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
-        )}
-      </div>
+            {textContent && (
+              <button
+                type="button"
+                onClick={copyContent}
+                aria-label={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+                title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+                className="assistant-message-action"
+                data-active={copied || undefined}
+              >
+                {copied
+                  ? <Check size={14} strokeWidth={1.8} aria-hidden="true" />
+                  : <Copy size={14} strokeWidth={1.8} aria-hidden="true" />}
+              </button>
+            )}
+            {canFork && (
+              <button
+                type="button"
+                onClick={() => onFork(entryId)}
+                disabled={forking}
+                aria-label={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChat")}
+                title={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChatTitle")}
+                className="assistant-message-action"
+                data-active={forking || undefined}
+              >
+                <GitBranch size={14} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <MessageSelectionPopover state={selectionState} />
       {((pendingAnnotations?.length ?? 0) > 0 || selectionState.selection) && (
         <PendingAnnotationHighlights rootRef={selectionState.rootRef} annotations={pendingAnnotations} activeSelection={selectionState.commentOpen ? selectionState.selection : null} />
