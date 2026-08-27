@@ -382,9 +382,9 @@ pre, code {
 .process-details-timeline {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 7px;
-  padding: 5px 0 4px 24px;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 0;
 }
 
 .process-details-timeline.is-live {
@@ -410,97 +410,276 @@ pre, code {
   min-width: 0;
 }
 
+.assistant-output-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.process-message-blocks.assistant-output-blocks {
+  gap: 3px;
+}
+
+.settled-process-disclosure {
+  min-width: 0;
+}
+
+.settled-process-toggle {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  text-align: left;
+}
+
+.settled-process-toggle:hover {
+  color: var(--text);
+}
+
+.settled-process-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.settled-process-chevron {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.settled-process-toggle[aria-expanded="true"] .settled-process-chevron {
+  transform: rotate(180deg);
+}
+
+.settled-process-toggle:hover .settled-process-chevron {
+  color: var(--text-muted);
+}
+
+/* Turn-level model activity mirrors DSH: a persistent text shimmer
+   across first-token wait, tool execution, and streaming. */
+.agent-turn-status {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  min-height: 26px;
+  margin: 2px 0 6px;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 40%,
+    var(--text) 50%,
+    var(--text-muted) 60%,
+    var(--text-muted) 100%
+  );
+  background-position: 100% 0;
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: agent-turn-status-shimmer 1.8s linear infinite;
+}
+
+.agent-turn-status-clock {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  -webkit-text-fill-color: var(--text-dim);
+}
+
+@keyframes agent-turn-status-shimmer {
+  to { background-position: 0 0; }
+}
+
+/* DSH-style transcript rows: thinking and tools are quiet inline events.
+   Expanded detail is indented, not promoted to a card. */
 .thinking-block,
 .tool-call-block {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
   background: transparent;
-  transition: color 140ms ease;
-}
-
-.thinking-block:hover,
-.tool-call-block:hover {
-  background: transparent;
+  color: var(--text-muted);
 }
 
 .thinking-block-toggle,
 .tool-call-toggle {
-  min-height: 28px;
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  text-align: left;
 }
 
-.thinking-preview {
+.thinking-block-toggle:hover,
+.tool-call-toggle:hover {
+  color: var(--text);
+}
+
+.thinking-icon,
+.tool-call-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.thinking-label,
+.tool-action-label {
+  flex: 0 0 auto;
+  color: currentColor;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.activity-separator {
+  width: 2px;
+  height: 2px;
+  flex: 0 0 auto;
+  margin: 0 2px;
+  border-radius: 999px;
+  background: var(--text-dim);
+}
+
+.thinking-preview,
+.tool-call-preview {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow: hidden;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-style: italic;
-  color: var(--text-muted);
 }
 
-.thinking-spark {
+.thinking-preview[data-follow-end] {
+  text-overflow: clip;
+}
+
+.activity-duration {
   flex: 0 0 auto;
-  color: #8b5cf6;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
-.tool-call-icon {
-  width: 13px;
-  height: 13px;
+.activity-chevron {
   flex: 0 0 auto;
+  color: var(--text-dim);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.thinking-block.is-expanded .activity-chevron,
+.tool-call-block.is-expanded .activity-chevron {
+  transform: rotate(180deg);
+}
+
+.thinking-block-toggle:hover .activity-chevron,
+.tool-call-toggle:hover .activity-chevron {
   color: var(--text-muted);
 }
 
-.tool-call-block .tool-action-label {
-  color: var(--text-muted);
+/* Streaming activity uses the same restrained sweep as DSH rather than a
+   colored spinner/badge. */
+.thinking-block.is-running .thinking-block-toggle::after,
+.tool-call-block.is-running .tool-call-toggle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: -260px;
+  width: 260px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--bg) 72%, transparent) 52%,
+    transparent 100%
+  );
+  pointer-events: none;
+  animation: agent-activity-sweep 2.6s ease-out infinite;
 }
 
-/* Search rows are deliberately monochrome after completion. The query is the
-   primary signal; color is reserved for running and error states. */
-.tool-call-block.action-search.is-success .tool-call-icon,
-.tool-call-block.action-search.is-success .tool-action-label {
-  color: var(--text-muted);
+@keyframes agent-activity-sweep {
+  0% { left: -260px; }
+  90%, 100% { left: 100%; }
 }
 
-.tool-call-block.action-search .tool-call-preview {
-  color: color-mix(in srgb, var(--text-muted) 82%, var(--text-dim)) !important;
+.thinking-body {
+  padding: 4px 0 4px 20px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.tool-call-block.is-running .tool-call-icon,
-.tool-call-block.is-running .tool-action-label {
-  color: var(--accent);
-}
-
-.tool-call-block.is-error {
-  background: transparent;
-}
-
-.tool-call-block.is-error .tool-call-icon {
-  color: #ef4444;
-}
-
+.thinking-block.is-error .thinking-body,
+.tool-call-block.is-error .tool-call-icon,
 .tool-call-block.is-error .tool-action-label {
   color: #ef4444;
 }
 
-.tool-call-block.is-expanded,
-.thinking-block:has(.thinking-block-toggle[aria-expanded="true"]) {
-  background: transparent;
-}
-
 .tool-call-block.is-expanded > pre,
 .tool-call-block.is-expanded > div {
-  margin-left: 12px !important;
+  margin-left: 20px !important;
   border-left: 0 !important;
+}
+
+.tool-call-block.is-expanded > pre {
+  margin-top: 3px !important;
+  border-top-color: color-mix(in srgb, var(--border) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-subtle) 70%, transparent) !important;
 }
 
 .tool-call-block.is-expanded > .tool-call-result {
   border-top-width: 1px !important;
 }
 
-html.dark .thinking-spark { color: #a78bfa; }
+/* Search rows stay monochrome after completion; the query carries the signal. */
+.tool-call-block.action-search .tool-call-preview {
+  color: var(--text-dim) !important;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .process-status-dot.is-live { animation: none; }
+  .process-status-dot.is-live,
+  .agent-turn-status,
+  .thinking-block.is-running .thinking-block-toggle::after,
+  .tool-call-block.is-running .tool-call-toggle::after {
+    animation: none;
+  }
+
+  .agent-turn-status {
+    background-position: 0 0;
+    background-size: 100% 100%;
+  }
 }
 
 /* Settings uses a restrained desktop-preferences layout rather than a full-page form. */
@@ -1295,30 +1474,88 @@ html.dark .settings-segment.is-selected {
   color: var(--accent);
 }
 
-.assistant-message-action {
-  height: 22px;
-  display: inline-flex;
+.assistant-message-chrome {
+  display: flex;
+  min-height: 26px;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.assistant-message-metadata {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.assistant-message-metadata > * + *::before {
+  margin-right: 6px;
+  color: var(--text-dim);
+  content: "·";
+}
+
+.assistant-model-identity {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.assistant-usage {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-message-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-message-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.assistant-message-actions[data-visible] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.assistant-message-action {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
 .assistant-message-action:hover {
-  color: var(--accent);
+  color: var(--text);
   background: var(--bg-hover);
 }
 
-.assistant-message-action:disabled {
+.assistant-message-action[data-active] {
   color: var(--accent);
+}
+
+.assistant-message-action:disabled {
   cursor: wait;
 }
 

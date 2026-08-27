@@ -3,16 +3,17 @@
   top: 50%;
   left: 8px;
   z-index: 30;
-  display: flex;
-  width: 36px;
+  width: 28px;
   height: 72%;
   min-height: 180px;
   max-height: 720px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
   transform: translateY(-50%);
   pointer-events: auto;
+}
+
+.tickRail {
+  position: absolute;
+  inset: 0 0 34px;
 }
 
 .tickButton {
@@ -20,8 +21,8 @@
   top: 50%;
   left: 0;
   z-index: 1;
-  width: 36px;
-  height: 14px;
+  width: 28px;
+  height: 16px;
   min-height: 4px;
   padding: 0;
   border: 0;
@@ -45,58 +46,37 @@
 .preview {
   position: absolute;
   top: 50%;
-  left: 42px;
-  display: flex;
-  width: 0;
-  height: 0;
+  left: 26px;
+  display: block;
+  width: max-content;
+  max-width: 280px;
   overflow: hidden;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
   background: var(--bg-panel);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   opacity: 0;
   transform: translateY(-50%);
   pointer-events: none;
   text-align: left;
-  transition: width 180ms ease-out, height 180ms ease-out, padding 180ms ease-out, opacity 120ms ease-out;
+  transition: opacity 100ms ease-out, transform 100ms ease-out;
 }
 
 .preview[data-open="true"] {
-  width: 250px;
-  height: 100px;
-  padding: 9px 11px;
-  border-color: var(--border);
   opacity: 1;
-}
-
-.prompt,
-.reply {
-  display: -webkit-box;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  letter-spacing: 0;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
+  transform: translateY(-50%) translateX(2px);
 }
 
 .prompt {
-  flex: 0 0 auto;
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.reply {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 400;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tickButton:focus-visible {
@@ -112,9 +92,27 @@
   .preview {
     transition: none;
   }
+
+  .searchTarget {
+    animation: none;
+  }
 }
 
-/* Active (current scroll position) tick */
-.tickButton[aria-current="true"] .tick {
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
-}
+.searchButton{position:absolute;bottom:0;left:0;display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}
+.searchButton:hover,.searchButton[aria-expanded="true"]{color:var(--text);background:var(--bg-hover)}
+.searchPanel{position:absolute;left:34px;bottom:0;width:min(340px,calc(100vw - 72px));overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--bg-panel);box-shadow:0 14px 34px rgba(15,23,42,.14)}
+.searchHeader{display:flex;height:38px;align-items:center;gap:7px;padding:0 8px 0 10px;border-bottom:1px solid var(--border);color:var(--text-dim)}
+.searchHeader input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:12px}
+.searchHeader input::placeholder{color:var(--text-dim)}
+.searchClose{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--text-dim);cursor:pointer}
+.searchClose:hover{color:var(--text);background:var(--bg-hover)}
+.searchResults{max-height:min(420px,56dvh);overflow-y:auto;padding:5px}
+.searchResult{display:flex;width:100%;min-width:0;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;text-align:left}
+.searchResult:hover,.searchResult[data-selected]{background:var(--bg-hover)}
+.searchResult[data-current]{background:color-mix(in srgb,var(--text) 5%,transparent)}
+.searchResult[data-current] .turnNumber{color:var(--text-muted);font-weight:600}
+.turnNumber{width:28px;flex:0 0 28px;color:var(--text-dim);font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
+.searchResultPrompt{display:block;min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:12px;font-weight:500;line-height:20px;text-overflow:ellipsis;white-space:nowrap}
+.searchEmpty{padding:14px 10px;color:var(--text-dim);font-size:11px;line-height:1.5;text-align:center}
+.searchTarget{animation:conversation-search-target 900ms ease-out}
+@keyframes conversation-search-target{from{background:color-mix(in srgb,var(--accent) 10%,transparent)}to{background:transparent}}

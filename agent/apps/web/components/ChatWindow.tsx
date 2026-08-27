@@ -5,14 +5,14 @@ import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecuti
 import type { ConversationAnnotation } from "@/lib/conversation-annotations";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ArrowDown, ChevronDown, FolderOpen } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem, type SelectedModel, type ThinkingLevelOption } from "@/hooks/useAgentSession";
+import { useAgentSession, type NoticeItem, type SelectedModel, type ThinkingLevelOption } from "@/hooks/useAgentSession";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -41,25 +41,34 @@ interface Props {
   onChooseProject?: () => void;
 }
 
-function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
-  if (phase?.kind === "running_tools") {
-    const actions = [...new Set(phase.tools.map((tool) => toolPhaseAction(tool.name, t)))];
-    if (actions.length === 0) return t("chat.runningTool");
-    return t("chat.runningActions", { actions: actions.join(" · ") });
-  }
-  if (phase?.kind === "waiting_model") return t("chat.waitingModel");
-  if (phase?.kind === "running_command") return t("chat.runningCommand");
-  return null;
+function formatTurnDuration(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function toolPhaseAction(toolName: string, t: (key: string, params?: Record<string, string | number>) => string): string {
-  const name = toolName.toLowerCase();
-  if (/(read|view|open|cat)/.test(name)) return t("chat.action.read");
-  if (/(write|edit|patch|replace|create)/.test(name)) return t("chat.action.edit");
-  if (/(search|grep|find|glob|web|fetch|browse)/.test(name)) return t("chat.action.search");
-  if (/(bash|shell|exec|command|terminal)/.test(name)) return t("chat.action.run");
-  if (/(list|tree|directory|files)/.test(name)) return t("chat.action.inspect");
-  return t("chat.action.useTool");
+function AgentTurnStatus({ label }: { label: string }) {
+  const [startedAt] = useState(() => Date.now());
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setElapsedMs(Math.max(0, Date.now() - startedAt));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  return (
+    <div className="agent-turn-status" role="status" aria-live="polite">
+      <span>{label}</span>
+      {elapsedMs >= 15_000 && (
+        <span className="agent-turn-status-clock" aria-hidden="true">
+          {formatTurnDuration(elapsedMs)}
+        </span>
+      )}
+    </div>
+  );
 }
 
 const CHAT_COLUMN_PADDING = 16;
@@ -98,36 +107,6 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-const MAX_LIVE_PREVIEW_ACTIVITIES = 5;
-
-function countToolCalls(messages: AgentMessage[], indices: number[]): number {
-  let count = 0;
-  for (const idx of indices) {
-    const msg = messages[idx];
-    if (msg?.role !== "assistant") continue;
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
-  }
-  return count;
-}
-
-function limitProcessMessages(messages: AgentMessage[], indices: number[], limit = MAX_LIVE_PREVIEW_ACTIVITIES): Array<{ index: number; message: AgentMessage }> {
-  const activities: Array<{ index: number; message: AgentMessage }> = [];
-  for (const index of indices) {
-    const message = messages[index];
-    if (message?.role !== "assistant") {
-      if (message && hasDisplayableProcessMessage(message)) activities.push({ index, message });
-      continue;
-    }
-    for (const block of getDisplayableAssistantBlocks(message as AssistantMessage)) {
-      activities.push({
-        index,
-        message: withAssistantBlocks(message as AssistantMessage, [block], { omitUsage: true }),
-      });
-    }
-  }
-  return activities.slice(-limit);
-}
-
 function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
     return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
@@ -136,13 +115,11 @@ function hasDisplayableProcessMessage(message: AgentMessage): boolean {
 }
 
 // A user message normally anchors a turn (user prompt → process → final
-// answer), and the process messages in between get folded into a collapsed
-// ProcessDetailsGroup. When compaction fires mid-turn, pi drops the original
-// user prompt and inserts a compaction summary (role "custom", customType
-// "compaction") in its place; the agent then keeps producing tool calls and a
-// final answer with no user message left to anchor them. Treat a compaction
-// summary as an anchor too, otherwise every post-compaction message renders
-// standalone and never collapses.
+// answer). Process messages remain grouped for turn ordering and minimap refs,
+// but render directly as an always-visible timeline like DSH. When compaction
+// fires mid-turn, pi drops the original user prompt and inserts a compaction
+// summary (role "custom", customType "compaction") in its place; treat that
+// summary as an anchor so the post-compaction work stays with its final answer.
 function isGroupAnchor(message: AgentMessage): boolean {
   if (message.role === "user") return true;
   return message.role === "custom" && (message as CustomMessage).customType === "compaction";
@@ -158,59 +135,51 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children, livePreview, isLive = false, t }: { messageCount: number; toolCallCount: number; children: ReactNode; livePreview?: ReactNode; isLive?: boolean; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(isLive);
-  const livePreviewRef = useRef<HTMLDivElement>(null);
-  const parts = [isLive ? t("chat.working") : t("chat.worked")];
-  if (!isLive && toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
-  if (!isLive && toolCallCount === 0) parts.push(`${messageCount} ${t(messageCount === 1 ? "chat.activity" : "chat.activities")}`);
+function ProcessTimeline({ children, isLive = false }: { children: ReactNode; isLive?: boolean }) {
+  return (
+    <div className={`process-details-timeline${isLive ? " is-live" : ""}`}>
+      {children}
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (!isLive || expanded) return;
-    const preview = livePreviewRef.current;
-    if (!preview) return;
-    preview.scrollTop = preview.scrollHeight;
-  }, [expanded, isLive, messageCount]);
+function turnThinkingDuration(start?: number, end?: number): { minutes: number; seconds: number } | null {
+  if (!start || !end || end <= start) return null;
+  const totalSeconds = Math.max(1, Math.round((end - start) / 1000));
+  return {
+    minutes: Math.floor(totalSeconds / 60),
+    seconds: totalSeconds % 60,
+  };
+}
+
+function SettledProcessDisclosure({
+  children,
+  duration,
+  t,
+}: {
+  children: ReactNode;
+  duration: { minutes: number; seconds: number } | null;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const label = duration === null
+    ? t("chat.thought")
+    : duration.minutes === 0
+      ? t("chat.thoughtSeconds", { seconds: duration.seconds })
+      : t("chat.thoughtMinutes", { minutes: duration.minutes, seconds: String(duration.seconds).padStart(2, "0") });
 
   return (
-    <div className={`process-details-group${expanded ? " is-expanded" : ""}${isLive ? " is-live" : ""}`}>
+    <div className="settled-process-disclosure">
       <button
         type="button"
+        className="settled-process-toggle"
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        className="process-details-toggle"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          width: "auto",
-          minHeight: 24,
-          padding: "3px 0",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
+        onClick={() => setExpanded((value) => !value)}
       >
-        <span className={`process-status-dot${isLive ? " is-live" : ""}`} aria-hidden="true" />
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-        </span>
+        <ChevronDown className="settled-process-chevron" size={14} strokeWidth={1.7} aria-hidden="true" />
+        <span>{label}</span>
       </button>
-      {isLive && !expanded && livePreview && (
-        <div ref={livePreviewRef} className="process-details-timeline is-live-preview">{livePreview}</div>
-      )}
-      {expanded && (
-        <div className="process-details-timeline">
-          {children}
-        </div>
-      )}
+      {expanded && children}
     </div>
   );
 }
@@ -254,7 +223,6 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
-    agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -653,12 +621,34 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                let assistantIdentity: string | undefined;
+                if (msg.role === "assistant" && !options.processDetails && hasFinalAssistantAnswer(msg)) {
+                  const assistant = msg as AssistantMessage;
+                  let previousFinalAssistant: AssistantMessage | null = null;
+                  for (let previousIdx = idx - 1; previousIdx >= 0; previousIdx--) {
+                    const previous = messages[previousIdx];
+                    if (previous.role === "assistant" && hasFinalAssistantAnswer(previous)) {
+                      previousFinalAssistant = previous as AssistantMessage;
+                      break;
+                    }
+                  }
+                  const identityChanged = previousFinalAssistant === null
+                    || previousFinalAssistant.provider !== assistant.provider
+                    || previousFinalAssistant.model !== assistant.model;
+                  if (identityChanged) {
+                    assistantIdentity = modelList.find((model) => (
+                      model.provider === assistant.provider && model.id === assistant.model
+                    ))?.name ?? modelNames[assistant.model] ?? assistant.model;
+                  }
+                }
+
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
+                    assistantIdentity={assistantIdentity}
                     entryId={entryIds[idx]}
                     onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
@@ -710,18 +700,10 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                   rendered.push(renderMessage(userIdx));
                   if (endIdx > userIdx + 1) {
                     const liveIndices = Array.from({ length: endIdx - userIdx - 1 }, (_, offset) => userIdx + offset + 1);
-                    const liveActivities = limitProcessMessages(messages, liveIndices);
                     rendered.push(
-                      <ProcessDetailsGroup
-                        key={`live-process-${userIdx}`}
-                        isLive
-                        messageCount={liveActivities.length}
-                        toolCallCount={countToolCalls(messages, liveIndices)}
-                        t={t}
-                        livePreview={liveActivities.map(({ index, message }, activityIndex) => renderMessage(index, { attachRef: false, keyPrefix: `live-preview-${activityIndex}`, messageOverride: message, processDetails: true }))}
-                      >
+                      <ProcessTimeline key={`live-process-${userIdx}`} isLive>
                         {liveIndices.map((renderIdx) => renderMessage(renderIdx, { attachRef: false, keyPrefix: "live-process", processDetails: true }))}
-                      </ProcessDetailsGroup>,
+                      </ProcessTimeline>,
                     );
                   }
                   idx = endIdx;
@@ -751,16 +733,24 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                     .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
                     .find((value): value is number => typeof value === "number")
                     ?? undefined;
-                  const processGroup = (
-                    <ProcessDetailsGroup
-                       messageCount={processCount}
-                       t={t}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
+                  const processTimeline = (
+                    <ProcessTimeline>
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", processDetails: true }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false, processDetails: true })}
-                    </ProcessDetailsGroup>
+                    </ProcessTimeline>
                   );
+                  const anchorTimestamp = (messages[userIdx] as AgentMessage & { timestamp?: number }).timestamp;
+                  const finalTimestamp = (messages[finalAssistantIdx] as AgentMessage & { timestamp?: number }).timestamp;
+                  const processGroup = hasFinalAssistantAnswer(finalAssistant)
+                    ? (
+                      <SettledProcessDisclosure
+                        duration={turnThinkingDuration(anchorTimestamp, finalTimestamp)}
+                        t={t}
+                      >
+                        {processTimeline}
+                      </SettledProcessDisclosure>
+                    )
+                    : processTimeline;
                   rendered.push(
                     <div
                       key={`process-group-${userIdx}-${finalAssistantIdx}`}
@@ -795,15 +785,11 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
               </div>
             )}
 
-            {agentRunning && !streamState.streamingMessage && agentPhase && (
-              <div className="process-details-timeline is-live streaming-process-timeline">
-                <div className="process-message py-1 text-[12px] text-text-muted">
-                  <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
-                </div>
-              </div>
+            {agentRunning && (
+              <AgentTurnStatus label={t("chat.deepDiving")} />
             )}
 
-            {bashRunning && !pendingBash && (
+            {bashRunning && !pendingBash && !agentRunning && (
               <div className="py-2 text-[13px] text-text-muted">
                  <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
               </div>

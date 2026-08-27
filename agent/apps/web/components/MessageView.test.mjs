@@ -91,22 +91,49 @@ test("renders concrete batch search queries in the process row", () => {
   assert.match(html, /class="lucide lucide-search tool-call-icon"/);
 });
 
-test("keeps the first thinking sentence as a stable activity summary", () => {
-  assert.equal(summarizeThinkingPreview("先搜索相关项目。然后比较实现细节。"), "先搜索相关项目。");
-  assert.equal(summarizeThinkingPreview("Search related projects. Then compare the implementations."), "Search related projects.");
+test("uses DSH-style first-line and live-tail thinking summaries", () => {
+  assert.equal(summarizeThinkingPreview("先搜索相关项目。然后比较实现细节。\n开始读取文件"), "先搜索相关项目。然后比较实现细节。");
+  assert.equal(summarizeThinkingPreview("Inspect repository\nCompare the implementations", 160, true), "Compare the implementations");
   assert.equal(summarizeThinkingPreview("  Compare   the available approaches  "), "Compare the available approaches");
 });
 
-test("places independent conversation forking on assistant answers", () => {
+test("renders only the active streaming block as a live transcript row", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [
+      { type: "thinking", thinking: "Inspect repository\nRead message renderer" },
+      { type: "thinking", thinking: "Compare styles\nApply DSH transcript layout" },
+    ],
+  }, { isStreaming: true });
+
+  assert.match(html, /data-state="settled"/);
+  assert.match(html, /data-state="running"/);
+  assert.match(html, /Apply DSH transcript layout/);
+  assert.doesNotMatch(html, /gpt-test/);
+  assert.doesNotMatch(html, /t\/s/);
+});
+
+test("renders quiet final-answer chrome with optional model identity", () => {
   const html = renderMessage({
     role: "assistant",
     provider: "openai",
     model: "gpt-test",
     content: [{ type: "text", text: "Completed answer" }],
-  }, { entryId: "answer-entry", onFork: () => {} });
+  }, {
+    entryId: "answer-entry",
+    onFork: () => {},
+    assistantIdentity: "GPT Test",
+  });
 
+  assert.match(html, /assistant-message-chrome/);
+  assert.match(html, /assistant-model-identity/);
+  assert.match(html, />GPT Test</);
+  assert.match(html, /aria-label="复制消息"/);
   assert.match(html, /aria-label="另起对话"/);
-  assert.match(html, /assistant-message-action/);
+  assert.match(html, /lucide-copy/);
+  assert.match(html, /lucide-git-branch/);
 });
 
 test("keeps forking available when a completed turn has no final answer", () => {
@@ -118,6 +145,6 @@ test("keeps forking available when a completed turn has no final answer", () => 
   }, { entryId: "process-only-entry", onFork: () => {} });
 
   assert.match(html, /aria-label="另起对话"/);
+  assert.match(html, /assistant-message-actions/);
   assert.match(html, /assistant-message-action/);
-  assert.match(html, /opacity:1/);
 });
