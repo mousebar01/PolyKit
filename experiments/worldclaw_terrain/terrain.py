@@ -51,12 +51,15 @@ def _softmax(values: Iterable[float]) -> list[float]:
     return [value / total for value in exps]
 
 
-def _mix_colors(regions: list[TerrainRegion], weights: list[float]) -> tuple[float, float, float, float]:
+def _mix_colors(
+    regions: list[TerrainRegion],
+    weights: list[float],
+) -> tuple[float, float, float, float]:
     color = [0.0, 0.0, 0.0, 0.0]
     for region, weight in zip(regions, weights):
         for channel in range(4):
             color[channel] += region.color[channel] * weight
-    color[3] = max(color[3], 1.0)
+    color[3] = 1.0
     return tuple(color)  # type: ignore[return-value]
 
 
@@ -232,14 +235,8 @@ class Terrain:
         if bsdf.inputs.get("Roughness") is not None:
             bsdf.inputs["Roughness"].default_value = 0.82
 
-        try:
-            color_node = nodes.new("ShaderNodeVertexColor")
-            color_node.layer_name = "TerrainColor"
-        except RuntimeError:
-            # Fallback for Blender builds that expose color attributes through
-            # the generic Attribute node instead of the dedicated vertex node.
-            color_node = nodes.new("ShaderNodeAttribute")
-            color_node.attribute_name = "TerrainColor"
+        color_node = nodes.new("ShaderNodeVertexColor")
+        color_node.layer_name = "TerrainColor"
         color_node.location = (-180.0, 0.0)
 
         links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
@@ -250,7 +247,11 @@ class Terrain:
         name = f"{self.name}_Sun"
         existing = bpy.data.objects.get(name)
         if existing is not None:
+            old_data = existing.data
             bpy.data.objects.remove(existing, do_unlink=True)
+            if old_data is not None and old_data.users == 0:
+                bpy.data.lights.remove(old_data)
+
         light_data = bpy.data.lights.new(name=name, type="SUN")
         light_data.energy = 3.0
         light_data.angle = math.radians(8.0)
@@ -283,7 +284,11 @@ class Terrain:
         name = f"{self.name}_Camera_{suffix}"
         existing = bpy.data.objects.get(name)
         if existing is not None:
+            old_data = existing.data
             bpy.data.objects.remove(existing, do_unlink=True)
+            if old_data is not None and old_data.users == 0:
+                bpy.data.cameras.remove(old_data)
+
         data = bpy.data.cameras.new(name)
         data.lens = lens
         camera = bpy.data.objects.new(name, data)
@@ -341,12 +346,7 @@ class Terrain:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         scene = bpy.context.scene
-        try:
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
-        except (TypeError, ValueError):
-            # Preserve the user's currently selected engine if this identifier
-            # changes in a future Blender build.
-            pass
+        scene.render.engine = "BLENDER_EEVEE"
         scene.render.resolution_x = int(resolution)
         scene.render.resolution_y = int(resolution)
         scene.render.resolution_percentage = 100
