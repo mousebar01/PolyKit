@@ -221,12 +221,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, processDetails, onAddAnnotation, pendingAnnotations, nextAnnotationNumber }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFork={onFork} forking={forking} processDetails={processDetails} onAddAnnotation={onAddAnnotation} pendingAnnotations={pendingAnnotations} nextAnnotationNumber={nextAnnotationNumber} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -475,7 +475,6 @@ function AssistantMessageView({
   message,
   isStreaming,
   toolResults,
-  modelNames,
   showTimestamp,
   prevTimestamp,
   sessionId,
@@ -490,7 +489,6 @@ function AssistantMessageView({
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
-  modelNames?: Record<string, string>;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -578,7 +576,6 @@ function AssistantMessageView({
     }
     const tick = () => {
       const items = blockItemsRef.current;
-      const bs = items.map(({ block }) => block);
       const now = Date.now();
 
       // Record start time for each block the first time we see it
@@ -776,12 +773,22 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, runnin
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previewRef = useRef<HTMLSpanElement>(null);
   const previewSource = block.deferred ? content : block.thinking;
   const thinkingPreview = previewSource
     ? summarizeThinkingPreview(previewSource, 160, running)
     : loading
       ? t("i18n.loadingThinkingShort")
       : t("i18n.thought");
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    const frame = requestAnimationFrame(() => {
+      preview.scrollLeft = running ? Math.max(0, preview.scrollWidth - preview.clientWidth) : 0;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [running, thinkingPreview]);
 
   useEffect(() => {
     if (!block.deferred || content !== null || !sessionId || !entryId) return;
@@ -815,7 +822,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, runnin
         <Brain className="thinking-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
         <span className="thinking-label">{t("i18n.thought")}</span>
         <span className="activity-separator" aria-hidden />
-        <span className="thinking-preview" data-follow-end={running || undefined}>{thinkingPreview}</span>
+        <span ref={previewRef} className="thinking-preview" data-follow-end={running || undefined}>{thinkingPreview}</span>
         {duration !== undefined && !running && (
           <span className="activity-duration">{duration}s</span>
         )}
@@ -863,6 +870,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     >
       {/* ── Tool call header ── */}
       <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
         className="tool-call-toggle"
         aria-expanded={expanded}
