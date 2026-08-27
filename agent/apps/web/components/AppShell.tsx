@@ -445,7 +445,7 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div className="app-shell" style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
@@ -477,7 +477,7 @@ export function AppShell() {
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
-          borderRight: "1px solid var(--border)",
+          borderRight: "none",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
@@ -549,7 +549,7 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div className="app-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {isMobile && showChat && (
           <div
             style={{
