@@ -1499,6 +1499,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
           )}
           <div
+            className="composer-surface"
             style={{
               position: "relative",
               minWidth: 0,
@@ -1617,6 +1618,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
           ) : (
             <button
+              className="composer-send-button"
               onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length && !annotations.length}
               style={{
