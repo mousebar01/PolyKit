@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo, useCallback, type RefObject } from "react";
-import { Eye, FileText, Pencil, Search, Terminal, Wrench } from "lucide-react";
+import { Brain, ChevronDown, Eye, FileText, Pencil, Search, Terminal, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { MessageSelectionPopover, useMessageSelectionState, type MessageSelectionSnapshot } from "./MessageSelectionPopover";
 import { copyText } from "@/lib/clipboard";
@@ -512,8 +512,6 @@ function AssistantMessageView({
   const canFork = !processDetails && !isStreaming && !!entryId && !!onFork;
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const streamStartRef = useRef<number | null>(null);
-  const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
   const selectionState = useMessageSelectionState(
@@ -556,6 +554,7 @@ function AssistantMessageView({
     .map((b) => b.text)
     .join("\n");
   const hasVisibleBody = blocks.length > 0 || !!providerError;
+  const lastVisibleOriginalIndex = blockItems.at(-1)?.originalIndex;
 
   const copyContent = () => {
     copyText(textContent).then(() => {
@@ -575,8 +574,6 @@ function AssistantMessageView({
         }
         return next;
       });
-      streamStartRef.current = null;
-      setTps(null);
       return;
     }
     const tick = () => {
@@ -605,17 +602,6 @@ function AssistantMessageView({
         }
         return changed ? next : prev;
       });
-
-      let chars = 0;
-      for (const b of bs) {
-        if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-        else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-        else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
-      }
-      if (chars === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = now;
-      const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(chars / 4 / elapsed);
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
@@ -631,57 +617,22 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      {!processDetails && hasVisibleBody && <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          marginBottom: 4,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
+      <div
+        data-annotation-content
+        className={processDetails ? "process-message-blocks assistant-output-blocks" : "assistant-output-blocks"}
       >
-        {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
-        )}
-        {isStreaming && (() => {
-          let chars = 0;
-          for (const b of blocks) {
-            if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-            else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-            else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
-          }
-          const est = Math.round(chars / 4);
-          return (
-            <>
-
-              {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
-                    {est}
-                  </span>
-                  {tps !== null && (() => {
-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
-                    return (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
-                        {tps.toFixed(1)} t/s
-                      </span>
-                    );
-                  })()}
-                </span>
-              )}
-            </>
-          );
-        })()}
-      </div>}
-
-      <div data-annotation-content className={processDetails ? "process-message-blocks" : undefined} style={{ display: "flex", flexDirection: "column", gap: processDetails ? 5 : 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView
+            key={`${entryId ?? "stream"}-${originalIndex}`}
+            block={block}
+            toolResults={toolResults}
+            isStreaming={!!isStreaming && originalIndex === lastVisibleOriginalIndex}
+            streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)}
+            toolCallDurations={toolCallDurations}
+            sessionId={sessionId}
+            entryId={entryId}
+            blockIndex={originalIndex}
+          />
         ))}
       </div>
 
@@ -797,7 +748,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} running={!!isStreaming} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -812,12 +763,13 @@ function TextBlock({ block, isStreaming }: { block: TextContent; isStreaming?: b
   return <MarkdownBody isStreaming={isStreaming}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, running }: {
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
+  running: boolean;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -826,7 +778,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   const [error, setError] = useState<string | null>(null);
   const previewSource = block.deferred ? content : block.thinking;
   const thinkingPreview = previewSource
-    ? summarizeThinkingPreview(previewSource)
+    ? summarizeThinkingPreview(previewSource, 160, running)
     : loading
       ? t("i18n.loadingThinkingShort")
       : t("i18n.thought");
@@ -851,70 +803,41 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 
   return (
     <div
-      className="thinking-block"
-      style={{
-        overflow: "hidden",
-        fontSize: 13,
-      }}
+      className={`thinking-block${running ? " is-running" : ""}${expanded ? " is-expanded" : ""}${error ? " is-error" : ""}`}
+      data-state={running ? "running" : "settled"}
     >
       <button
+        type="button"
         onClick={() => setExpanded((value) => !value)}
         className="thinking-block-toggle"
         aria-expanded={expanded}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "100%",
-          padding: "4px 0",
-          background: "transparent",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
       >
-        <svg className="thinking-spark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="m12 3-1.2 3.8L7 8l3.8 1.2L12 13l1.2-3.8L17 8l-3.8-1.2L12 3Z" />
-          <path d="m5 14-.8 2.2L2 17l2.2.8L5 20l.8-2.2L8 17l-2.2-.8L5 14Z" />
-        </svg>
-        <span className="thinking-preview">{thinkingPreview}</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        <Brain className="thinking-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
+        <span className="thinking-label">{t("i18n.thought")}</span>
+        <span className="activity-separator" aria-hidden />
+        <span className="thinking-preview" data-follow-end={running || undefined}>{thinkingPreview}</span>
+        {duration !== undefined && !running && (
+          <span className="activity-duration">{duration}s</span>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} aria-hidden="true">
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
+        <ChevronDown className="activity-chevron" size={14} strokeWidth={1.7} aria-hidden="true" />
       </button>
       {expanded && (
-        <div
-          style={{
-            margin: "2px 0 4px 21px",
-            padding: "8px 10px",
-            color: error ? "#f87171" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            background: "var(--bg-subtle)",
-            borderLeft: "1px solid var(--border)",
-          }}
-        >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+        <div className="thinking-body">
+          {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
         </div>
       )}
     </div>
   );
 }
 
-export function summarizeThinkingPreview(thinking: string, maxLength = 160): string {
-  const normalized = thinking.replace(/\s+/g, " ").trim();
-  if (!normalized) return "";
-  const sentence = normalized.match(new RegExp(`^.{1,${maxLength}}?(?:[。！？]|[.!?](?=\\s|$))`))?.[0];
-  if (sentence) return sentence.trim();
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength).trimEnd()}...` : normalized;
+export function summarizeThinkingPreview(thinking: string, maxLength = 160, followEnd = false): string {
+  const lines = thinking
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const selected = followEnd ? lines.at(-1) ?? "" : lines[0] ?? "";
+  return selected.length > maxLength ? `${selected.slice(0, maxLength).trimEnd()}...` : selected;
 }
-
 
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const { t } = useI18n();
@@ -937,44 +860,25 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   return (
     <div
       className={`tool-call-block action-${actionKind}${isError ? " is-error" : isRunning ? " is-running" : " is-success"}${expanded ? " is-expanded" : ""}`}
-      style={{
-        overflow: "hidden",
-        fontSize: 12,
-      }}
     >
       {/* ── Tool call header ── */}
       <button
         onClick={() => setExpanded((v) => !v)}
         className="tool-call-toggle"
         aria-expanded={expanded}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "100%",
-          padding: "4px 0",
-          background: "none",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-          minWidth: 0,
-        }}
       >
         <ToolActionIcon actionKind={actionKind} />
-        <span className="tool-action-label" style={{ fontWeight: 550, flexShrink: 0 }}>
+        <span className="tool-action-label">
           {toolActionLabel(displayCall.toolName, t)}
         </span>
-        <span className="tool-call-preview" title={getDisplayToolPreview(displayCall.input)} style={{ color: "var(--text-dim)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+        <span className="activity-separator" aria-hidden />
+        <span className="tool-call-preview" title={getDisplayToolPreview(displayCall.input)}>
           {getDisplayToolPreview(displayCall.input)}
         </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        {duration !== undefined && !isRunning && (
+          <span className="activity-duration">{duration}s</span>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
+        <ChevronDown className="activity-chevron" size={14} strokeWidth={1.7} aria-hidden="true" />
       </button>
 
       {/* ── Expanded: input args ── */}
