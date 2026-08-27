@@ -1,8 +1,6 @@
 import { lazy, Suspense, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import {
-  ChevronDown,
-  Download,
   LoaderCircle,
   Maximize2,
   Move,
@@ -12,7 +10,6 @@ import {
   Sun,
   Triangle,
   Undo2,
-  Upload,
 } from 'lucide-react'
 
 import {
@@ -26,11 +23,11 @@ import {
   Slider,
 } from '@shared/components/ui'
 import { useApi } from '@shared/hooks/useApi'
-import { useI18n, type TranslationKey } from '@shared/i18n'
+import { useI18n } from '@shared/i18n'
 import { useAppStore, DEFAULT_LIGHT_SETTINGS } from '@shared/stores/appStore'
 import type { GenerationJob, LightSettings } from '@shared/stores/appStore'
 import GenerationHUD from './components/GenerationHUD'
-import AssetLibrarySidebar from './components/AssetLibrarySidebar'
+import AssetLibrarySidebar, { type AssetExportFormat } from './components/AssetLibrarySidebar'
 import { getDefaultAssetLibraryService } from './assetLibraryService'
 import { AssetDeleteDialog, AssetRenameDialog } from './components/AssetManageDialogs'
 import { resolveAssetLibraryOpenTarget, type ProjectedAssetLibraryEntry } from './assetLibraryProjection'
@@ -61,45 +58,6 @@ function AssetsLoading({ label }: { label: string }): JSX.Element {
 const MIN_WIDTH = 220
 const MAX_WIDTH = 440
 const DEFAULT_WIDTH = 280
-
-const EXPORT_FORMATS = ['glb', 'obj', 'stl', 'ply'] as const
-type ExportFormat = typeof EXPORT_FORMATS[number]
-
-const EXPORT_FORMAT_I18N: Record<ExportFormat, TranslationKey> = {
-  glb: 'assets.fmtGlb',
-  obj: 'assets.fmtObj',
-  stl: 'assets.fmtStl',
-  ply: 'assets.fmtPly',
-}
-
-function ExportPopover({
-  onExport,
-  onClose,
-}: {
-  onExport: (format: ExportFormat) => void
-  onClose: () => void
-}): JSX.Element {
-  const { t } = useI18n()
-  return (
-    <PopoverContent align="start" className="w-48 p-1.5">
-      {EXPORT_FORMATS.map((format) => (
-        <Button
-          key={format}
-          type="button"
-          variant="ghost"
-          className="h-auto w-full justify-start gap-2.5 px-3 py-2"
-          onClick={() => {
-            onExport(format)
-            onClose()
-          }}
-        >
-          <span className="font-mono text-xs font-semibold tabular-nums text-foreground">.{format}</span>
-          <span className="text-[11px] font-normal text-muted-foreground">{t(EXPORT_FORMAT_I18N[format])}</span>
-        </Button>
-      ))}
-    </PopoverContent>
-  )
-}
 
 function ToolButton({
   label,
@@ -429,18 +387,24 @@ export default function AssetsPage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only when a new output is complete
   }, [currentJob?.id, currentJob?.outputUrl, currentJob?.status, libraryLoaded, libraryLoading])
 
-  function handleExport(format: ExportFormat) {
-    if (!currentJob?.outputUrl) return
-    const stem = `polykit-${Date.now()}`
-    const link = document.createElement('a')
-    if (format === 'glb') {
-      link.href = `${apiUrl}${currentJob.outputUrl}`
-    } else {
-      const path = encodeURIComponent(currentJob.outputUrl.replace('/workspace/', ''))
-      link.href = `${apiUrl}/optimize/export?path=${path}&format=${format}`
-    }
-    link.download = `${stem}.${format}`
-    link.click()
+  function handleExportAssets(workspacePaths: string[], format: AssetExportFormat) {
+    const safePaths = [...new Set(workspacePaths)]
+      .filter((workspacePath) => {
+        const normalized = workspacePath.replace(/\\/g, '/').trim()
+        return /^Workflows\//.test(normalized)
+          && !normalized.split('/').includes('..')
+          && !/%2e|%2f|%5c/i.test(normalized)
+      })
+    safePaths.forEach((workspacePath) => {
+      const sourceName = workspacePath.split('/').pop() ?? 'asset'
+      const stem = sourceName.replace(/\.[^.]+$/, '') || 'asset'
+      const link = document.createElement('a')
+      link.href = `${apiUrl}/export/${format}?path=${encodeURIComponent(workspacePath)}`
+      link.download = `${stem}.${format}`
+      link.rel = 'noopener'
+      link.click()
+      link.remove()
+    })
   }
 
   function getOptimizePath(url: string): string {
@@ -640,6 +604,7 @@ export default function AssetsPage(): JSX.Element {
           onToggleSection={(sectionKey) => setLibraryCollapsedSectionKeys((current) => toggleAssetLibrarySectionKey(current, sectionKey))}
           onOpenSelected={() => { void handleOpenSelectedLibraryEntry() }}
            onImport={() => { void handleImportMesh() }}
+          onExport={handleExportAssets}
           onRefresh={() => { void loadLibraryEntries() }}
           onRename={(entry) => setLibraryRenameTarget(entry)}
           onDelete={(workspacePaths) => {
@@ -662,8 +627,8 @@ export default function AssetsPage(): JSX.Element {
         className="w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 active:bg-primary/50"
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden bg-background">
-        <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-border/45 bg-card/65 px-2.5 py-1">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg bg-background">
+        <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-divider bg-card/65 px-2.5 py-1">
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={undoMesh} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
           </Button>
@@ -671,24 +636,8 @@ export default function AssetsPage(): JSX.Element {
             <Redo2 className="h-4 w-4" />
           </Button>
 
-          <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => { void handleImportMesh() }} disabled={importing}>
-            {importing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {importing ? t('assets.importing') : t('assets.import')}
-          </Button>
-
           {hasModel && (
             <>
-              <Popover open={openPanel === 'export'} onOpenChange={(open) => setOpenPanel(open ? 'export' : null)}>
-                <PopoverTrigger asChild>
-                  <Button type="button" variant={openPanel === 'export' ? 'secondary' : 'outline'} size="sm" className="shrink-0 gap-1.5">
-                    <Upload className="h-4 w-4" />
-                    {t('assets.export')}
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </PopoverTrigger>
-                <ExportPopover onExport={handleExport} onClose={() => setOpenPanel(null)} />
-              </Popover>
-
               <Popover open={openPanel === 'smooth'} onOpenChange={(open) => setOpenPanel(open ? 'smooth' : null)}>
                 <PopoverTrigger asChild>
                   <Button

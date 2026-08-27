@@ -25,6 +25,8 @@ export const EN_US = {
   'agent.runtimeTitle': 'Agent runtime', 'agent.runtimeDescription': 'This entry will host Agent sessions through PolyKit’s FastAPI runtime and controlled Blender bridge.',
   'agent.runtimePending': 'Runtime bridge pending', 'agent.runtimePendingDescription': 'Agent settings are connected. Chat sessions and Blender actions will appear here once the FastAPI Agent runtime is enabled.',
   'agent.disabled': 'Agent disabled', 'agent.openSettings': 'Open Agent settings',
+  'agent.sessionHistory': 'Session history', 'agent.newSession': 'New chat', 'agent.noSessions': 'No saved sessions',
+  'agent.refreshSessions': 'Refresh sessions', 'agent.sessionLoadError': 'Could not load sessions', 'agent.messagesCount': '{count} messages',
   'agent.settingsDescription': 'Configure the default model, reasoning level, and Blender tool permissions.',
   'agent.sessionDirectory': 'Session directory', 'agent.sessionDirectoryDescription': 'Server-owned location for Agent session records.',
   'agent.sessionDirectoryPending': 'Resolved by server', 'agent.scopeTitle': 'PolyKit workspace',
@@ -99,7 +101,7 @@ export const EN_US = {
   'assets.loading': 'Loading assets…', 'assets.noAssets': 'No assets yet', 'assets.noMatch': 'No assets match “{query}”.',
   'assets.selectHint': 'Select an asset to open it in the viewer.', 'assets.hide': 'Hide', 'assets.show': 'Show',
   'assets.decimate': 'Decimate mesh', 'assets.lighting': 'Lighting', 'assets.importing': 'Importing…', 'assets.smooth': 'Smooth mesh',
-  'assets.import': 'Import', 'assets.export': 'Export',
+  'assets.import': 'Import', 'assets.export': 'Export', 'assets.exportSelected': 'Export selected ({count})',
   'assets.loading3DModel': 'Loading 3D model…',
   'assets.loading3DModelHint': 'Parsing geometry and textures. Large models may take a moment on first load.',
   'assets.viewerModelTooLarge': 'Model is too large for the browser viewer',
@@ -210,7 +212,7 @@ export const EN_US = {
   'workflows.folderName': 'Folder name… (Enter to create)', 'workflows.noSavedWorkflows': 'No saved workflows.',
   'workflows.noWorkflowMatches': 'No workflow matches “{query}”.', 'workflows.bookmarks': 'Bookmarks',
   'common.loading': 'Loading…',
-  'common.save': 'Save', 'common.cancel': 'Cancel', 'common.close': 'Close', 'common.processing': 'Processing…',
+  'common.save': 'Save', 'common.cancel': 'Cancel', 'common.close': 'Close', 'common.back': 'Back', 'common.retry': 'Retry', 'common.processing': 'Processing…',
 } as const
 
 export type TranslationKey = keyof typeof EN_US
@@ -240,6 +242,8 @@ export const ZH_CN = {
   'agent.runtimeTitle': 'Agent 运行时', 'agent.runtimeDescription': '此入口将通过 PolyKit FastAPI 运行时和受控 Blender 桥接承载 Agent 会话。',
   'agent.runtimePending': '运行时桥接待接入', 'agent.runtimePendingDescription': 'Agent 设置已经接通。FastAPI Agent 运行时启用后，会话与 Blender 操作会显示在这里。',
   'agent.disabled': 'Agent 已停用', 'agent.openSettings': '打开 Agent 设置',
+  'agent.sessionHistory': '会话记录', 'agent.newSession': '新建会话', 'agent.noSessions': '暂无会话记录',
+  'agent.refreshSessions': '刷新会话', 'agent.sessionLoadError': '会话记录加载失败', 'agent.messagesCount': '{count} 条消息',
   'agent.settingsDescription': '配置默认模型、思考级别和 Blender 工具权限。',
   'agent.sessionDirectory': '会话目录', 'agent.sessionDirectoryDescription': '由服务器管理的 Agent 会话记录位置。',
   'agent.sessionDirectoryPending': '由服务器解析', 'agent.scopeTitle': 'PolyKit 工作区',
@@ -314,7 +318,7 @@ export const ZH_CN = {
   'assets.loading': '正在加载资产…', 'assets.noAssets': '还没有资产', 'assets.noMatch': '没有匹配“{query}”的资产。',
   'assets.selectHint': '选择一个资产在查看器中打开。', 'assets.hide': '收起', 'assets.show': '展开',
   'assets.decimate': '网格减面', 'assets.lighting': '灯光', 'assets.importing': '导入中…', 'assets.smooth': '网格平滑',
-  'assets.import': '导入', 'assets.export': '导出',
+  'assets.import': '导入', 'assets.export': '导出', 'assets.exportSelected': '导出所选（{count}）',
   'assets.loading3DModel': '正在加载 3D 模型…',
   'assets.loading3DModelHint': '正在解析网格和纹理，大尺寸模型首次加载可能需要一点时间。',
   'assets.viewerModelTooLarge': '模型过大，浏览器查看器已暂停加载',
@@ -425,7 +429,7 @@ export const ZH_CN = {
   'workflows.folderName': '文件夹名称…（按 Enter 创建）', 'workflows.noSavedWorkflows': '没有已保存的工作流。',
   'workflows.noWorkflowMatches': '没有匹配“{query}”的工作流。', 'workflows.bookmarks': '收藏',
   'common.loading': '加载中…',
-  'common.save': '保存', 'common.cancel': '取消', 'common.close': '关闭', 'common.processing': '处理中…',
+  'common.save': '保存', 'common.cancel': '取消', 'common.close': '关闭', 'common.back': '返回', 'common.retry': '重试', 'common.processing': '处理中…',
 } satisfies Record<TranslationKey, string>
 
 const DICTIONARIES: Record<Language, Record<TranslationKey, string>> = {

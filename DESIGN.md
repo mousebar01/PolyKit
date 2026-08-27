@@ -145,7 +145,7 @@ Use the shared radius scale derived from `--radius`. Radius should communicate c
 
 Avoid mixing `rounded-lg`, `rounded-xl`, and `rounded-2xl` randomly on adjacent surfaces. Keep nested corners optically consistent: an inner surface should not have a larger radius than the container around it.
 
-Use surface contrast before borders, and borders before shadows. Shadows are for floating layers: dialogs, dropdowns, popovers, tooltips, and transient overlays.
+Use surface contrast, spacing, and radius to establish depth. **Do not add shadows to PolyKit product UI:** no Tailwind `shadow-*` utilities, CSS `box-shadow`, or decorative `drop-shadow` effects. This applies to panels, cards, controls, dialogs, dropdowns, popovers, tooltips, and transient overlays. When regions need a divider, use the dark semantic `border-divider` token; never use bright white, default `border-border`, or high-opacity lines for structure. Keep the surface stack responsible for most of the hierarchy so edges stay crisp in the dark workspace.
 
 ### 9.1. Surface-first hierarchy: restrained borders and dividers
 

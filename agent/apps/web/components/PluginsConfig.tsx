@@ -228,7 +228,6 @@ function Toggle({
           height: 16,
           borderRadius: "50%",
           background: "var(--bg)",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
           transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
         }}
       />
@@ -756,8 +755,8 @@ export function PluginsConfig({
   const addBusy = busyKey?.startsWith("install:") ?? false;
 
   const dialogStyle: React.CSSProperties = embedded
-    ? { height: "100%", width: "100%", background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "76vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" };
+    ? { height: "100%", width: "100%", flex: 1, background: "var(--bg-panel)", display: "flex", flexDirection: "column", overflow: "hidden" }
+    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "76vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden" };
 
   return (
     <div
@@ -774,6 +773,7 @@ export function PluginsConfig({
             justifyContent: "space-between",
             padding: "12px 18px",
             borderBottom: "1px solid var(--border)",
+            background: "var(--bg-elevated)",
             flexShrink: 0,
           }}
         >
@@ -837,7 +837,7 @@ export function PluginsConfig({
               display: "flex",
               flexDirection: "column",
               flexShrink: 0,
-              background: "var(--bg-panel)",
+              background: "var(--bg)",
             }}
           >
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>

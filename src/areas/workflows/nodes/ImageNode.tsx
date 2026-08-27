@@ -66,7 +66,7 @@ export default function ImageNode({ id, data, selected }: { id: string; data: WF
           type="button"
           variant="ghost"
           onClick={browse}
-          className="nodrag group relative h-auto flex-1 overflow-hidden rounded-b-xl rounded-t-none p-0"
+          className="nodrag group relative h-auto flex-1 overflow-hidden rounded-b-md rounded-t-none p-0"
           aria-label="Change image"
         >
           <img src={preview} alt={filePath?.split(/[\\/]/).pop() ?? ''} className="h-full w-full object-cover" />

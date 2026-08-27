@@ -4,11 +4,14 @@ import {
   Box,
   CheckSquare,
   ChevronRight,
+  ChevronDown,
+  Download,
   LayoutGrid,
   List,
   Pencil,
   RefreshCw,
   Search,
+  Square,
   Star,
   Trash2,
   Upload,
@@ -22,6 +25,7 @@ import {
   Popover,
   PopoverAnchor,
   PopoverContent,
+  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -42,6 +46,43 @@ const SORT_LABEL_KEYS: Record<AssetLibrarySortMode, TranslationKey> = {
   type: 'assets.sortType',
   name: 'assets.sortName',
   date: 'assets.sortDate',
+}
+
+const EXPORT_FORMATS = ['glb', 'obj', 'stl', 'ply'] as const
+export type AssetExportFormat = typeof EXPORT_FORMATS[number]
+
+const EXPORT_FORMAT_I18N: Record<AssetExportFormat, TranslationKey> = {
+  glb: 'assets.fmtGlb',
+  obj: 'assets.fmtObj',
+  stl: 'assets.fmtStl',
+  ply: 'assets.fmtPly',
+}
+
+function ExportFormatItems({
+  onExport,
+  onClose,
+}: {
+  onExport: (format: AssetExportFormat) => void
+  onClose: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  return (
+    <div className="flex flex-col gap-0.5">
+      {EXPORT_FORMATS.map((format) => (
+        <Button
+          key={format}
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-full justify-start gap-2.5 px-2 text-xs"
+          onClick={() => { onExport(format); onClose() }}
+        >
+          <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">.{format}</span>
+          <span className="font-normal text-muted-foreground">{t(EXPORT_FORMAT_I18N[format])}</span>
+        </Button>
+      ))}
+    </div>
+  )
 }
 
 type AssetCapability = NonNullable<ProjectedAssetLibraryEntry['capability']>
@@ -94,10 +135,12 @@ function writeAssetLibraryViewMode(viewMode: AssetLibraryViewMode): void {
 }
 
 function AssetActionItems({
+  onExport,
   onRename,
   onDelete,
   onClose,
 }: {
+  onExport: () => void
   onRename: () => void
   onDelete: () => void
   onClose: () => void
@@ -105,6 +148,17 @@ function AssetActionItems({
   const { t } = useI18n()
   return (
     <div className="flex flex-col gap-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2 px-2 text-xs"
+        onClick={onExport}
+        role="menuitem"
+      >
+        <Download className="h-3.5 w-3.5" />
+        {t('assets.export')}
+      </Button>
       <Button
         type="button"
         variant="ghost"
@@ -149,6 +203,7 @@ interface AssetLibrarySidebarProps {
   onToggleSection: (sectionKey: string) => void
   onOpenSelected: () => void
   onImport: () => void
+  onExport: (workspacePaths: string[], format: AssetExportFormat) => void
   onRefresh: () => void
   onRename: (entry: ProjectedAssetLibraryEntry) => void
   onDelete: (workspacePaths: string[]) => void
@@ -163,6 +218,7 @@ function AssetCard({
   onSelect,
   onToggle,
   onOpen,
+  onExport,
   onRename,
   onDelete,
   favorite,
@@ -177,6 +233,7 @@ function AssetCard({
   onSelect: () => void
   onToggle: () => void
   onOpen: () => void
+  onExport: (format: AssetExportFormat) => void
   onRename: () => void
   onDelete: () => void
   favorite: boolean
@@ -187,11 +244,13 @@ function AssetCard({
   const openable = isAssetLibraryEntryOpenable(entry)
   const thumbnailUrl = entry.thumbnail ? `${thumbnailBase ?? ''}${entry.thumbnail}` : undefined
   const [actionsAt, setActionsAt] = useState<{ x: number; y: number } | null>(null)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
 
   const openActionsAt = (x: number, y: number) => {
     if (selectMode) return
     onSelect()
+    setExportMenuOpen(false)
     setActionsAt({ x, y })
   }
 
@@ -218,14 +277,19 @@ function AssetCard({
 
   const cardLayoutClass = 'flex-col gap-0'
   const mediaClass = viewMode === 'grid'
-    ? 'h-24 w-full rounded-t-md'
-    : 'h-28 w-full rounded-b-md'
+    ? 'h-24 w-full rounded-sm'
+    : 'h-28 w-full rounded-sm'
   const detailsClass = viewMode === 'grid'
     ? 'px-0.5 pb-0.5 pt-2'
     : 'order-first px-1.5 py-2'
 
   return (
-    <Popover open={actionsAt !== null} onOpenChange={(open) => { if (!open) setActionsAt(null) }}>
+    <Popover open={actionsAt !== null} onOpenChange={(open) => {
+      if (!open) {
+        setActionsAt(null)
+        setExportMenuOpen(false)
+      }
+    }}>
       <div
         ref={cardRef}
         role="button"
@@ -243,8 +307,16 @@ function AssetCard({
       }}
       onContextMenu={handleContextMenu}
       onKeyDown={handleCardKeyDown}
-      className={`group relative flex ${cardLayoutClass} items-stretch overflow-hidden rounded-md border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isCardSelected ? 'border-primary bg-primary/10 ring-1 ring-primary/20' : 'border-transparent bg-card/80 hover:bg-card'} ${!openable ? 'opacity-60' : ''}`}
+      className={`group relative flex ${cardLayoutClass} items-stretch overflow-hidden rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isCardSelected ? 'border-primary bg-primary/10 ring-1 ring-primary/20' : 'border-transparent bg-card/80 hover:bg-card'} ${!openable ? 'opacity-60' : ''}`}
     >
+      {selectMode && (
+        <span
+          className={`pointer-events-none absolute left-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-md bg-card/90 ${checked ? 'text-primary' : 'text-muted-foreground'}`}
+          aria-hidden="true"
+        >
+          {checked ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+        </span>
+      )}
       <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden bg-muted/40 transition-colors group-hover:bg-muted/60`}>
         <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
         {thumbnailUrl && (
@@ -283,12 +355,35 @@ function AssetCard({
         />
       </PopoverAnchor>
       {actionsAt && (
-        <PopoverContent align="start" side="bottom" sideOffset={4} className="w-36 p-1.5" role="menu">
-          <AssetActionItems
-            onRename={onRename}
-            onDelete={onDelete}
-            onClose={() => setActionsAt(null)}
-          />
+        <PopoverContent align="start" side="bottom" sideOffset={4} className={exportMenuOpen ? 'w-44 p-1.5' : 'w-36 p-1.5'} role="menu">
+          {exportMenuOpen ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mb-0.5 h-7 w-full justify-start gap-1.5 px-2 text-[11px] text-muted-foreground"
+                onClick={() => setExportMenuOpen(false)}
+              >
+                <ChevronRight className="h-3 w-3 rotate-180" />
+                {t('common.back')}
+              </Button>
+              <ExportFormatItems
+                onExport={onExport}
+                onClose={() => {
+                  setActionsAt(null)
+                  setExportMenuOpen(false)
+                }}
+              />
+            </>
+          ) : (
+            <AssetActionItems
+              onExport={() => setExportMenuOpen(true)}
+              onRename={onRename}
+              onDelete={onDelete}
+              onClose={() => setActionsAt(null)}
+            />
+          )}
         </PopoverContent>
       )}
     </Popover>
@@ -312,6 +407,7 @@ export default function AssetLibrarySidebar({
   onToggleSection,
   onOpenSelected,
   onImport,
+  onExport,
   onRefresh,
   onRename,
   onDelete,
@@ -321,6 +417,7 @@ export default function AssetLibrarySidebar({
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
   const [favoritePaths, setFavoritePaths] = useState<Set<string>>(readFavoritePaths)
   const [viewMode, setViewMode] = useState<AssetLibraryViewMode>(readAssetLibraryViewMode)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const defaultSortApplied = useRef(false)
 
   const entryGroups = filterAssetLibraryEntryGroups(entries, searchQuery, sortMode)
@@ -331,6 +428,14 @@ export default function AssetLibrarySidebar({
     defaultSortApplied.current = true
     if (sortMode === 'type') onSortModeChange(DEFAULT_ASSET_LIBRARY_SORT_MODE)
   }, [onSortModeChange, sortMode])
+
+  useEffect(() => {
+    const availablePaths = new Set(entries.map((entry) => entry.workspacePath))
+    setSelectedPaths((current) => {
+      const next = new Set([...current].filter((path) => availablePaths.has(path)))
+      return next.size === current.size ? current : next
+    })
+  }, [entries])
 
   const leaveSelectMode = () => {
     setSelectMode(false)
@@ -351,6 +456,14 @@ export default function AssetLibrarySidebar({
     setViewMode(nextViewMode)
     writeAssetLibraryViewMode(nextViewMode)
   }
+
+  const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null
+  const exportTargets = selectMode
+    ? [...selectedPaths]
+    : selectedEntry ? [selectedEntry.workspacePath] : []
+  const exportLabel = selectMode && selectedPaths.size > 0
+    ? t('assets.exportSelected', { count: selectedPaths.size })
+    : t('assets.export')
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card">
@@ -397,6 +510,28 @@ export default function AssetLibrarySidebar({
           >
             <CheckSquare className="h-4 w-4" />
           </Button>
+          <Popover open={exportMenuOpen} onOpenChange={setExportMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant={exportMenuOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 gap-1.5 px-2 text-[11px]"
+                disabled={exportTargets.length === 0}
+                title={exportLabel}
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="max-w-[112px] truncate">{exportLabel}</span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-44 p-1.5">
+              <ExportFormatItems
+                onExport={(format) => onExport(exportTargets, format)}
+                onClose={() => setExportMenuOpen(false)}
+              />
+            </PopoverContent>
+          </Popover>
           <Select value={sortMode} onValueChange={(value) => onSortModeChange(value as AssetLibrarySortMode)}>
             <SelectTrigger className="h-8 w-[94px] gap-1.5 px-2 text-[11px]" aria-label={t('assets.sort')}>
               <ArrowDownUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -465,6 +600,7 @@ export default function AssetLibrarySidebar({
                           })
                         }}
                         onOpen={onOpenSelected}
+                        onExport={(format) => onExport([entry.workspacePath], format)}
                         onRename={() => onRename(entry)}
                         onDelete={() => onDelete([entry.workspacePath])}
                         favorite={favoritePaths.has(entry.workspacePath)}

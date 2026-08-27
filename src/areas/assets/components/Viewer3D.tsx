@@ -2,7 +2,7 @@ import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, use
 import type { ReactNode, ErrorInfo, MutableRefObject } from 'react'
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
-import { Environment, GizmoHelper, Lightformer, OrbitControls, useGizmoContext, useGLTF } from '@react-three/drei'
+import { Environment, GizmoHelper, Grid, Lightformer, OrbitControls, useGizmoContext, useGLTF } from '@react-three/drei'
 import { EffectComposer, Outline, Select, Selection } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -213,15 +213,14 @@ interface MeshModelProps {
   onSelect: () => void
   onObject: (obj: THREE.Object3D | null) => void
   onLoaded: () => void
-  onAccelerationReady: () => void
   /** Inspection-only part spread (0 = assembled). */
   separation: number
   onPartCount: (count: number) => void
 }
 
-function MeshModel({ url, jobId, viewMode, selected, onStats, onSelect, onObject, onLoaded, onAccelerationReady, separation, onPartCount }: MeshModelProps): JSX.Element {
+function MeshModel({ url, jobId, viewMode, selected, onStats, onSelect, onObject, onLoaded, separation, onPartCount }: MeshModelProps): JSX.Element {
   const extension = url.split('?')[0]?.split('.').pop()?.toLowerCase()
-  const common = { url, jobId, viewMode, selected, onStats, onSelect, onObject, onLoaded, onAccelerationReady, separation, onPartCount }
+  const common = { url, jobId, viewMode, selected, onStats, onSelect, onObject, onLoaded, separation, onPartCount }
   return extension === 'obj' ? <ObjMeshModel {...common} /> : <GltfMeshModel {...common} />
 }
 
@@ -263,7 +262,6 @@ function SceneMeshModel({
   onSelect,
   onObject,
   onLoaded,
-  onAccelerationReady,
   scene,
   loaderType,
   separation,
@@ -363,7 +361,6 @@ function SceneMeshModel({
           mats.forEach((m: THREE.Material) => { m.side = THREE.DoubleSide })
         }
       })
-      onAccelerationReady()
     }, 150)
 
     return () => {
@@ -377,7 +374,7 @@ function SceneMeshModel({
         })
       }
     }
-  }, [scene, onAccelerationReady])
+  }, [scene])
 
   // Centre the mesh on the grid. Runs only on first load / model change — never
   // on plain re-renders, so a live gizmo transform is not silently overwritten.
@@ -427,7 +424,13 @@ function SceneMeshModel({
   // Material swapping based on viewMode
   useEffect(() => {
     // Remove any edge helpers from previous wireframe pass
-    edgeHelpers.current.forEach((lines) => lines.parent?.remove(lines))
+    edgeHelpers.current.forEach((lines) => {
+      lines.parent?.remove(lines)
+      lines.geometry.dispose()
+      const material = lines.material
+      if (Array.isArray(material)) material.forEach((item) => item.dispose())
+      else material.dispose()
+    })
     edgeHelpers.current = []
 
     scene.traverse((child) => {
@@ -441,7 +444,17 @@ function SceneMeshModel({
       let next: THREE.Material
       switch (viewMode) {
         case 'wireframe': {
-          next = new THREE.MeshBasicMaterial({ color: 0x4ade80, wireframe: true })
+          // Keep topology readable without the saturated selection-green
+          // silhouette. Dense generated meshes can still look visually full,
+          // but a neutral translucent stroke makes that density apparent and
+          // matches the Blender viewport's subdued wireframe treatment.
+          next = new THREE.MeshBasicMaterial({
+            color: 0xb7c0cc,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.7,
+            depthWrite: false,
+          })
           break
         }
         case 'normals':
@@ -475,37 +488,71 @@ function SceneMeshModel({
 }
 
 // ---------------------------------------------------------------------------
-// Orientation gizmo — coloured bubbles only (X/Y/Z)
+// Orientation gizmo — six floating positive/negative axis bubbles.
 // ---------------------------------------------------------------------------
 
-function makeAxisLabelTexture(letter: string, bg: string): THREE.CanvasTexture {
+function makeAxisLabelTexture(label: string, color: string, hovered: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = 64
   const ctx = canvas.getContext('2d')!
+
+  // Blender turns the active axis into a light, filled target. Keep a thin
+  // axis-coloured rim so the hover state is unmistakable without losing the
+  // X/Y/Z colour coding.
+  if (hovered) {
+    ctx.beginPath()
+    ctx.arc(32, 32, 19, 0, 2 * Math.PI)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(244, 246, 249, 0.96)'
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.62)'
+    ctx.shadowBlur = 7
+    ctx.fill()
+    ctx.shadowBlur = 0
+  }
+
   ctx.beginPath()
   ctx.arc(32, 32, 16, 0, 2 * Math.PI)
   ctx.closePath()
-  ctx.fillStyle = bg
+  ctx.globalAlpha = hovered ? 1 : 0.78
+  ctx.fillStyle = hovered ? '#e5e7eb' : color
   ctx.fill()
-  ctx.font = '18px Arial, sans-serif'
+  if (hovered) {
+    ctx.globalAlpha = 0.85
+    ctx.lineWidth = 2
+    ctx.strokeStyle = color
+    ctx.stroke()
+  }
+  ctx.globalAlpha = 1
+  ctx.font = `${label.length > 1 ? 14 : 18}px Arial, sans-serif`
   ctx.textAlign = 'center'
-  ctx.fillStyle = '#ffffff'
-  ctx.fillText(letter, 32, 41)
+  ctx.fillStyle = hovered ? '#24272b' : '#ffffff'
+  ctx.fillText(label, 32, 41)
   return new THREE.CanvasTexture(canvas)
 }
 
 const GIZMO_AXES: {
+  key: string
+  axis: 'x' | 'y' | 'z'
+  sign: 1 | -1
   letter: string
   color: string
   pos: [number, number, number]
-  lineRotation: [number, number, number]
 }[] = [
-  { letter: 'X', color: '#f87171', pos: [1, 0, 0], lineRotation: [0, 0, 0] },
-  { letter: 'Y', color: '#4ade80', pos: [0, 1, 0], lineRotation: [0, 0, Math.PI / 2] },
-  { letter: 'Z', color: '#60a5fa', pos: [0, 0, 1], lineRotation: [0, -Math.PI / 2, 0] },
+  { key: 'x+', axis: 'x', sign: 1, letter: 'X', color: '#f87171', pos: [1, 0, 0] },
+  { key: 'x-', axis: 'x', sign: -1, letter: '−X', color: '#f87171', pos: [-1, 0, 0] },
+  { key: 'y+', axis: 'y', sign: 1, letter: 'Y', color: '#4ade80', pos: [0, 1, 0] },
+  { key: 'y-', axis: 'y', sign: -1, letter: '−Y', color: '#4ade80', pos: [0, -1, 0] },
+  { key: 'z+', axis: 'z', sign: 1, letter: 'Z', color: '#60a5fa', pos: [0, 0, 1] },
+  { key: 'z-', axis: 'z', sign: -1, letter: '−Z', color: '#60a5fa', pos: [0, 0, -1] },
 ]
 
-function AxisLine({ color, rotation }: { color: string; rotation: [number, number, number] }) {
+function AxisLine({ color, axis, sign }: { color: string; axis: 'x' | 'y' | 'z'; sign: 1 | -1 }) {
+  const rotation: [number, number, number] = axis === 'x'
+    ? [0, 0, sign < 0 ? Math.PI : 0]
+    : axis === 'y'
+      ? [0, 0, sign < 0 ? -Math.PI / 2 : Math.PI / 2]
+      : [0, sign < 0 ? Math.PI / 2 : -Math.PI / 2, 0]
+
   return (
     <group rotation={rotation}>
       <mesh position={[0.4, 0, 0]}>
@@ -516,15 +563,31 @@ function AxisLine({ color, rotation }: { color: string; rotation: [number, numbe
   )
 }
 
-function AxisBubble({ letter, color, pos }: { letter: string; color: string; pos: [number, number, number] }) {
+function AxisBubble({
+  letter,
+  color,
+  pos,
+  showLabel = true,
+}: {
+  letter: string
+  color: string
+  pos: [number, number, number]
+  showLabel?: boolean
+}) {
   const { tweenCamera } = useGizmoContext()
-  const texture = useMemo(() => makeAxisLabelTexture(letter, color), [letter, color])
   const [hovered, setHovered] = useState(false)
+  const labelVisible = showLabel || hovered
+  const texture = useMemo(
+    () => makeAxisLabelTexture(labelVisible ? letter : '', color, hovered),
+    [letter, color, hovered, labelVisible],
+  )
+
+  useEffect(() => () => texture.dispose(), [texture])
 
   return (
     <sprite
       position={pos}
-      scale={hovered ? 1.2 : 1}
+      scale={hovered ? 1.24 : 1}
       onPointerDown={(e) => { tweenCamera(e.object.position); e.stopPropagation() }}
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
       onPointerOut={() => setHovered(false)}
@@ -537,13 +600,69 @@ function AxisBubble({ letter, color, pos }: { letter: string; color: string; pos
 function GizmoBubbles() {
   return (
     <group scale={40}>
-      {GIZMO_AXES.map((axis) => (
-        <AxisLine key={`line-${axis.letter}`} color={axis.color} rotation={axis.lineRotation} />
+      {GIZMO_AXES.filter((axis) => axis.sign > 0).map((axis) => (
+        <AxisLine key={`line-${axis.key}`} color={axis.color} axis={axis.axis} sign={axis.sign} />
       ))}
+      <mesh>
+        <sphereGeometry args={[0.11, 16, 8]} />
+        <meshBasicMaterial color="#a1a1aa" toneMapped={false} />
+      </mesh>
       {GIZMO_AXES.map((axis) => (
-        <AxisBubble key={axis.letter} {...axis} />
+        <AxisBubble
+          key={axis.key}
+          letter={axis.letter}
+          color={axis.color}
+          pos={axis.pos}
+          showLabel={axis.sign > 0}
+        />
       ))}
     </group>
+  )
+}
+
+// Keep the empty viewer useful instead of presenting a dead canvas. This is a
+// lightweight Blender-style starter scene: a perspective grid, origin axes,
+// and the familiar cube/camera/light silhouettes that establish scale and
+// communicate that the viewport is ready for inspection.
+function DefaultViewportScene(): JSX.Element {
+  return (
+    <>
+      <Grid
+        infiniteGrid
+        cellSize={0.5}
+        sectionSize={5}
+        fadeDistance={80}
+        fadeStrength={1.25}
+        cellColor="#363636"
+        sectionColor="#464646"
+        cellThickness={0.5}
+        sectionThickness={1.1}
+      />
+
+      <mesh position={[0, 0.5, 0]} castShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#8d8d8d" roughness={0.72} metalness={0.04} />
+      </mesh>
+
+      <group position={[3.1, 2.3, 2.9]} rotation={[-0.35, 0.7, 0.18]}>
+        <mesh>
+          <boxGeometry args={[0.8, 0.5, 0.42]} />
+          <meshBasicMaterial color="#131313" wireframe toneMapped={false} />
+        </mesh>
+        <mesh position={[0, 0, -0.3]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.22, 0.38, 4]} />
+          <meshBasicMaterial color="#131313" wireframe toneMapped={false} />
+        </mesh>
+      </group>
+
+      <group position={[-2.3, 3.1, 1.2]}>
+        <mesh>
+          <sphereGeometry args={[0.22, 12, 8]} />
+          <meshBasicMaterial color="#171717" wireframe toneMapped={false} />
+        </mesh>
+        <pointLight intensity={0.8} distance={10} />
+      </group>
+    </>
   )
 }
 
@@ -955,22 +1074,6 @@ function ScaleGizmo({ object, onDragStart, onDragEnd }: { object: THREE.Object3D
 }
 
 // ---------------------------------------------------------------------------
-// EmptyState
-// ---------------------------------------------------------------------------
-
-function EmptyState(): JSX.Element {
-  const { t } = useI18n()
-  return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center text-muted-foreground/70">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.75">
-        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-      </svg>
-      <p className="mt-4 text-sm">{t('assets.emptyViewer')}</p>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Viewer3D
 // ---------------------------------------------------------------------------
 
@@ -997,7 +1100,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
   const [meshObject, setMeshObject] = useState<THREE.Object3D | null>(null)
   const [modelLoadPhase, setModelLoadPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'blocked'>('idle')
-  const [interactionReady, setInteractionReady] = useState(false)
   const [modelSizeCheck, setModelSizeCheck] = useState<{
     url: string | null
     status: 'idle' | 'checking' | 'ok' | 'too-large'
@@ -1020,7 +1122,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
   useEffect(() => {
     setModelLoadPhase(modelUrl ? 'loading' : 'idle')
-    setInteractionReady(!modelUrl || isSplat)
     // A new model must start assembled with its part count unknown.
     setSeparation(0)
     setPartCount(0)
@@ -1073,10 +1174,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
   const handleModelLoaded = useCallback(() => {
     setModelLoadPhase('ready')
-  }, [])
-
-  const handleAccelerationReady = useCallback(() => {
-    setInteractionReady(true)
   }, [])
 
   const handleModelError = useCallback(() => {
@@ -1203,12 +1300,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
       fallback={<ModelLoadError />}
     >
       <div className="relative h-full w-full bg-[#303030]">
-        {/* Keep the workspace grounded even before a model is loaded. The
-            WebGL grid is rendered with the scene once a model exists; this
-            lightweight layer makes the empty state deterministic as well. */}
-        {!modelUrl && <div className="pointer-events-none absolute inset-0 z-0 viewer-empty-grid" aria-hidden="true" />}
-        {!modelUrl && <EmptyState />}
-
         {/* Splat path → fully isolated viewer (mkkellogg, outside R3F) */}
         {modelUrl && isSplat && splatUrl ? (
           <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">{t('assets.loadingSplat')}</div>}>
@@ -1240,9 +1331,10 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <Lightformer intensity={0.3 * (lightSettings.envIntensity ?? DEFAULT_LIGHT_SETTINGS.envIntensity)} position={[4, 1, -4]} scale={6} />
           </Environment>
 
-          {modelUrl && <gridHelper args={[10, 20, '#5b5b5b', '#424242']} />}
-          {/* Keep the floor-plane axes visible; the vertical green Y axis is intentionally hidden. */}
-          <axesHelper args={[5]} scale={[1, 0, 1]} />
+          {modelUrl ? <gridHelper args={[10, 20, '#474747', '#383838']} /> : <DefaultViewportScene />}
+          {/* Keep the floor-plane axes visible for loaded models. The empty
+              starter scene also shows the vertical axis to establish depth. */}
+          <axesHelper args={[5]} scale={modelUrl ? [1, 0, 1] : [1, 1, 1]} />
 
           {canRenderMesh && modelUrl && currentJob ? (
             <Selection enabled={selected}>
@@ -1259,7 +1351,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
                   onSelect={() => setSelected(true)}
                   onObject={setMeshObject}
                   onLoaded={handleModelLoaded}
-                  onAccelerationReady={handleAccelerationReady}
                   separation={separation}
                   onPartCount={setPartCount}
                 />
@@ -1319,13 +1410,6 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
                 })}
               </p>
             </div>
-          </div>
-        )}
-
-        {modelUrl && !isSplat && modelLoadPhase === 'ready' && !interactionReady && (
-          <div className="pointer-events-none absolute bottom-10 left-4 z-10 flex items-center gap-2 rounded-lg border border-border/80 bg-card/85 px-2.5 py-1.5 text-[10px] text-muted-foreground backdrop-blur-sm" role="status" aria-live="polite">
-            <span className="h-2.5 w-2.5 animate-spin rounded-full border border-muted border-t-primary" />
-            {t('assets.preparing3DView')}
           </div>
         )}
 

@@ -56,7 +56,7 @@ export function NodePackCard({
   }
 
   return (
-    <Card className="group relative flex min-h-[210px] flex-col overflow-hidden rounded-lg bg-card p-4 shadow-none transition-all duration-150 hover:border-primary/35 hover:shadow-lg">
+    <Card className="group relative flex min-h-[210px] flex-col overflow-hidden rounded-lg bg-card p-4 shadow-none transition-colors duration-150 hover:border-primary/35 hover:bg-muted/30">
       <button
         type="button"
         className="absolute inset-0 z-10 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -65,7 +65,7 @@ export function NodePackCard({
       />
 
       <div className="flex items-center gap-3">
-        <div className={`h-10 w-10 shrink-0 rounded-lg border border-border bg-muted p-2.5 ${isModel ? 'text-primary' : 'text-sky-400'}`}>
+        <div className={`h-10 w-10 shrink-0 rounded-md bg-muted p-2.5 ${isModel ? 'text-primary' : 'text-sky-400'}`}>
           {isModel ? ICONS.spark : ICONS.cube}
         </div>
         <div className="min-w-0 flex-1">
@@ -99,7 +99,7 @@ export function NodePackCard({
             return (
               <div
                 key={node.id}
-                className="flex items-center justify-between gap-2.5 rounded-md border border-border/70 bg-muted/25 px-2.5 py-1.5"
+                className="flex items-center justify-between gap-2.5 rounded-md bg-muted/45 px-2.5 py-1.5"
               >
                 <div className="flex min-w-0 flex-col items-start gap-1">
                   <span className="max-w-full truncate text-xs font-medium text-foreground">{localizedNodeName(node, language)}</span>

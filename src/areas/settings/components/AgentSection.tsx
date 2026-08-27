@@ -70,20 +70,22 @@ export function AgentSection(): JSX.Element {
   function renderAdvancedPanel(): JSX.Element | null {
     if (subsection === 'runtime') return null
     return (
-      <I18nProvider>
-        {subsection === 'models' && <ModelsConfig embedded onClose={() => setSubsection('runtime')} />}
-        {subsection === 'skills' && (workspaceDir
-          ? <SkillsConfig cwd={workspaceDir} embedded onClose={() => setSubsection('runtime')} />
-          : <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
-        {subsection === 'plugins' && (workspaceDir
-          ? <PluginsConfig cwd={workspaceDir} sessionId={null} embedded onClose={() => setSubsection('runtime')} onReloaded={() => undefined} />
-          : <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
-        {subsection === 'mcp' && (workspaceDir
-          ? <McpConfig cwd={workspaceDir} sessionId={null} onAgentConfigure={() => setSubsection('runtime')} onReloaded={() => undefined} />
-          : <div className="rounded-md border border-border px-4 py-8 text-center text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
-        {subsection === 'archives' && <ArchivedSessionsConfig />}
-        {subsection === 'workspaces' && <HiddenWorkspacesConfig />}
-      </I18nProvider>
+      <div className="flex min-h-[460px] flex-col overflow-hidden rounded-lg border border-divider bg-card/70">
+        <I18nProvider>
+          {subsection === 'models' && <ModelsConfig embedded onClose={() => setSubsection('runtime')} />}
+          {subsection === 'skills' && (workspaceDir
+            ? <SkillsConfig cwd={workspaceDir} embedded onClose={() => setSubsection('runtime')} />
+            : <div className="flex min-h-[460px] items-center justify-center px-4 py-8 text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
+          {subsection === 'plugins' && (workspaceDir
+            ? <PluginsConfig cwd={workspaceDir} sessionId={null} embedded onClose={() => setSubsection('runtime')} onReloaded={() => undefined} />
+            : <div className="flex min-h-[460px] items-center justify-center px-4 py-8 text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
+          {subsection === 'mcp' && (workspaceDir
+            ? <McpConfig cwd={workspaceDir} sessionId={null} onAgentConfigure={() => setSubsection('runtime')} onReloaded={() => undefined} />
+            : <div className="flex min-h-[460px] items-center justify-center px-4 py-8 text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
+          {subsection === 'archives' && <ArchivedSessionsConfig />}
+          {subsection === 'workspaces' && <HiddenWorkspacesConfig />}
+        </I18nProvider>
+      </div>
     )
   }
 
@@ -110,7 +112,7 @@ export function AgentSection(): JSX.Element {
 
   return (
     <SettingsSection title={t('settings.agent')} subtitle={t('settings.agentSubtitle')}>
-      <div className="mb-4 flex flex-wrap gap-1 rounded-lg border border-border bg-card/60 p-1">
+      <div className="mb-4 flex flex-wrap gap-1 rounded-lg border border-divider bg-card/75 p-1">
         {subSections.map((item) => {
           const Icon = item.icon
           return (
@@ -119,7 +121,8 @@ export function AgentSection(): JSX.Element {
               type="button"
               variant={subsection === item.id ? 'secondary' : 'ghost'}
               size="sm"
-              className="gap-1.5"
+              aria-current={subsection === item.id ? 'page' : undefined}
+              className={subsection === item.id ? 'gap-1.5' : 'gap-1.5 text-muted-foreground'}
               onClick={() => setSubsection(item.id)}
             >
               <Icon className="size-3.5" />

@@ -34,6 +34,9 @@
     --destructive: 4 74% 58%;
     --destructive-foreground: 0 0% 98%;
     --border: 220 10% 25%;
+    --ui-border: 220 10% 25%;
+    /* Structural separators stay darker than the control/card border token. */
+    --divider: 220 8% 14%;
     --input: 220 10% 29%;
     --ring: 211 58% 60%;
     --brand-secondary: 198 72% 53%;
@@ -96,7 +99,7 @@
     --bg-panel: hsl(var(--card));
     --bg-hover: hsl(var(--muted));
     --bg-selected: hsl(var(--muted));
-    --border: hsl(var(--border));
+    --divider: 220 8% 14%;
     --text: hsl(var(--foreground));
     --text-muted: hsl(var(--muted-foreground));
     --text-dim: hsl(var(--muted-foreground) / 0.72);
@@ -107,6 +110,11 @@
     --tool-bg: hsl(var(--muted));
     --bg-subtle: hsl(var(--muted) / 0.45);
     --surface: hsl(var(--card));
+    --radius-xs: calc(var(--radius) - 0.2rem);
+    --radius-sm: calc(var(--radius) - 0.1rem);
+    --radius-md: var(--radius);
+    --radius-lg: calc(var(--radius) + 0.1rem);
+    --radius-xl: calc(var(--radius) + 0.2rem);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     color: var(--text);
   }
@@ -122,15 +130,6 @@
        clearly without introducing another border or floating card. */
     background-color: hsl(0 0% 0%);
     background-image: none;
-  }
-  /* Keep the empty 3D workspace useful before a model/WebGL scene is ready. */
-  .viewer-empty-grid {
-    background-color: transparent;
-    background-image:
-      linear-gradient(to right, rgba(91, 91, 91, 0.34) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(91, 91, 91, 0.34) 1px, transparent 1px);
-    background-position: center;
-    background-size: 56px 56px;
   }
   .animate-slide-up {
     animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;

@@ -36,8 +36,8 @@ export default function SettingsPage(): JSX.Element {
   }, [consumeSettingsSection, pendingSection])
 
   return (
-    <div className="flex h-full bg-background">
-      <nav className="flex w-[188px] shrink-0 flex-col gap-1 border-r border-border/45 bg-card/65 px-2 py-3" aria-label={t('settings.title')}>
+    <div className="flex h-full overflow-hidden rounded-lg border border-divider bg-card/20">
+      <nav className="flex w-[188px] shrink-0 flex-col gap-1 border-r border-divider bg-card/65 px-2 py-3" aria-label={t('settings.title')}>
         <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('settings.title')}</p>
         {SECTIONS.map((item) => {
           const Icon = item.icon
@@ -61,7 +61,7 @@ export default function SettingsPage(): JSX.Element {
       </nav>
 
       <main className="flex-1 overflow-y-auto bg-background">
-        <div className="mx-auto max-w-6xl p-5 lg:p-6">
+        <div className="mx-auto max-w-4xl p-5 lg:p-6">
           {section === 'application' && <ApplicationSection />}
           {section === 'agent' && <AgentSection />}
           {section === 'storage' && <StorageSection />}

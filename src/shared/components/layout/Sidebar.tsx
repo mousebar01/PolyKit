@@ -34,7 +34,7 @@ export default function Sidebar(): JSX.Element {
               onClick={() => navigate(item.id)}
               className={cn(
                 'h-12 w-full flex-col gap-1 rounded-md px-1 text-[10px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                active && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary shadow-sm shadow-primary/10',
+                active && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
               )}
             >
               <Icon className="size-[18px]" strokeWidth={1.8} />

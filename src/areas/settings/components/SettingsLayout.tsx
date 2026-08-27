@@ -40,14 +40,14 @@ export function SettingsCard({
   children: ReactNode
 }): JSX.Element {
   return (
-    <Card className="overflow-hidden shadow-none">
+    <Card className="overflow-hidden border-divider bg-card/75">
       {(title || description) && (
-        <CardHeader className="border-b border-border/45 px-5 py-4">
+        <CardHeader className="bg-card/35 px-5 py-4">
           {title && <CardTitle>{title}</CardTitle>}
           {description && <CardDescription>{description}</CardDescription>}
         </CardHeader>
       )}
-      <div className="divide-y divide-border/45">{children}</div>
+      <div className="divide-y divide-divider">{children}</div>
     </Card>
   )
 }

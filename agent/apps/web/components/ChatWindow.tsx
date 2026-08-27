@@ -186,7 +186,7 @@ function SettledProcessDisclosure({
 
 export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true, initialModel, initialToolPreset, initialThinkingLevel, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onChooseProject }: Props) {
   const { t } = useI18n();
-  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
+  const { soundEnabled, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
   const [pendingAnnotations, setPendingAnnotations] = useState<ConversationAnnotation[]>([]);
 
@@ -422,8 +422,6 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
-      soundEnabled={soundEnabled}
-      onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
