@@ -51,10 +51,11 @@
   width: max-content;
   max-width: 280px;
   overflow: hidden;
-  padding: 4px 7px;
-  border: 0;
-  border-radius: 5px;
-  background: var(--bg-panel);
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-soft);
   opacity: 0;
   transform: translateY(-50%);
   pointer-events: none;
@@ -98,16 +99,16 @@
   }
 }
 
-.searchButton{position:absolute;bottom:0;left:0;display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}
-.searchButton:hover,.searchButton[aria-expanded="true"]{color:var(--text);background:var(--bg-hover)}
-.searchPanel{position:absolute;left:34px;bottom:0;width:min(340px,calc(100vw - 72px));overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--bg-panel);box-shadow:0 14px 34px rgba(15,23,42,.14)}
-.searchHeader{display:flex;height:38px;align-items:center;gap:7px;padding:0 8px 0 10px;border-bottom:1px solid var(--border);color:var(--text-dim)}
+.searchButton{position:absolute;bottom:0;left:0;display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center;padding:0;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--text-dim);cursor:pointer}
+.searchButton:hover,.searchButton[aria-expanded="true"]{color:var(--text);border-color:var(--border-soft);background:var(--bg-elevated)}
+.searchPanel{position:absolute;left:36px;bottom:0;width:min(350px,calc(100vw - 76px));overflow:hidden;border:1px solid var(--border-soft);border-radius:var(--radius-md);background:var(--bg-elevated);box-shadow:var(--shadow-float)}
+.searchHeader{display:flex;height:40px;align-items:center;gap:7px;padding:0 8px 0 10px;border-bottom:1px solid var(--border-soft);color:var(--text-dim)}
 .searchHeader input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:12px}
 .searchHeader input::placeholder{color:var(--text-dim)}
 .searchClose{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--text-dim);cursor:pointer}
 .searchClose:hover{color:var(--text);background:var(--bg-hover)}
 .searchResults{max-height:min(420px,56dvh);overflow-y:auto;padding:5px}
-.searchResult{display:flex;width:100%;min-width:0;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;text-align:left}
+.searchResult{display:flex;width:100%;min-width:0;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:var(--radius-sm);background:transparent;color:inherit;cursor:pointer;text-align:left}
 .searchResult:hover,.searchResult[data-selected]{background:var(--bg-hover)}
 .searchResult[data-current]{background:color-mix(in srgb,var(--text) 5%,transparent)}
 .searchResult[data-current] .turnNumber{color:var(--text-muted);font-weight:600}
