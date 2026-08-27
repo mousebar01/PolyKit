@@ -292,13 +292,11 @@ export function ChatMinimap({
   }, [flashTurn, measureTurns, onRevealHistory, scrollContainer]);
 
   const normalizedQuery = normalizeSearchText(query);
-  const searchResults = useMemo(() => {
-    if (!normalizedQuery) return [];
-    return turns
-      .filter((turn) => turn.searchText.includes(normalizedQuery))
-      .slice()
-      .reverse()
-      .slice(0, 20);
+  const displayedTurns = useMemo(() => {
+    const source = normalizedQuery
+      ? turns.filter((turn) => turn.searchText.includes(normalizedQuery))
+      : turns;
+    return source.slice().reverse();
   }, [normalizedQuery, turns]);
 
   useEffect(() => {
@@ -328,28 +326,22 @@ export function ChatMinimap({
       closeSearch();
       return;
     }
-    if (searchResults.length === 0) return;
+    if (displayedTurns.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelectedResult((current) => (current + 1) % searchResults.length);
+      setSelectedResult((current) => (current + 1) % displayedTurns.length);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelectedResult((current) => (current - 1 + searchResults.length) % searchResults.length);
+      setSelectedResult((current) => (current - 1 + displayedTurns.length) % displayedTurns.length);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      activateSearchResult(searchResults[selectedResult] ?? searchResults[0]);
+      activateSearchResult(displayedTurns[selectedResult] ?? displayedTurns[0]);
     }
-  }, [activateSearchResult, closeSearch, searchResults, selectedResult]);
-
-  const resultContext = useCallback((turn: TurnInfo) => {
-    if (!normalizedQuery) return "";
-    const promptMatch = normalizeSearchText(turn.prompt).includes(normalizedQuery);
-    return promptMatch ? turn.prompt : turn.answer;
-  }, [normalizedQuery]);
+  }, [activateSearchResult, closeSearch, displayedTurns, selectedResult]);
 
   if (turns.length === 0) return null;
 
@@ -447,13 +439,11 @@ export function ChatMinimap({
             </button>
           </div>
 
-          <div className={styles.searchResults} role="listbox" aria-label={t("chat.searchResults")}>
-            {!normalizedQuery ? (
-              <div className={styles.searchEmpty}>{t("chat.searchConversationHint")}</div>
-            ) : searchResults.length === 0 ? (
+          <div className={styles.displayedTurns} role="listbox" aria-label={t("chat.displayedTurns")}>
+            {displayedTurns.length === 0 ? (
               <div className={styles.searchEmpty}>{t("i18n.noResults")}</div>
             ) : (
-              searchResults.map((turn, resultIndex) => (
+              displayedTurns.map((turn, resultIndex) => (
                 <button
                   key={turn.index}
                   type="button"
@@ -464,8 +454,8 @@ export function ChatMinimap({
                   onMouseEnter={() => setSelectedResult(resultIndex)}
                   onClick={() => activateSearchResult(turn)}
                 >
+                  <span className={styles.turnNumber}>{turn.index + 1}</span>
                   <span className={styles.searchResultPrompt}>{turn.prompt || t("chat.emptyMessage")}</span>
-                  <span className={styles.searchResultContext}>{resultContext(turn)}</span>
                 </button>
               ))
             )}
