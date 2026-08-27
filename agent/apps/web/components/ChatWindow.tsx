@@ -5,7 +5,7 @@ import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecuti
 import type { ConversationAnnotation } from "@/lib/conversation-annotations";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -106,13 +106,11 @@ function hasDisplayableProcessMessage(message: AgentMessage): boolean {
 }
 
 // A user message normally anchors a turn (user prompt → process → final
-// answer), and the process messages in between get folded into a collapsed
-// ProcessDetailsGroup. When compaction fires mid-turn, pi drops the original
-// user prompt and inserts a compaction summary (role "custom", customType
-// "compaction") in its place; the agent then keeps producing tool calls and a
-// final answer with no user message left to anchor them. Treat a compaction
-// summary as an anchor too, otherwise every post-compaction message renders
-// standalone and never collapses.
+// answer). Process messages remain grouped for turn ordering and minimap refs,
+// but render directly as an always-visible timeline like DSH. When compaction
+// fires mid-turn, pi drops the original user prompt and inserts a compaction
+// summary (role "custom", customType "compaction") in its place; treat that
+// summary as an anchor so the post-compaction work stays with its final answer.
 function isGroupAnchor(message: AgentMessage): boolean {
   if (message.role === "user") return true;
   return message.role === "custom" && (message as CustomMessage).customType === "compaction";
