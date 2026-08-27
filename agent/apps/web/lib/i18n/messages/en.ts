@@ -165,6 +165,7 @@ export const enLocale: LocalePlugin = {
     "chat.waitingModel": "Waiting for model...",
     "chat.runningCommand": "Running command...",
     "chat.thinking": "Thinking...",
+    "chat.deepDiving": "Deep diving...",
     "chat.processDetails": "Process details",
     "chat.working": "Working",
     "chat.scrollToBottom": "Scroll to the bottom",
