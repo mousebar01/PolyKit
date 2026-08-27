@@ -207,6 +207,80 @@ select {
   }
 }
 
+/* Second-pass workstation polish: compact rows, forms, and utility surfaces. */
+.harness-project-row { border-radius: var(--radius-sm); }
+.harness-project-row.is-active {
+  background: var(--bg-selected);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.harness-project-mark { border-radius: var(--radius-xs); }
+.harness-project-menu {
+  border-color: var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-float);
+}
+.harness-project-menu button { border-radius: var(--radius-sm); }
+.sidebar-archive-toast {
+  border-color: var(--border-soft);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: var(--shadow-float);
+}
+.sidebar-context-combo {
+  border-color: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.sidebar-context-zone-project { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.sidebar-context-zone-branch { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.settings-segmented {
+  border-color: var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.settings-segment.is-selected {
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 10%, transparent);
+}
+.settings-group {
+  border-top-color: var(--border-soft);
+}
+.settings-group:last-child { border-bottom-color: var(--border-soft); }
+
+.mcp-adapter-status {
+  margin-top: 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+.mcp-workspace {
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.mcp-server-list {
+  padding: 4px;
+  border-right: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.mcp-server-item { border-radius: var(--radius-sm); }
+.mcp-server-item.is-selected {
+  background: var(--bg-selected);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.mcp-detail {
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.mcp-agent-link,
+.mcp-button,
+.mcp-icon-button { border-radius: var(--radius-sm); }
+
 /* Theme toggle: circular wipe via View Transitions API.
    Disable the UA cross-fade; the actual clip-path animation is driven by
    Element.animate() in hooks/useTheme.ts after transition.ready resolves. */
