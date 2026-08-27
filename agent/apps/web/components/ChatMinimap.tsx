@@ -186,6 +186,7 @@ export function ChatMinimap({
         if (message.role === "user") {
           const elementRect = element?.getBoundingClientRect();
           const indexedTurn = indexedTurns[nextTurns.length];
+          if (!indexedTurn) continue;
           const currentTurn: TurnInfo = {
             ...indexedTurn,
             userMessage: message as UserMessage,
