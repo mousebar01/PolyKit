@@ -18,7 +18,7 @@ function CopyableCode({ value }: { value: string }): JSX.Element {
   const { t } = useI18n()
   return (
     <div className="relative">
-      <pre className="overflow-x-auto whitespace-pre rounded-lg border border-border bg-muted/40 px-4 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+      <pre className="overflow-x-auto whitespace-pre rounded-lg border border-divider bg-muted/40 px-4 py-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
         {value}
       </pre>
       <Button

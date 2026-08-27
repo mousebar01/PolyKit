@@ -466,7 +466,7 @@ export default function AssetLibrarySidebar({
     : t('assets.export')
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider bg-card">
       <div className="shrink-0 bg-card/45 px-3 py-3">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">

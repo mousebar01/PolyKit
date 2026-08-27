@@ -94,7 +94,7 @@ export default function GenerationHUD(): JSX.Element | null {
 
   return (
     <div className="pointer-events-auto absolute bottom-8 left-1/2 z-20 w-[calc(100%-2rem)] max-w-96 -translate-x-1/2 animate-slide-up">
-      <Card className="overflow-hidden border-border bg-card/95 shadow-2xl backdrop-blur-md">
+      <Card className="overflow-hidden border-divider bg-card/95 backdrop-blur-md">
         {isActive && (
           <div className="flex flex-col gap-3 px-5 py-4">
             <div className="flex items-center justify-between gap-4">

@@ -2,7 +2,7 @@ import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, use
 import type { ReactNode, ErrorInfo, MutableRefObject } from 'react'
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
-import { Environment, GizmoHelper, Grid, Lightformer, OrbitControls, useGizmoContext, useGLTF } from '@react-three/drei'
+import { Environment, GizmoHelper, Lightformer, OrbitControls, useGizmoContext, useGLTF } from '@react-three/drei'
 import { EffectComposer, Outline, Select, Selection } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -504,10 +504,7 @@ function makeAxisLabelTexture(label: string, color: string, hovered: boolean): T
     ctx.arc(32, 32, 19, 0, 2 * Math.PI)
     ctx.closePath()
     ctx.fillStyle = 'rgba(244, 246, 249, 0.96)'
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.62)'
-    ctx.shadowBlur = 7
     ctx.fill()
-    ctx.shadowBlur = 0
   }
 
   ctx.beginPath()
@@ -627,17 +624,10 @@ function GizmoBubbles() {
 function DefaultViewportScene(): JSX.Element {
   return (
     <>
-      <Grid
-        infiniteGrid
-        cellSize={0.5}
-        sectionSize={5}
-        fadeDistance={80}
-        fadeStrength={1.25}
-        cellColor="#363636"
-        sectionColor="#464646"
-        cellThickness={0.5}
-        sectionThickness={1.1}
-      />
+      {/* Use the same native Three grid as the loaded-model path. It is
+          reliable in the empty scene too, without Drei's infinite-grid
+          shader depending on a model or camera update. */}
+      <gridHelper args={[50, 50, '#474747', '#363636']} />
 
       <mesh position={[0, 0.5, 0]} castShadow>
         <boxGeometry args={[1, 1, 1]} />
@@ -1389,7 +1379,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
         {modelUrl && modelLoadPhase === 'loading' && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/35">
-            <div className="flex max-w-xs items-center gap-3 rounded-xl border border-primary/20 bg-card/90 px-4 py-3 shadow-2xl shadow-black/30 backdrop-blur-sm" role="status" aria-live="polite">
+            <div className="flex max-w-xs items-center gap-3 rounded-xl border border-divider bg-card/90 px-4 py-3 backdrop-blur-sm" role="status" aria-live="polite">
               <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-muted border-t-primary" />
               <div className="min-w-0">
                 <p className="text-xs font-medium text-foreground">{t('assets.loading3DModel')}</p>
@@ -1401,7 +1391,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
         {modelIsTooLarge && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/25 px-6">
-            <div className="max-w-sm rounded-xl border border-primary/30 bg-card/95 px-5 py-4 text-center shadow-2xl shadow-black/30 backdrop-blur-sm" role="alert">
+            <div className="max-w-sm rounded-xl border border-divider bg-card/95 px-5 py-4 text-center backdrop-blur-sm" role="alert">
               <p className="text-sm font-medium text-foreground">{t('assets.viewerModelTooLarge')}</p>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
                 {t('assets.viewerModelTooLargeHint', {

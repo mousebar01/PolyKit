@@ -185,7 +185,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputStyle = {
   padding: "6px 9px",
   background: "var(--bg-panel)",
-  border: "1px solid var(--border)",
+  border: "1px solid var(--border-soft)",
   borderRadius: 5,
   color: "var(--text)",
   fontSize: 12,
@@ -438,7 +438,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
 
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {discoveryState.phase !== "success" && (
           <button
             onClick={handleDiscoverModels}
@@ -469,11 +469,11 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
               style={{ ...inputStyle, width: "100%", minWidth: 0 }}
             />
 
-            <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)" }}>
+            <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border-soft)", borderRadius: 6, background: "var(--bg-panel)" }}>
               <label
                 style={{
                   minHeight: 32, padding: "5px 9px", display: "flex", alignItems: "center", gap: 8,
-                  position: "sticky", top: 0, zIndex: 1, borderBottom: "1px solid var(--border)",
+                  position: "sticky", top: 0, zIndex: 1, borderBottom: "1px solid var(--border-soft)",
                   background: "var(--bg)", cursor: selectableShownIds.length ? "pointer" : "default",
                   color: "var(--text-muted)", fontSize: 10, fontWeight: 600,
                 }}
@@ -498,7 +498,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
                     key={model.id}
                     style={{
                       minHeight: 36, padding: "6px 9px", display: "flex", alignItems: "center", gap: 8,
-                      borderTop: index === 0 ? "none" : "1px solid var(--border)", cursor: alreadyAdded ? "default" : "pointer",
+                      borderTop: index === 0 ? "none" : "1px solid var(--border-soft)", cursor: alreadyAdded ? "default" : "pointer",
                       opacity: alreadyAdded ? 0.65 : 1,
                     }}
                   >
@@ -967,7 +967,7 @@ function ModelDetail({
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 
-      <div style={{ padding: "10px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ padding: "10px 0", borderTop: "1px solid var(--border-soft)", borderBottom: "1px solid var(--border-soft)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => void handleCatalogFill()}
@@ -1562,7 +1562,7 @@ function AddProviderPicker({
     >
       <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Search */}
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-soft)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -1854,7 +1854,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
   const dialogStyle: React.CSSProperties = embedded
     ? { height: "100%", width: "100%", flex: 1, background: "var(--bg-panel)", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" };
+    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border-soft)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" };
 
   return (
     <>
@@ -1863,7 +1863,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       <div style={dialogStyle}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", background: "var(--bg-elevated)", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border-soft)", background: "var(--bg-elevated)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
              <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
             <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
@@ -1878,8 +1878,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           <div style={{
             width: isMobile ? "100%" : 210,
             maxHeight: isMobile ? "40vh" : undefined,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
+            borderRight: isMobile ? "none" : "1px solid var(--border-soft)",
+            borderBottom: isMobile ? "1px solid var(--border-soft)" : "none",
             display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
@@ -1919,7 +1919,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
               {/* Divider before custom providers, only when there are active managed providers */}
               {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
+                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border-soft)" }} />
               )}
 
               {/* Custom providers */}
@@ -1985,7 +1985,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             </div>
 
             {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
+            <div style={{ borderTop: "1px solid var(--border-soft)", padding: "8px 6px" }}>
               <button onClick={() => setPickerOpen(true)} style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
@@ -2000,17 +2000,21 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           </div>
 
           {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {loading ? null : detailContent ?? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                 {t("i18n.selectProviderModel")}
+          <div style={{ flex: 1, overflowY: "auto", padding: 16, background: "var(--bg-panel)" }}>
+            {loading ? null : (
+              <div className="agent-config-detail-surface">
+                {detailContent ?? (
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
+                     {t("i18n.selectProviderModel")}
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", background: "var(--bg-elevated)", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border-soft)", background: "var(--bg-elevated)", flexShrink: 0 }}>
           {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
           <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
              {t("i18n.cancel")}

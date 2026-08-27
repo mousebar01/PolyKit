@@ -151,6 +151,9 @@ Use surface contrast, spacing, and radius to establish depth. **Do not add shado
 
 Express hierarchy with background, fill, spacing, and radius first. Borders and dividers are state and structure cues, not decoration.
 
+- The outermost application shell must remain borderless. This includes the `MainLayout` shell, the `Router` route wrapper, and page-level viewport roots: do not add a frame, outline, or high-contrast edge around the whole UI. Let the outer background, breathing room, clipping radius, and inner surface contrast define the boundary.
+- Add borders only to meaningful inner surfaces (panels, split panes, cards, controls, or active states) and use the dark `border-divider` token for structural separation.
+
 - Start with the semantic surface stack (`background` → `card` → `muted`) and generous spacing before adding a line.
 - Default cards, rows, and media tiles should have no visible outline when their fill and spacing already separate them.
 - Use a border for selected, focused, disabled, destructive, or otherwise meaningful state; keep it subtle outside the active state.

@@ -104,7 +104,7 @@ export function NodePackDrawer({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[400px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-l-xl border-y-0 border-r-0 border-l-border/60 p-0 shadow-2xl">
+      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[400px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-l-xl border-y-0 border-r-0 border-l-divider bg-card p-0">
         <div className="shrink-0 border-b border-divider px-5 pb-4 pt-5">
           <div className="flex items-center gap-3.5 pr-8">
             <div className={`h-[52px] w-[52px] shrink-0 rounded-lg bg-muted p-3 ${isModel ? 'text-primary' : 'text-sky-400'}`}>

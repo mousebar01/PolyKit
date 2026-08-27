@@ -33,10 +33,13 @@
     --accent-foreground: 220 24% 10%;
     --destructive: 4 74% 58%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 10% 25%;
+    /* Keep the legacy Agent stylesheet's raw var(--border) declarations
+       valid. Tailwind utilities use --ui-border below and remain HSL-based. */
+    --border: hsl(220 10% 25%);
     --ui-border: 220 10% 25%;
     /* Structural separators stay darker than the control/card border token. */
     --divider: 220 8% 14%;
+    --border-soft: hsl(var(--divider));
     --input: 220 10% 29%;
     --ring: 211 58% 60%;
     --brand-secondary: 198 72% 53%;
@@ -99,6 +102,12 @@
     --bg-panel: hsl(var(--card));
     --bg-hover: hsl(var(--muted));
     --bg-selected: hsl(var(--muted));
+    /* The migrated Agent stylesheet uses raw color variables (var(--border))
+       instead of Tailwind's HSL token. Keep those values valid inside the
+       scoped chat surface so the browser never falls back to its bright
+       preflight border color. */
+    --border: hsl(var(--ui-border));
+    --border-soft: hsl(var(--divider));
     --divider: 220 8% 14%;
     --text: hsl(var(--foreground));
     --text-muted: hsl(var(--muted-foreground));

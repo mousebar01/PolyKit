@@ -84,7 +84,7 @@ export default function ServerFileBrowser({ thumbnailBase, onClose, onSelect }: 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="nodrag flex max-h-[440px] w-[calc(100vw-3rem)] max-w-[600px] flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b border-border/45 px-4 py-3 pr-12">
+        <DialogHeader className="shrink-0 border-b border-divider px-4 py-3 pr-12">
           <div className="flex items-center gap-2">
             <Folder className="h-4 w-4 text-primary" aria-hidden="true" />
             <DialogTitle className="text-xs">Server workspace</DialogTitle>
@@ -92,7 +92,7 @@ export default function ServerFileBrowser({ thumbnailBase, onClose, onSelect }: 
           <DialogDescription className="sr-only">Choose a mesh from the server workspace.</DialogDescription>
         </DialogHeader>
 
-        <div className="flex shrink-0 items-center gap-1 border-b border-border/45 px-4 py-2 text-[11px]" aria-label="Workspace path">
+        <div className="flex shrink-0 items-center gap-1 border-b border-divider px-4 py-2 text-[11px]" aria-label="Workspace path">
           <Button
             type="button"
             variant={currentDir === '' ? 'secondary' : 'ghost'}
@@ -159,7 +159,7 @@ export default function ServerFileBrowser({ thumbnailBase, onClose, onSelect }: 
                     title={entry.workspacePath}
                     className="group h-auto flex-col items-stretch gap-1.5 p-2 text-left hover:border-primary/40"
                   >
-                    <span className="relative flex h-14 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40">
+                    <span className="relative flex h-14 items-center justify-center overflow-hidden rounded-md border border-divider bg-muted/40">
                       <Box className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
                       {thumbUrl && (
                         <img
@@ -179,7 +179,7 @@ export default function ServerFileBrowser({ thumbnailBase, onClose, onSelect }: 
           )}
         </div>
 
-        <DialogFooter className="shrink-0 items-center justify-between border-t border-border/45 px-4 py-2.5">
+        <DialogFooter className="shrink-0 items-center justify-between border-t border-divider px-4 py-2.5">
           <span className="mr-auto text-[10px] text-muted-foreground">{entries ? `${entries.length} mesh(es)` : ''}</span>
           <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
         </DialogFooter>

@@ -98,7 +98,7 @@ export function SettingsPathRow({
           </Button>
         )}
       </div>
-      <div className="flex items-center gap-2.5 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+      <div className="flex items-center gap-2.5 rounded-md border border-divider bg-muted/40 px-3 py-2.5">
         <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate font-mono text-xs text-muted-foreground">{value}</span>
       </div>

@@ -34,7 +34,7 @@ function MetricRow({ label, value }: { label: string; value: string }): JSX.Elem
 function GpuDetails({ gpu }: { gpu: SystemGpuResource }): JSX.Element {
   const { t } = useI18n()
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+    <div className="space-y-2 border-t border-divider pt-3 first:border-t-0 first:pt-0">
       <div className="truncate text-xs font-medium text-foreground" title={gpu.name}>
         {gpu.name}
       </div>
@@ -142,7 +142,7 @@ export default function ResourceIndicator({ apiUrl }: { apiUrl: string }): JSX.E
             {snapshot.gpus.map((gpu) => <GpuDetails key={gpu.index} gpu={gpu} />)}
           </div>
         ) : (
-          <div className="border-t border-border pt-3 text-xs text-muted-foreground">
+          <div className="border-t border-divider pt-3 text-xs text-muted-foreground">
             {t('top.gpuUnavailable')}
           </div>
         )}

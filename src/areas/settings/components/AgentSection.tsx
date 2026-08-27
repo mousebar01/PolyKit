@@ -70,7 +70,7 @@ export function AgentSection(): JSX.Element {
   function renderAdvancedPanel(): JSX.Element | null {
     if (subsection === 'runtime') return null
     return (
-      <div className="flex min-h-[460px] flex-col overflow-hidden rounded-lg border border-divider bg-card/70">
+      <div className="agent-chat-root flex min-h-[460px] flex-col overflow-hidden rounded-lg border border-divider bg-card/70">
         <I18nProvider>
           {subsection === 'models' && <ModelsConfig embedded onClose={() => setSubsection('runtime')} />}
           {subsection === 'skills' && (workspaceDir

@@ -49,7 +49,7 @@ export default function BaseNode({
     <div
       ref={rootRef}
       style={autoHeight ? { width: '100%' } : { width: '100%', height: '100%' }}
-      className={`relative flex flex-col rounded-lg border bg-card/95 text-card-foreground shadow-xl backdrop-blur-sm transition-all ${running ? 'border-primary shadow-[0_0_16px_rgba(231,131,29,0.28)] animate-pulse' : selected ? 'border-primary/70' : isDisabled ? 'border-border opacity-50' : 'border-border'}`}
+      className={`relative flex flex-col rounded-lg border bg-card/95 text-card-foreground backdrop-blur-sm transition-colors ${running ? 'border-primary animate-pulse' : selected ? 'border-primary/70' : isDisabled ? 'border-divider opacity-50' : 'border-divider'}`}
     >
       <NodeResizer
         minWidth={minWidth}
@@ -132,10 +132,10 @@ export default function BaseNode({
         )}
       </div>
 
-      {subheader && <div className="shrink-0 border-t border-border/60">{subheader}</div>}
+      {subheader && <div className="shrink-0 border-t border-divider">{subheader}</div>}
 
       {children && (!collapsible || expanded) && (
-        <div className="flex min-h-0 flex-1 flex-col border-t border-border">
+        <div className="flex min-h-0 flex-1 flex-col border-t border-divider">
           {children}
         </div>
       )}

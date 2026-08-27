@@ -41,7 +41,7 @@ test('workflow editor keeps chrome stable while data loads', async () => {
     readFile(new URL('../../shared/stores/workflowsStore.ts', workflowsRoot), 'utf8'),
   ])
 
-  assert.match(page, /<div className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border\/45 bg-card\/55">/)
+  assert.match(page, /<div className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-divider bg-card\/55">/)
   assert.match(page, /loading \? \(/)
   assert.match(store, /loading:\s+true/)
 })

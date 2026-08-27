@@ -42,7 +42,7 @@ export function ViewerToolbar({
   const hasSeparation = canSeparate && onToggleSeparation !== undefined
 
   return (
-    <div className="absolute left-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-lg border border-border bg-card/95 p-2 shadow-xl backdrop-blur-sm">
+    <div className="absolute left-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-lg border border-divider bg-card/95 p-2 backdrop-blur-sm">
       {showViewModes && MODES.map(({ mode, icon, labelKey }) => (
         <ToolbarButton
           key={mode}
@@ -54,7 +54,7 @@ export function ViewerToolbar({
         </ToolbarButton>
       ))}
 
-      {showViewModes && <div className="my-1 border-t border-border" aria-hidden="true" />}
+      {showViewModes && <div className="my-1 border-t border-divider" aria-hidden="true" />}
 
       <ToolbarButton active={autoRotate} label={t('assets.autoRotate')} onClick={onAutoRotate}>
         <RotateCw className="h-4 w-4" />
@@ -66,7 +66,7 @@ export function ViewerToolbar({
 
       {hasSeparation && (
         <>
-          <div className="my-1 w-full border-t border-border/80" aria-hidden="true" />
+          <div className="my-1 w-full border-t border-divider" aria-hidden="true" />
           <ToolbarButton
             active={separationOpen}
             expanded={separationOpen}
@@ -92,7 +92,7 @@ export function ViewerSeparationControl({ separation, onSeparation }: ViewerSepa
 
   return (
     <div id="viewer-separation-control" className="pointer-events-auto absolute bottom-8 left-1/2 z-20 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 animate-slide-up">
-      <Card className="border-primary/25 bg-card/95 px-5 py-4 shadow-2xl backdrop-blur-md">
+      <Card className="border-primary/25 bg-card/95 px-5 py-4 backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between gap-3">
           <span className="text-xs font-medium text-foreground">{t('assets.partSeparation')}</span>
           <span className="font-mono text-xs tabular-nums text-primary">{separation.toFixed(2)}</span>

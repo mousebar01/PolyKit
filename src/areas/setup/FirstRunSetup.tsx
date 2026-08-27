@@ -204,7 +204,7 @@ export default function FirstRunSetup(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-9 shrink-0 items-center border-b border-border/50 px-3">
+      <div className="flex h-9 shrink-0 items-center border-b border-divider px-3">
         <div className="flex items-center">
           <PolyKitWordmark className="text-xs" />
         </div>

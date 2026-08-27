@@ -101,7 +101,7 @@ function ResourceList({ pkg }: { pkg: PluginPackageInfo }) {
         <div
           key={group.kind}
           style={{
-            borderTop: groupIndex === 0 ? "none" : "1px solid var(--border)",
+            borderTop: groupIndex === 0 ? "none" : "1px solid var(--border-soft)",
             paddingTop: groupIndex === 0 ? 0 : 12,
           }}
         >
@@ -269,7 +269,7 @@ function SegmentedScope({
             style={{
               width: 76,
               border: "none",
-              borderRight: scope === "global" ? "1px solid var(--border)" : "none",
+              borderRight: scope === "global" ? "1px solid var(--border-soft)" : "none",
               background: active ? "var(--bg-selected)" : "none",
               color: active ? "var(--text)" : "var(--text-muted)",
               cursor: disabled ? "not-allowed" : "pointer",
@@ -756,7 +756,7 @@ export function PluginsConfig({
 
   const dialogStyle: React.CSSProperties = embedded
     ? { height: "100%", width: "100%", flex: 1, background: "var(--bg-panel)", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "76vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden" };
+    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "76vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border-soft)", borderRadius: 8, display: "flex", flexDirection: "column", overflow: "hidden" };
 
   return (
     <div
@@ -772,7 +772,7 @@ export function PluginsConfig({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "12px 18px",
-            borderBottom: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border-soft)",
             background: "var(--bg-elevated)",
             flexShrink: 0,
           }}
@@ -817,7 +817,7 @@ export function PluginsConfig({
             role="status"
             style={{
               padding: "8px 18px",
-              borderBottom: "1px solid var(--border)",
+              borderBottom: "1px solid var(--border-soft)",
               background: "var(--bg-panel)",
               color: "var(--text-muted)",
               fontSize: 12,
@@ -832,8 +832,8 @@ export function PluginsConfig({
             style={{
               width: isMobile ? "100%" : 245,
               maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
+              borderRight: isMobile ? "none" : "1px solid var(--border-soft)",
+              borderBottom: isMobile ? "1px solid var(--border-soft)" : "none",
               display: "flex",
               flexDirection: "column",
               flexShrink: 0,
@@ -952,7 +952,7 @@ export function PluginsConfig({
                 ))
               )}
             </div>
-            <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+            <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border-soft)", flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={() => {
@@ -998,43 +998,47 @@ export function PluginsConfig({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {addMode ? (
-              <AddPluginPanel
-                cwd={cwd}
-                source={installSource}
-                scope={installScope}
-                projectResourcesLoaded={projectResourcesLoaded}
-                busy={addBusy}
-                actionError={actionError}
-                onSourceChange={setInstallSource}
-                onScopeChange={setInstallScope}
-                onInstall={installPlugin}
-              />
-            ) : loading ? null : selectedPackage ? (
-              <PackageDetail
-                key={packageKey(selectedPackage)}
-                pkg={selectedPackage}
-                cwd={cwd}
-                busyKey={busyKey}
-                actionError={actionError}
-                actionMessage={actionMessage}
-                sessionId={sessionId}
-                onAction={runAction}
-                onReloadSession={reloadSession}
-              />
-            ) : (
-              <div
-                style={{
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-dim)",
-                  fontSize: 13,
-                }}
-              >
-                {t("i18n.selectPackage")}
+          <div style={{ flex: 1, overflowY: "auto", padding: 16, background: "var(--bg-panel)" }}>
+            {loading ? null : (
+              <div className="agent-config-detail-surface">
+                {addMode ? (
+                  <AddPluginPanel
+                    cwd={cwd}
+                    source={installSource}
+                    scope={installScope}
+                    projectResourcesLoaded={projectResourcesLoaded}
+                    busy={addBusy}
+                    actionError={actionError}
+                    onSourceChange={setInstallSource}
+                    onScopeChange={setInstallScope}
+                    onInstall={installPlugin}
+                  />
+                ) : selectedPackage ? (
+                  <PackageDetail
+                    key={packageKey(selectedPackage)}
+                    pkg={selectedPackage}
+                    cwd={cwd}
+                    busyKey={busyKey}
+                    actionError={actionError}
+                    actionMessage={actionMessage}
+                    sessionId={sessionId}
+                    onAction={runAction}
+                    onReloadSession={reloadSession}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--text-dim)",
+                      fontSize: 13,
+                    }}
+                  >
+                    {t("i18n.selectPackage")}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1047,7 +1051,7 @@ export function PluginsConfig({
             justifyContent: "space-between",
             gap: 12,
             padding: "10px 18px",
-            borderTop: "1px solid var(--border)",
+            borderTop: "1px solid var(--border-soft)",
             flexShrink: 0,
           }}
         >

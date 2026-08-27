@@ -114,9 +114,9 @@ export function IOBadge({ node }: { node: NodePackNode }): JSX.Element {
 }
 
 const LED_TONES = {
-  green: 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.12)]',
-  amber: 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.12)]',
-  brand: 'bg-primary shadow-[0_0_0_3px_rgba(93,148,217,0.18)] animate-pulse',
+  green: 'bg-emerald-400',
+  amber: 'bg-amber-400',
+  brand: 'bg-primary animate-pulse',
 } as const
 
 const TEXT_TONES = {

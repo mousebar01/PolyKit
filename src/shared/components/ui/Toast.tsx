@@ -22,9 +22,9 @@ export function Toast(): JSX.Element {
       theme="dark"
       toastOptions={{
         classNames: {
-          toast: 'border-border bg-popover text-popover-foreground',
+          toast: 'border-divider bg-popover text-popover-foreground',
           description: 'text-muted-foreground',
-          closeButton: 'border-border bg-background text-muted-foreground',
+          closeButton: 'border-divider bg-background text-muted-foreground',
         },
       }}
     />

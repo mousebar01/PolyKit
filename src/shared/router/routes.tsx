@@ -10,14 +10,12 @@ const SettingsPage   = lazy(() => import('@areas/settings/SettingsPage'))
 export interface RouteConfig {
   component:    React.ComponentType
   wrapperClass: string
-  /** Split-pane pages own their panel boundaries and should not get a second shell frame. */
-  frame?:        boolean
 }
 
 export const ROUTES: Record<Page, RouteConfig> = {
-  assets:    { component: AssetsPage,    wrapperClass: 'flex min-h-0 flex-1 overflow-hidden', frame: false },
-  workflows: { component: WorkflowsPage, wrapperClass: 'flex min-h-0 flex-1 overflow-hidden', frame: false },
-  nodePacks: { component: NodePacksPage,  wrapperClass: 'min-h-0 flex-1 overflow-y-auto',      frame: true  },
-  agent:     { component: AgentPage,      wrapperClass: 'min-h-0 flex-1 overflow-hidden',      frame: true  },
-  settings:  { component: SettingsPage,  wrapperClass: 'min-h-0 flex-1 overflow-hidden', frame: false },
+  assets:    { component: AssetsPage,    wrapperClass: 'flex min-h-0 flex-1 overflow-hidden' },
+  workflows: { component: WorkflowsPage, wrapperClass: 'flex min-h-0 flex-1 overflow-hidden' },
+  nodePacks: { component: NodePacksPage,  wrapperClass: 'min-h-0 flex-1 overflow-y-auto' },
+  agent:     { component: AgentPage,      wrapperClass: 'min-h-0 flex-1 overflow-hidden' },
+  settings:  { component: SettingsPage,  wrapperClass: 'min-h-0 flex-1 overflow-hidden' },
 }

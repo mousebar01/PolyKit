@@ -396,7 +396,7 @@ export default function NodePacksPage(): JSX.Element {
     return (
       <div className="relative flex h-full flex-col overflow-hidden bg-background">
         <div className="flex min-h-0 flex-1 items-center justify-center">
-          <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm" role="status" aria-live="polite">
+          <div className="flex items-center gap-2.5 rounded-lg border border-divider bg-card px-3 py-2 text-xs text-muted-foreground" role="status" aria-live="polite">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted border-t-primary" />
             {t('common.loading')}
           </div>
@@ -524,7 +524,7 @@ export default function NodePacksPage(): JSX.Element {
             )}
 
             {isInstalling && installProgress?.step === 'setting_up' && (
-              <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
+              <div className="flex flex-col gap-2 rounded-md border border-divider bg-muted/30 px-3 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
@@ -587,7 +587,7 @@ export default function NodePacksPage(): JSX.Element {
                   </span>
                   <h2 className="text-[13px] font-semibold tracking-wide text-foreground">{t('nodePacks.processors')}</h2>
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{processList.length}</Badge>
-                  <span className="h-px flex-1 bg-border/45" />
+                  <span className="h-px flex-1 bg-divider" />
                 </div>}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {processList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
@@ -602,7 +602,7 @@ export default function NodePacksPage(): JSX.Element {
                   </span>
                   <h2 className="text-[13px] font-semibold tracking-wide text-foreground">{t('nodePacks.models')}</h2>
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{modelList.length}</Badge>
-                  <span className="h-px flex-1 bg-border/45" />
+                  <span className="h-px flex-1 bg-divider" />
                 </div>}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {modelList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
@@ -655,7 +655,7 @@ export default function NodePacksPage(): JSX.Element {
                 const id = `${uninstallTarget}/${variant.id}`
                 const checked = modelsToDelete.has(id)
                 return (
-                  <label key={variant.id} className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border bg-muted/25 px-3 py-2 hover:bg-muted/40">
+                  <label key={variant.id} className="flex cursor-pointer items-center gap-2.5 rounded-md border border-divider bg-muted/25 px-3 py-2 hover:bg-muted/40">
                     <input
                       type="checkbox"
                       checked={checked}

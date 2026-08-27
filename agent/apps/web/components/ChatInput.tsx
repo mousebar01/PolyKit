@@ -1513,8 +1513,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 : "color-mix(in srgb, var(--border) 88%, transparent)"}`,
               borderRadius: 14,
               padding: "10px 10px 10px 14px",
-              boxShadow: "0 2px 5px rgba(0,0,0,0.18), 0 12px 28px -16px rgba(0,0,0,0.42), inset 0 1px 0 hsl(var(--foreground) / 0.05)",
-              transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+              transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >
           <AnnotationDraftShelf
@@ -1634,8 +1633,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length || annotations.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
-                transition: "background 0.15s, box-shadow 0.15s",
+                transition: "background 0.15s",
               }}
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

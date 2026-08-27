@@ -536,7 +536,7 @@ function AddSkillPanel({
                   fontWeight: scope === s ? 600 : 400,
                   opacity: s === "project" && !projectResourcesLoaded ? 0.45 : 1,
                   borderRight:
-                    s === "global" ? "1px solid var(--border)" : "none",
+                    s === "global" ? "1px solid var(--border-soft)" : "none",
                 }}
               >
                 {s}
@@ -590,7 +590,7 @@ function AddSkillPanel({
                   alignItems: "center",
                   gap: 14,
                   padding: "12px 0",
-                  borderBottom: "1px solid var(--border)",
+                  borderBottom: "1px solid var(--border-soft)",
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -901,7 +901,7 @@ export function SkillsConfig({
 
   const dialogStyle: React.CSSProperties = embedded
     ? { height: "100%", width: "100%", flex: 1, background: "var(--bg-panel)", display: "flex", flexDirection: "column", overflow: "hidden" }
-    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" };
+    : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border-soft)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" };
 
   return (
     <div
@@ -918,7 +918,7 @@ export function SkillsConfig({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "12px 18px",
-            borderBottom: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border-soft)",
             background: "var(--bg-elevated)",
             flexShrink: 0,
           }}
@@ -966,7 +966,7 @@ export function SkillsConfig({
             role="status"
             style={{
               padding: "8px 18px",
-              borderBottom: "1px solid var(--border)",
+              borderBottom: "1px solid var(--border-soft)",
               background: "var(--bg-panel)",
               color: "var(--text-muted)",
               fontSize: 12,
@@ -983,8 +983,8 @@ export function SkillsConfig({
             style={{
               width: isMobile ? "100%" : 210,
               maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
+              borderRight: isMobile ? "none" : "1px solid var(--border-soft)",
+              borderBottom: isMobile ? "1px solid var(--border-soft)" : "none",
               display: "flex",
               flexDirection: "column",
               flexShrink: 0,
@@ -1207,7 +1207,7 @@ export function SkillsConfig({
             <div
               style={{
                 padding: "8px 6px",
-                borderTop: "1px solid var(--border)",
+                borderTop: "1px solid var(--border-soft)",
                 flexShrink: 0,
               }}
             >
@@ -1251,62 +1251,66 @@ export function SkillsConfig({
           </div>
 
           {/* Right: detail or add panel */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {addMode ? (
-              <AddSkillPanel
-                cwd={cwd}
-                projectResourcesLoaded={projectResourcesLoaded}
-                installedPackages={{
-                  global: new Set(
-                    skills
-                      .filter((skill) => skill.install?.scope === "global")
-                      .map((skill) => skill.install!.package),
-                  ),
-                  project: new Set(
-                    skills
-                      .filter((skill) => skill.install?.scope === "project")
-                      .map((skill) => skill.install!.package),
-                  ),
-                }}
-                onInstalled={() => {
-                  void loadSkills();
-                }}
-              />
-            ) : loading ? null : selectedSkill ? (
-              <SkillDetail
-                key={selectedSkill.filePath}
-                skill={selectedSkill}
-                cwd={cwd}
-                onToggle={toggle}
-                toggling={toggling.has(selectedSkill.filePath)}
-                saveError={saveError}
-                updateStatus={
-                  updateKey(selectedSkill)
-                    ? updateStatuses[updateKey(selectedSkill)!]
-                    : undefined
-                }
-                checkingUpdate={
-                  updateKey(selectedSkill)
-                    ? checkingUpdates.has(updateKey(selectedSkill)!)
-                    : false
-                }
-                updating={updatingSkill === updateKey(selectedSkill)}
-                updateError={updateError}
-                onCheckUpdate={() => void checkForUpdates(selectedSkill)}
-                onUpdate={() => void updateInstalledSkill(selectedSkill)}
-              />
-            ) : (
-              <div
-                style={{
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-dim)",
-                  fontSize: 13,
-                }}
-              >
-                 {t("i18n.selectSkill")}
+          <div style={{ flex: 1, overflowY: "auto", padding: 16, background: "var(--bg-panel)" }}>
+            {loading ? null : (
+              <div className="agent-config-detail-surface">
+                {addMode ? (
+                  <AddSkillPanel
+                    cwd={cwd}
+                    projectResourcesLoaded={projectResourcesLoaded}
+                    installedPackages={{
+                      global: new Set(
+                        skills
+                          .filter((skill) => skill.install?.scope === "global")
+                          .map((skill) => skill.install!.package),
+                      ),
+                      project: new Set(
+                        skills
+                          .filter((skill) => skill.install?.scope === "project")
+                          .map((skill) => skill.install!.package),
+                      ),
+                    }}
+                    onInstalled={() => {
+                      void loadSkills();
+                    }}
+                  />
+                ) : selectedSkill ? (
+                  <SkillDetail
+                    key={selectedSkill.filePath}
+                    skill={selectedSkill}
+                    cwd={cwd}
+                    onToggle={toggle}
+                    toggling={toggling.has(selectedSkill.filePath)}
+                    saveError={saveError}
+                    updateStatus={
+                      updateKey(selectedSkill)
+                        ? updateStatuses[updateKey(selectedSkill)!]
+                        : undefined
+                    }
+                    checkingUpdate={
+                      updateKey(selectedSkill)
+                        ? checkingUpdates.has(updateKey(selectedSkill)!)
+                        : false
+                    }
+                    updating={updatingSkill === updateKey(selectedSkill)}
+                    updateError={updateError}
+                    onCheckUpdate={() => void checkForUpdates(selectedSkill)}
+                    onUpdate={() => void updateInstalledSkill(selectedSkill)}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--text-dim)",
+                      fontSize: 13,
+                    }}
+                  >
+                     {t("i18n.selectSkill")}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1319,7 +1323,7 @@ export function SkillsConfig({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "10px 18px",
-            borderTop: "1px solid var(--border)",
+            borderTop: "1px solid var(--border-soft)",
             flexShrink: 0,
           }}
         >
