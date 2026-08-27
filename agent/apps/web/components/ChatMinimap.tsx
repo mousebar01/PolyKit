@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type RefObject,
 } from "react";
 import { Search, X } from "lucide-react";
@@ -320,7 +321,7 @@ export function ChatMinimap({
     jumpTo(turn);
   }, [closeSearch, jumpTo]);
 
-  const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeSearch();
