@@ -621,12 +621,34 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                let assistantIdentity: string | undefined;
+                if (msg.role === "assistant" && !options.processDetails && hasFinalAssistantAnswer(msg)) {
+                  const assistant = msg as AssistantMessage;
+                  let previousFinalAssistant: AssistantMessage | null = null;
+                  for (let previousIdx = idx - 1; previousIdx >= 0; previousIdx--) {
+                    const previous = messages[previousIdx];
+                    if (previous.role === "assistant" && hasFinalAssistantAnswer(previous)) {
+                      previousFinalAssistant = previous as AssistantMessage;
+                      break;
+                    }
+                  }
+                  const identityChanged = previousFinalAssistant === null
+                    || previousFinalAssistant.provider !== assistant.provider
+                    || previousFinalAssistant.model !== assistant.model;
+                  if (identityChanged) {
+                    assistantIdentity = modelList.find((model) => (
+                      model.provider === assistant.provider && model.id === assistant.model
+                    ))?.name ?? modelNames[assistant.model] ?? assistant.model;
+                  }
+                }
+
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
+                    assistantIdentity={assistantIdentity}
                     entryId={entryIds[idx]}
                     onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
