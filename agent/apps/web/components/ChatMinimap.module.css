@@ -4,7 +4,7 @@
   left: 8px;
   z-index: 30;
   display: flex;
-  width: 36px;
+  width: 28px;
   height: 72%;
   min-height: 180px;
   max-height: 720px;
@@ -20,8 +20,8 @@
   top: 50%;
   left: 0;
   z-index: 1;
-  width: 36px;
-  height: 14px;
+  width: 28px;
+  height: 16px;
   min-height: 4px;
   padding: 0;
   border: 0;
@@ -45,58 +45,37 @@
 .preview {
   position: absolute;
   top: 50%;
-  left: 42px;
-  display: flex;
-  width: 0;
-  height: 0;
+  left: 26px;
+  display: block;
+  width: max-content;
+  max-width: 280px;
   overflow: hidden;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
   background: var(--bg-panel);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
   opacity: 0;
   transform: translateY(-50%);
   pointer-events: none;
   text-align: left;
-  transition: width 180ms ease-out, height 180ms ease-out, padding 180ms ease-out, opacity 120ms ease-out;
+  transition: opacity 100ms ease-out, transform 100ms ease-out;
 }
 
 .preview[data-open="true"] {
-  width: 250px;
-  height: 100px;
-  padding: 9px 11px;
-  border-color: var(--border);
   opacity: 1;
-}
-
-.prompt,
-.reply {
-  display: -webkit-box;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  letter-spacing: 0;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
+  transform: translateY(-50%) translateX(2px);
 }
 
 .prompt {
-  flex: 0 0 auto;
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.reply {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 400;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tickButton:focus-visible {
@@ -112,9 +91,4 @@
   .preview {
     transition: none;
   }
-}
-
-/* Active (current scroll position) tick */
-.tickButton[aria-current="true"] .tick {
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
 }
