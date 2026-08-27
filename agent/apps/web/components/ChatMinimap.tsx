@@ -8,8 +8,12 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { Search, X } from "lucide-react";
+import { useI18n } from "@/hooks/useI18n";
+import { splitFinalAssistantBlocks } from "@/lib/message-display";
 import type {
   AgentMessage,
+  AssistantMessage,
   TextContent,
   UserMessage,
 } from "@/lib/types";
@@ -25,23 +29,57 @@ interface Props {
 
 interface TurnInfo {
   userMessage: UserMessage;
+  prompt: string;
+  answer: string;
+  searchText: string;
   scrollTop: number | null;
+  element: HTMLDivElement | null;
   index: number;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function getFinalAnswerText(message: AgentMessage | Partial<AgentMessage>): string {
+  if (message.role !== "assistant") return "";
+  const { answerBlocks } = splitFinalAssistantBlocks(message as AssistantMessage);
+  return answerBlocks
+    .filter((block): block is TextContent => block.type === "text")
+    .map((block) => block.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function createTurns(
   allMessages: Array<AgentMessage | Partial<AgentMessage>>,
 ): TurnInfo[] {
   const turns: TurnInfo[] = [];
+  let currentTurn: TurnInfo | null = null;
+
   for (const message of allMessages) {
     if (message.role === "user") {
-      const currentTurn: TurnInfo = {
-        userMessage: message as UserMessage,
+      const userMessage = message as UserMessage;
+      const prompt = getMessageText(userMessage);
+      currentTurn = {
+        userMessage,
+        prompt,
+        answer: "",
+        searchText: normalizeSearchText(prompt),
         scrollTop: null,
+        element: null,
         index: turns.length,
       };
       turns.push(currentTurn);
       continue;
+    }
+
+    if (message.role === "assistant" && currentTurn) {
+      const answer = getFinalAnswerText(message);
+      if (!answer) continue;
+      currentTurn.answer = [currentTurn.answer, answer].filter(Boolean).join(" ");
+      currentTurn.searchText = normalizeSearchText(`${currentTurn.prompt} ${currentTurn.answer}`);
     }
   }
 
@@ -90,9 +128,14 @@ export function ChatMinimap({
   );
   const [turns, setTurns] = useState<TurnInfo[]>(() => createTurns(allMessages));
   const [activeIndex, setActiveIndex] = useState(0);
+  const { t } = useI18n();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selectedResult, setSelectedResult] = useState(0);
   const [navHeight, setNavHeight] = useState(300);
   const navRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const turnsRef = useRef<TurnInfo[]>([]);
   const measureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeLockRef = useRef<{ index: number; until: number } | null>(null);
@@ -140,11 +183,14 @@ export function ChatMinimap({
 
         if (message.role === "user") {
           const elementRect = element?.getBoundingClientRect();
+          const indexedTurn = createTurns(allMessagesRef.current)[nextTurns.length];
           const currentTurn: TurnInfo = {
+            ...indexedTurn,
             userMessage: message as UserMessage,
             scrollTop: elementRect
               ? elementRect.top - containerRect.top + scrollEl.scrollTop
               : null,
+            element,
             index: nextTurns.length,
           };
           nextTurns.push(currentTurn);
@@ -166,6 +212,10 @@ export function ChatMinimap({
           top: Math.max(0, pendingTurn.scrollTop - scrollEl.clientHeight * 0.3),
           behavior: "smooth",
         });
+        window.setTimeout(() => {
+          pendingTurn.element?.classList.add(styles.searchTarget);
+          window.setTimeout(() => pendingTurn.element?.classList.remove(styles.searchTarget), 900);
+        }, 280);
       }
     }, 100);
   }, [messageRefs, scrollContainer, syncActiveTurn]);
@@ -212,6 +262,14 @@ export function ChatMinimap({
     }
   }, []);
 
+  const flashTurn = useCallback((turn: TurnInfo) => {
+    if (!turn.element) return;
+    turn.element.classList.remove(styles.searchTarget);
+    void turn.element.offsetWidth;
+    turn.element.classList.add(styles.searchTarget);
+    window.setTimeout(() => turn.element?.classList.remove(styles.searchTarget), 900);
+  }, []);
+
   const jumpTo = useCallback((turn: TurnInfo) => {
     const scrollEl = scrollContainer.current;
     if (!scrollEl) return;
@@ -227,7 +285,68 @@ export function ChatMinimap({
       top: Math.max(0, turn.scrollTop - scrollEl.clientHeight * 0.3),
       behavior: "smooth",
     });
-  }, [measureTurns, onRevealHistory, scrollContainer]);
+    window.setTimeout(() => flashTurn(turn), 280);
+  }, [flashTurn, measureTurns, onRevealHistory, scrollContainer]);
+
+  const normalizedQuery = normalizeSearchText(query);
+  const searchResults = useMemo(() => {
+    if (!normalizedQuery) return [];
+    return turns
+      .filter((turn) => turn.searchText.includes(normalizedQuery))
+      .slice()
+      .reverse()
+      .slice(0, 20);
+  }, [normalizedQuery, turns]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    setSelectedResult(0);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchOpen]);
+
+  useEffect(() => {
+    setSelectedResult(0);
+  }, [normalizedQuery]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+    setSelectedResult(0);
+  }, []);
+
+  const activateSearchResult = useCallback((turn: TurnInfo) => {
+    closeSearch();
+    jumpTo(turn);
+  }, [closeSearch, jumpTo]);
+
+  const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
+    if (searchResults.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedResult((current) => (current + 1) % searchResults.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedResult((current) => (current - 1 + searchResults.length) % searchResults.length);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      activateSearchResult(searchResults[selectedResult] ?? searchResults[0]);
+    }
+  }, [activateSearchResult, closeSearch, searchResults, selectedResult]);
+
+  const resultContext = useCallback((turn: TurnInfo) => {
+    if (!normalizedQuery) return "";
+    const promptMatch = normalizeSearchText(turn.prompt).includes(normalizedQuery);
+    return promptMatch ? turn.prompt : turn.answer;
+  }, [normalizedQuery]);
 
   if (turns.length === 0) return null;
 
@@ -243,9 +362,10 @@ export function ChatMinimap({
     <nav
       ref={navRef}
       className={styles.navigator}
-      aria-label="Message navigation"
+      aria-label={t("chat.turnNavigation")}
       onMouseLeave={() => setHoveredIndex(null)}
     >
+      <div className={styles.tickRail}>
       {windowTurns.map((turn, offset) => {
         const index = windowState.startIndex + offset;
         const isActive = index === windowState.centerIndex;
@@ -293,6 +413,62 @@ export function ChatMinimap({
           </button>
         );
       })}
+      </div>
+
+      <button
+        type="button"
+        className={styles.searchButton}
+        aria-label={t("chat.searchConversation")}
+        title={t("chat.searchConversation")}
+        aria-expanded={searchOpen}
+        onClick={() => setSearchOpen((open) => !open)}
+      >
+        <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+
+      {searchOpen && (
+        <div className={styles.searchPanel}>
+          <div className={styles.searchHeader}>
+            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder={t("chat.searchConversationPlaceholder")}
+              aria-label={t("chat.searchConversation")}
+            />
+            <button type="button" onClick={closeSearch} aria-label={t("chat.close")} className={styles.searchClose}>
+              <X size={14} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className={styles.searchResults} role="listbox" aria-label={t("chat.searchResults")}>
+            {!normalizedQuery ? (
+              <div className={styles.searchEmpty}>{t("chat.searchConversationHint")}</div>
+            ) : searchResults.length === 0 ? (
+              <div className={styles.searchEmpty}>{t("i18n.noResults")}</div>
+            ) : (
+              searchResults.map((turn, resultIndex) => (
+                <button
+                  key={turn.index}
+                  type="button"
+                  role="option"
+                  aria-selected={resultIndex === selectedResult}
+                  className={styles.searchResult}
+                  data-selected={resultIndex === selectedResult || undefined}
+                  onMouseEnter={() => setSelectedResult(resultIndex)}
+                  onClick={() => activateSearchResult(turn)}
+                >
+                  <span className={styles.searchResultPrompt}>{turn.prompt || t("chat.emptyMessage")}</span>
+                  <span className={styles.searchResultContext}>{resultContext(turn)}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
