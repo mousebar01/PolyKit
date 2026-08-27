@@ -1,7 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ['class'],
-  content: ['./src/**/*.{ts,tsx,html}'],
+  content: [
+    './src/**/*.{ts,tsx,html}',
+    './agent/apps/web/components/**/*.{ts,tsx}',
+    './agent/apps/web/hooks/**/*.{ts,tsx}',
+    './agent/apps/web/lib/**/*.{ts,tsx}',
+  ],
   theme: {
     container: {
       center: true,
@@ -57,7 +62,7 @@ module.exports = {
           dark: 'hsl(var(--brand-secondary) / 0.72)',
         },
         // Compatibility aliases while feature code migrates to semantic tokens.
-        surface: {
+      surface: {
           50: 'hsl(var(--foreground))',
           100: 'hsl(var(--muted-foreground))',
           200: 'hsl(var(--muted))',
@@ -65,6 +70,21 @@ module.exports = {
           400: 'hsl(var(--background))',
           500: 'hsl(var(--background))',
         },
+      },
+      // Tokens used by the migrated ChatWindow utilities. They are scoped to
+      // .agent-chat-root in the PolyKit stylesheet, so the rest of the app
+      // keeps its own semantic token values.
+      bg: {
+        DEFAULT: 'var(--bg)',
+        panel: 'var(--bg-panel)',
+        hover: 'var(--bg-hover)',
+        selected: 'var(--bg-selected)',
+        subtle: 'var(--bg-subtle)',
+      },
+      text: {
+        DEFAULT: 'var(--text)',
+        muted: 'var(--text-muted)',
+        dim: 'var(--text-dim)',
       },
       borderRadius: {
         lg: 'var(--radius)',

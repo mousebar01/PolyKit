@@ -136,6 +136,47 @@ class RuntimeSettingsTests(unittest.TestCase):
         for key in rs._SOURCE_ENV_KEYS:
             self.assertIsNone(os.environ.get(key))
 
+    def test_agent_settings_default_and_round_trip(self) -> None:
+        defaults = rs.get_agent_settings()
+        self.assertTrue(defaults.enabled)
+        self.assertEqual(defaults.thinking_level, "medium")
+        self.assertEqual(defaults.tool_profile, "blender")
+
+        saved = rs.set_agent_settings(rs.AgentSettings(
+            enabled=False,
+            default_provider="anthropic",
+            default_model="claude-sonnet",
+            thinking_level="high",
+            tool_profile="safe",
+        ))
+        self.assertFalse(saved.enabled)
+        loaded = rs.get_agent_settings()
+        self.assertFalse(loaded.enabled)
+        self.assertEqual(loaded.default_provider, "anthropic")
+        self.assertEqual(loaded.default_model, "claude-sonnet")
+        self.assertEqual(loaded.thinking_level, "high")
+        self.assertEqual(loaded.tool_profile, "safe")
+        self.assertNotIn("session_dir", rs.load_settings()["agent"])
+        self.assertEqual(rs.SETTINGS_FILE.stat().st_mode & 0o777, 0o600)
+
+    def test_agent_settings_ignore_invalid_persisted_values(self) -> None:
+        rs.save_settings({
+            "agent": {
+                "enabled": "false",
+                "thinking_level": "invalid",
+                "tool_profile": "unknown",
+                "default_provider": None,
+            },
+        })
+        settings = rs.get_agent_settings()
+        self.assertTrue(settings.enabled)
+        self.assertEqual(settings.thinking_level, "medium")
+        self.assertEqual(settings.tool_profile, "blender")
+        self.assertEqual(settings.default_provider, "")
+
+        rs.save_settings({"agent": "malformed"})
+        self.assertTrue(rs.get_agent_settings().enabled)
+
     def test_persisted_sources_respect_explicit_env_per_ecosystem(self) -> None:
         rs.save_settings({
             "sources": rs.DownloadSourceConfig(

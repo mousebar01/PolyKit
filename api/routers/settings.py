@@ -11,6 +11,9 @@ from services.run_coordinator import run_coordinator
 from services.runtime_paths import runtime_paths
 from services.runtime_settings import (
     DownloadSourceConfig,
+    AgentSettings,
+    AgentThinkingLevel,
+    AgentToolProfile,
     ProxyConfig,
     get_download_sources,
     get_proxy as get_proxy_config,
@@ -31,6 +34,43 @@ class PathsUpdate(BaseModel):
 
 class TokenUpdate(BaseModel):
     token: str
+
+
+class AgentSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    default_provider: Optional[str] = None
+    default_model: Optional[str] = None
+    thinking_level: Optional[AgentThinkingLevel] = None
+    tool_profile: Optional[AgentToolProfile] = None
+
+
+@router.get("/agent")
+async def get_agent_settings_route():
+    from services.runtime_settings import get_agent_settings
+
+    settings = get_agent_settings()
+    return {
+        **settings.to_dict(),
+        "session_dir": str(runtime_paths.data / "agent" / "sessions"),
+    }
+
+
+@router.post("/agent")
+async def update_agent_settings(body: AgentSettingsUpdate):
+    from services.runtime_settings import get_agent_settings, set_agent_settings
+
+    current = get_agent_settings()
+    settings = set_agent_settings(AgentSettings(
+        enabled=current.enabled if body.enabled is None else body.enabled,
+        default_provider=current.default_provider if body.default_provider is None else body.default_provider,
+        default_model=current.default_model if body.default_model is None else body.default_model,
+        thinking_level=current.thinking_level if body.thinking_level is None else body.thinking_level,
+        tool_profile=current.tool_profile if body.tool_profile is None else body.tool_profile,
+    ))
+    return {
+        **settings.to_dict(),
+        "session_dir": str(runtime_paths.data / "agent" / "sessions"),
+    }
 
 
 @router.get("/paths")
@@ -63,6 +103,11 @@ async def update_paths(body: PathsUpdate):
             # after the workspace root changes so state never remains attached
             # to the previous workspace.
             run_coordinator.reconfigure_store()
+            # The Agent sidecar captures its workspace boundary at startup;
+            # restart it lazily so the next conversation uses the new root.
+            from services.agent_runtime import agent_runtime
+
+            await agent_runtime.stop()
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
     except OSError as exc:

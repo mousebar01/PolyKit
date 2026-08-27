@@ -59,6 +59,13 @@ behind authentication and TLS termination.
 | GET | `/model/downloaded` | Check weights on the server, including packs whose venv is not ready |
 | GET/POST | `/settings/sources` | Read or update optional Hugging Face, PyPI, and PyTorch artifact mirrors |
 | POST | `/settings/sources/test` | Probe one configured artifact source from the server |
+| GET/POST | `/settings/agent` | Read or update the native Agent runtime defaults and tool policy |
+| GET | `/agent/sessions` | List server-owned Agent conversations |
+| POST | `/agent/sessions` | Create a conversation in the PolyKit workspace |
+| GET | `/agent/sessions/{id}` | Read one conversation and its context |
+| POST | `/agent/sessions/{id}/commands` | Send a prompt or session command |
+| GET | `/agent/sessions/{id}/events` | Stream conversation events over SSE |
+| GET | `/agent/models` | List models available to the embedded Agent |
 | POST | `/node-packs/setup/{id}` | Repair an isolated node-pack environment (official packs in Web/headless mode) |
 | POST | `/workflow-runs/from-image` | Start a canonical image-to-3D run |
 | POST | `/workflow-runs/execute` | Submit a compiled workflow DAG |

@@ -16,7 +16,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 from urllib.parse import quote, urlparse, urlunsplit
 
 _HOME = Path.home() / ".polykit"
@@ -137,6 +137,63 @@ class DownloadSourceConfig:
         }
 
 
+AgentThinkingLevel = Literal["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+AgentToolProfile = Literal["safe", "blender", "developer"]
+
+
+class AgentSettings:
+    """PolyKit-owned defaults for the embedded Agent runtime.
+
+    The session directory is derived from ``runtime_paths.data`` by the
+    settings route and is intentionally not persisted as a user-editable path.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool = True,
+        default_provider: str = "",
+        default_model: str = "",
+        thinking_level: AgentThinkingLevel = "medium",
+        tool_profile: AgentToolProfile = "blender",
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.default_provider = (default_provider or "").strip()
+        self.default_model = (default_model or "").strip()
+        self.thinking_level = thinking_level
+        self.tool_profile = tool_profile
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict]) -> "AgentSettings":
+        if not isinstance(data, dict):
+            data = {}
+        thinking_level = data.get("thinking_level", "medium")
+        if thinking_level not in {"off", "minimal", "low", "medium", "high", "xhigh", "max"}:
+            thinking_level = "medium"
+        tool_profile = data.get("tool_profile", "blender")
+        if tool_profile not in {"safe", "blender", "developer"}:
+            tool_profile = "blender"
+        enabled = data.get("enabled", True)
+        if not isinstance(enabled, bool):
+            enabled = True
+        return cls(
+            enabled=enabled,
+            default_provider=str(data.get("default_provider", "") or ""),
+            default_model=str(data.get("default_model", "") or ""),
+            thinking_level=thinking_level,
+            tool_profile=tool_profile,
+        )
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "enabled": self.enabled,
+            "default_provider": self.default_provider,
+            "default_model": self.default_model,
+            "thinking_level": self.thinking_level,
+            "tool_profile": self.tool_profile,
+        }
+
+
 def _read() -> dict:
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -146,10 +203,14 @@ def _read() -> dict:
 
 
 def _write(data: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # The settings file may contain HF tokens, proxy credentials, or future
+    # Agent provider secrets. Keep both the temporary and final files private.
+    os.chmod(tmp, 0o600)
     tmp.replace(SETTINGS_FILE)
+    os.chmod(SETTINGS_FILE, 0o600)
 
 
 def load_settings() -> dict:
@@ -230,6 +291,16 @@ def set_download_sources(sources: DownloadSourceConfig) -> DownloadSourceConfig:
     save_settings({"sources": sources.to_dict()})
     apply_download_sources(sources)
     return sources
+
+
+def get_agent_settings() -> AgentSettings:
+    return AgentSettings.from_dict(load_settings().get("agent"))
+
+
+def set_agent_settings(settings: AgentSettings) -> AgentSettings:
+    """Persist Agent defaults for the embedded runtime."""
+    save_settings({"agent": settings.to_dict()})
+    return settings
 
 
 def apply_persisted_proxy() -> None:

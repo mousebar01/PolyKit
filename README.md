@@ -31,6 +31,7 @@ FastAPI 负责生成执行、工作流定义、任务状态和持久化资产；
 - [用户指南](docs/user-guide.md)：从首次启动到完成一次 Image → 3D 任务。
 - [系统架构](docs/architecture.md)：C4 系统边界、Workflow Runtime 和关键运行流程。
 - [Node Packs & Workflow Templates](docs/node-packs.md)：Node Pack、运行环境和模板约定。
+- [Agent 集成边界](docs/agent-integration.md)：AgentSession、FastAPI、工作区资产和 Blender 桥接方案。
 
 ## 快速开始
 
@@ -307,7 +308,6 @@ docs/                架构、Node Pack、工作流和部署说明
 - [网格分件工作流](docs/mesh-segmentation-workflow.md)
 - [国际化约定](docs/i18n.md)
 - [UI 设计契约](DESIGN.md)
-- [Headless 资源与部署参考](RESOURCES.md)
 
 ## 许可证
 

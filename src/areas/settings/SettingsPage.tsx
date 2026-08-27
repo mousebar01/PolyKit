@@ -1,18 +1,21 @@
-import { useState } from 'react'
-import { Globe, HardDrive, Info, Plug, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Bot, Globe, HardDrive, Info, Plug, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 
 import { Button } from '@shared/components/ui/button'
 import { useI18n, type TranslationKey } from '@shared/i18n'
+import { useNavStore, type SettingsSection } from '@shared/stores/navStore'
 import { StorageSection } from './components/StorageSection'
 import { AboutSection } from './components/AboutSection'
 import { IntegrationsSection } from './components/IntegrationsSection'
 import { ApplicationSection } from './components/ApplicationSection'
 import { NetworkSection } from './components/NetworkSection'
+import { AgentSection } from './components/AgentSection'
 
-type Section = 'application' | 'storage' | 'integrations' | 'network' | 'about'
+type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: TranslationKey; icon: LucideIcon }[] = [
   { id: 'application', label: 'settings.application', icon: SlidersHorizontal },
+  { id: 'agent', label: 'settings.agent', icon: Bot },
   { id: 'storage', label: 'settings.storage', icon: HardDrive },
   { id: 'integrations', label: 'settings.integrations', icon: Plug },
   { id: 'network', label: 'settings.network', icon: Globe },
@@ -22,6 +25,15 @@ const SECTIONS: { id: Section; label: TranslationKey; icon: LucideIcon }[] = [
 export default function SettingsPage(): JSX.Element {
   const [section, setSection] = useState<Section>('application')
   const { t } = useI18n()
+  const pendingSection = useNavStore((state) => state.pendingSettingsSection)
+  const consumeSettingsSection = useNavStore((state) => state.consumeSettingsSection)
+
+  useEffect(() => {
+    if (pendingSection) {
+      setSection(pendingSection)
+      consumeSettingsSection()
+    }
+  }, [consumeSettingsSection, pendingSection])
 
   return (
     <div className="flex h-full bg-background">
@@ -51,6 +63,7 @@ export default function SettingsPage(): JSX.Element {
       <main className="flex-1 overflow-y-auto bg-background">
         <div className="mx-auto max-w-6xl p-6 lg:p-8">
           {section === 'application' && <ApplicationSection />}
+          {section === 'agent' && <AgentSection />}
           {section === 'storage' && <StorageSection />}
           {section === 'integrations' && <IntegrationsSection />}
           {section === 'network' && <NetworkSection />}

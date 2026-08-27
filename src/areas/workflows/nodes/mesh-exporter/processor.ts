@@ -217,7 +217,7 @@ const processor = async (
   const doc = await io.read(input.filePath)
 
   // Exports land in the shared workspace Workflows/ collection — the single
-  // output directory the asset library and file browser present.
+  // output directory the asset library presents.
   const outStem = path.basename(input.filePath, path.extname(input.filePath))
   const outDir  = path.join(context.workspaceDir, 'Workflows')
   fs.mkdirSync(outDir, { recursive: true })

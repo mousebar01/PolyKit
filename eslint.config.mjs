@@ -13,6 +13,7 @@ export default tseslint.config(
       'resources/**',
       'api/**',
       'arch/**',
+      'agent/**',
       'docs/**',
       '**/*.test.mjs'
     ]

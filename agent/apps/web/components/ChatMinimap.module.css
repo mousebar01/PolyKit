@@ -1,0 +1,120 @@
+.navigator {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  z-index: 30;
+  display: flex;
+  width: 36px;
+  height: 72%;
+  min-height: 180px;
+  max-height: 720px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.tickButton {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  z-index: 1;
+  width: 36px;
+  height: 14px;
+  min-height: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.tick {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  min-width: 2px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  transition: width 180ms ease-out, height 180ms ease-out, background-color 180ms ease-out;
+}
+
+.preview {
+  position: absolute;
+  top: 50%;
+  left: 42px;
+  display: flex;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+  text-align: left;
+  transition: width 180ms ease-out, height 180ms ease-out, padding 180ms ease-out, opacity 120ms ease-out;
+}
+
+.preview[data-open="true"] {
+  width: 250px;
+  height: 100px;
+  padding: 9px 11px;
+  border-color: var(--border);
+  opacity: 1;
+}
+
+.prompt,
+.reply {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+}
+
+.prompt {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.reply {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.tickButton:focus-visible {
+  outline: none;
+}
+
+.tickButton:focus-visible .tick {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick,
+  .preview {
+    transition: none;
+  }
+}
+
+/* Active (current scroll position) tick */
+.tickButton[aria-current="true"] .tick {
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+}

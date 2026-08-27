@@ -164,6 +164,21 @@ export interface DownloadSourceSettings {
   pytorchIndexUrl?: string
 }
 
+export type AgentThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type AgentToolProfile = 'safe' | 'blender' | 'developer'
+
+export interface AgentSettings {
+  enabled: boolean
+  defaultProvider: string
+  defaultModel: string
+  thinkingLevel: AgentThinkingLevel
+  toolProfile: AgentToolProfile
+  /** Server-owned session storage path; read-only in the UI. */
+  sessionDir: string
+}
+
+export type AgentSettingsPatch = Partial<Omit<AgentSettings, 'sessionDir'>>
+
 declare global {
   interface Window {
     polykit: {
@@ -193,8 +208,8 @@ declare global {
         deleteDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
       }
       settings: {
-        get: () => Promise<{ modelsDir: string; workspaceDir: string; workflowsDir: string; nodePacksDir: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings }>
-        set: (patch: { modelsDir?: string; workspaceDir?: string; workflowsDir?: string; nodePacksDir?: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings }) => Promise<{ modelsDir: string; workspaceDir: string; workflowsDir: string; nodePacksDir: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings }>
+        get: () => Promise<{ modelsDir: string; workspaceDir: string; workflowsDir: string; nodePacksDir: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings; agent: AgentSettings }>
+        set: (patch: { modelsDir?: string; workspaceDir?: string; workflowsDir?: string; nodePacksDir?: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings; agent?: AgentSettingsPatch }) => Promise<{ modelsDir: string; workspaceDir: string; workflowsDir: string; nodePacksDir: string; hfToken?: string; proxy?: ProxySettings; sources?: DownloadSourceSettings; agent: AgentSettings }>
         /** Try to reach the internet through the currently applied proxy. */
         testProxy: () => Promise<{ ok: boolean; error?: string }>
         /** Test one configured artifact source using the connected server. */

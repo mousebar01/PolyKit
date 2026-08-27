@@ -11,8 +11,10 @@ from fastapi import HTTPException
 
 import routers.model as model
 import routers.node_packs as node_packs
+import routers.agent as agent_router
 import routers.settings as settings_router
 import routers.workspace_library as workspace_library
+import services.runtime_settings as runtime_settings
 from services.runtime_paths import runtime_paths
 from services.runtime_settings import DownloadSourceConfig
 
@@ -208,6 +210,51 @@ class WebBoundaryTests(unittest.TestCase):
             settings_router._source_probe_url("pytorch", sources),
             "https://torch.example/whl/cu126/torch/",
         )
+
+    def test_agent_settings_route_merges_partial_updates(self) -> None:
+        original_file = runtime_settings.SETTINGS_FILE
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_settings.SETTINGS_FILE = Path(temp_dir) / "settings.json"
+            try:
+                first = asyncio.run(settings_router.update_agent_settings(
+                    settings_router.AgentSettingsUpdate(
+                        default_provider="anthropic",
+                        default_model="claude-sonnet",
+                    )
+                ))
+                second = asyncio.run(settings_router.update_agent_settings(
+                    settings_router.AgentSettingsUpdate(enabled=False)
+                ))
+            finally:
+                runtime_settings.SETTINGS_FILE = original_file
+
+        self.assertEqual(first["default_provider"], "anthropic")
+        self.assertEqual(second["default_provider"], "anthropic")
+        self.assertEqual(second["default_model"], "claude-sonnet")
+        self.assertFalse(second["enabled"])
+        self.assertTrue(second["session_dir"].endswith("agent/sessions"))
+
+    def test_agent_session_defaults_follow_polykit_settings(self) -> None:
+        configured = runtime_settings.AgentSettings(
+            default_provider="openai-codex",
+            default_model="gpt-5.6-luna",
+            thinking_level="high",
+            tool_profile="safe",
+        )
+        with patch("routers.agent.get_agent_settings", return_value=configured):
+            payload = json.loads(agent_router._apply_session_defaults(
+                b'{"cwd":"/workspace","type":"ensure_session"}'
+            ))
+            explicit = json.loads(agent_router._apply_session_defaults(
+                b'{"cwd":"/workspace","type":"ensure_session","thinkingLevel":"off","toolNames":["ls"]}'
+            ))
+
+        self.assertEqual(payload["provider"], "openai-codex")
+        self.assertEqual(payload["modelId"], "gpt-5.6-luna")
+        self.assertEqual(payload["thinkingLevel"], "high")
+        self.assertEqual(payload["toolNames"], ["read"])
+        self.assertEqual(explicit["thinkingLevel"], "off")
+        self.assertEqual(explicit["toolNames"], ["ls"])
 
 
 if __name__ == "__main__":

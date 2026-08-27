@@ -90,6 +90,26 @@
 }
 
 @layer utilities {
+  .agent-chat-root {
+    --bg: hsl(var(--background));
+    --bg-panel: hsl(var(--card));
+    --bg-hover: hsl(var(--muted));
+    --bg-selected: hsl(var(--muted));
+    --border: hsl(var(--border));
+    --text: hsl(var(--foreground));
+    --text-muted: hsl(var(--muted-foreground));
+    --text-dim: hsl(var(--muted-foreground) / 0.72);
+    --accent: hsl(var(--primary));
+    --accent-hover: hsl(var(--primary) / 0.86);
+    --user-bg: hsl(var(--muted));
+    --assistant-bg: hsl(var(--card));
+    --tool-bg: hsl(var(--muted));
+    --bg-subtle: hsl(var(--muted) / 0.45);
+    --surface: hsl(var(--card));
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    color: var(--text);
+  }
+
   .drag-region {
     -webkit-app-region: drag;
   }

@@ -1,0 +1,31 @@
+{
+  "name": "polykit-agent",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace polykit-agent-web",
+    "typecheck": "npm run typecheck --workspace polykit-agent-web",
+    "test": "npm run test --workspace polykit-agent-web",
+    "build": "npm run build --workspace polykit-agent-web",
+    "start": "npm run start --workspace polykit-agent-web",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "jiti": "^2.7.0",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "tar": "7.5.22",
+    "tmp": "0.2.7",
+    "js-yaml": "5.2.3",
+    "dompurify": "3.4.13"
+  }
+}

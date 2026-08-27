@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library
+from routers import agent, export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library
 from services.runtime_paths import runtime_paths
 
 
@@ -27,6 +27,9 @@ async def lifespan(app: FastAPI):
     apply_persisted_download_sources()
     model_runtime_registry.initialize()
     yield
+    from services.agent_runtime import agent_runtime
+
+    await agent_runtime.stop()
     model_runtime_registry.unload_all(allow_during_generation=True)
 
 
@@ -70,6 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(status.router)
+app.include_router(agent.router)
 app.include_router(settings.router)
 app.include_router(model.router, prefix="/model")
 app.include_router(legacy_generation.router, prefix="/generate")
