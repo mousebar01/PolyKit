@@ -384,7 +384,7 @@ pre, code {
   flex-direction: column;
   gap: 4px;
   margin-top: 6px;
-  padding: 4px 0 4px 24px;
+  padding: 4px 0;
 }
 
 .process-details-timeline.is-live {
@@ -418,6 +418,49 @@ pre, code {
 
 .process-message-blocks.assistant-output-blocks {
   gap: 3px;
+}
+
+.settled-process-disclosure {
+  min-width: 0;
+}
+
+.settled-process-toggle {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  text-align: left;
+}
+
+.settled-process-toggle:hover {
+  color: var(--text);
+}
+
+.settled-process-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.settled-process-chevron {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.settled-process-toggle[aria-expanded="true"] .settled-process-chevron {
+  transform: rotate(180deg);
+}
+
+.settled-process-toggle:hover .settled-process-chevron {
+  color: var(--text-muted);
 }
 
 /* Turn-level model activity mirrors DSH: a persistent text shimmer
