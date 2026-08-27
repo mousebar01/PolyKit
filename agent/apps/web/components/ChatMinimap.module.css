@@ -3,16 +3,17 @@
   top: 50%;
   left: 8px;
   z-index: 30;
-  display: flex;
   width: 28px;
   height: 72%;
   min-height: 180px;
   max-height: 720px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
   transform: translateY(-50%);
   pointer-events: auto;
+}
+
+.tickRail {
+  position: absolute;
+  inset: 0 0 34px;
 }
 
 .tickButton {
@@ -92,3 +93,21 @@
     transition: none;
   }
 }
+
+.searchButton{position:absolute;bottom:0;left:0;display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-dim);cursor:pointer}
+.searchButton:hover,.searchButton[aria-expanded="true"]{color:var(--text);background:var(--bg-hover)}
+.searchPanel{position:absolute;left:34px;bottom:0;width:min(340px,calc(100vw - 72px));overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--bg-panel);box-shadow:0 14px 34px rgba(15,23,42,.14)}
+.searchHeader{display:flex;height:38px;align-items:center;gap:7px;padding:0 8px 0 10px;border-bottom:1px solid var(--border);color:var(--text-dim)}
+.searchHeader input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:12px}
+.searchHeader input::placeholder{color:var(--text-dim)}
+.searchClose{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;padding:0;border:0;border-radius:5px;background:transparent;color:var(--text-dim);cursor:pointer}
+.searchClose:hover{color:var(--text);background:var(--bg-hover)}
+.searchResults{max-height:min(360px,48dvh);overflow-y:auto;padding:5px}
+.searchResult{display:flex;width:100%;min-width:0;flex-direction:column;gap:2px;padding:7px 8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;text-align:left}
+.searchResult:hover,.searchResult[data-selected]{background:var(--bg-hover)}
+.searchResultPrompt,.searchResultContext{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.searchResultPrompt{color:var(--text);font-size:12px;font-weight:550;line-height:18px}
+.searchResultContext{color:var(--text-dim);font-size:11px;line-height:17px}
+.searchEmpty{padding:14px 10px;color:var(--text-dim);font-size:11px;line-height:1.5;text-align:center}
+.searchTarget{animation:conversation-search-target 900ms ease-out}
+@keyframes conversation-search-target{from{background:color-mix(in srgb,var(--accent) 10%,transparent)}to{background:transparent}}
