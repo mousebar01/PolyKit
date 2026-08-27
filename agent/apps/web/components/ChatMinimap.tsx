@@ -293,17 +293,17 @@ export function ChatMinimap({
 
   const normalizedQuery = normalizeSearchText(query);
   const displayedTurns = useMemo(() => {
-    const source = normalizedQuery
+    return normalizedQuery
       ? turns.filter((turn) => turn.searchText.includes(normalizedQuery))
       : turns;
-    return source.slice().reverse();
   }, [normalizedQuery, turns]);
 
   useEffect(() => {
     if (!searchOpen) return;
-    setSelectedResult(0);
+    const currentResultIndex = displayedTurns.findIndex((turn) => turn.index === activeIndex);
+    setSelectedResult(currentResultIndex >= 0 ? currentResultIndex : 0);
     requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, [searchOpen]);
+  }, [activeIndex, displayedTurns, searchOpen]);
 
   useEffect(() => {
     setSelectedResult(0);
@@ -439,7 +439,7 @@ export function ChatMinimap({
             </button>
           </div>
 
-          <div className={styles.displayedTurns} role="listbox" aria-label={t("chat.displayedTurns")}>
+          <div className={styles.searchResults} role="listbox" aria-label={t("chat.searchResults")}>
             {displayedTurns.length === 0 ? (
               <div className={styles.searchEmpty}>{t("i18n.noResults")}</div>
             ) : (
@@ -451,6 +451,7 @@ export function ChatMinimap({
                   aria-selected={resultIndex === selectedResult}
                   className={styles.searchResult}
                   data-selected={resultIndex === selectedResult || undefined}
+                  data-current={turn.index === activeIndex || undefined}
                   onMouseEnter={() => setSelectedResult(resultIndex)}
                   onClick={() => activateSearchResult(turn)}
                 >
