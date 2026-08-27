@@ -14,19 +14,19 @@
   :root {
     --app-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --brand-font: 'Space Grotesk', var(--app-font);
-    /* Blender-inspired blue graphite workstation palette. Keep large surfaces
-       cool and neutral; reserve blue for active tools and primary actions. */
-    --background: 220 17% 10.5%;
+    /* Editor palette: the workspace is near-black, while floating panels sit
+       one clear graphite step above it. Blue remains reserved for active tools. */
+    --background: 0 0% 5.5%;
     --foreground: 215 16% 91%;
-    --card: 220 15% 14.5%;
+    --card: 220 8% 15%;
     --card-foreground: 215 16% 91%;
-    --popover: 220 14% 17%;
+    --popover: 220 8% 18%;
     --popover-foreground: 215 16% 93%;
     --primary: 211 58% 60%;
     --primary-foreground: 220 24% 10%;
     --secondary: 220 12% 22%;
     --secondary-foreground: 215 16% 93%;
-    --muted: 220 12% 18.5%;
+    --muted: 220 8% 19%;
     --muted-foreground: 215 12% 66%;
     /* Compatibility alias for legacy controls; new UI should use semantic tokens. */
     --accent: 211 58% 60%;
@@ -118,8 +118,19 @@
     -webkit-app-region: no-drag;
   }
   .app-bg {
-    background-color: hsl(var(--background));
+    /* Pure black outer breathing room makes the single app-shell radius read
+       clearly without introducing another border or floating card. */
+    background-color: hsl(0 0% 0%);
     background-image: none;
+  }
+  /* Keep the empty 3D workspace useful before a model/WebGL scene is ready. */
+  .viewer-empty-grid {
+    background-color: transparent;
+    background-image:
+      linear-gradient(to right, rgba(91, 91, 91, 0.34) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(91, 91, 91, 0.34) 1px, transparent 1px);
+    background-position: center;
+    background-size: 56px 56px;
   }
   .animate-slide-up {
     animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;

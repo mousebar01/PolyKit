@@ -243,7 +243,7 @@ function AssetCard({
       }}
       onContextMenu={handleContextMenu}
       onKeyDown={handleCardKeyDown}
-      className={`group relative flex ${cardLayoutClass} items-stretch rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isCardSelected ? 'border-primary bg-primary/10 ring-1 ring-primary/20' : 'border-transparent bg-card/80 hover:bg-card'} ${!openable ? 'opacity-60' : ''}`}
+      className={`group relative flex ${cardLayoutClass} items-stretch overflow-hidden rounded-md border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isCardSelected ? 'border-primary bg-primary/10 ring-1 ring-primary/20' : 'border-transparent bg-card/80 hover:bg-card'} ${!openable ? 'opacity-60' : ''}`}
     >
       <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden bg-muted/40 transition-colors group-hover:bg-muted/60`}>
         <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
@@ -353,7 +353,7 @@ export default function AssetLibrarySidebar({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card">
       <div className="shrink-0 bg-card/45 px-3 py-3">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
@@ -430,7 +430,7 @@ export default function AssetLibrarySidebar({
       ) : entryGroups.length === 0 ? (
         <p role="status" className="px-4 py-4 text-xs text-muted-foreground">{t('assets.noMatch', { query: normalizedSearchQuery })}</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/35 pb-4">
           {entryGroups.map((group) => {
             const collapsed = collapsedSectionKeys.includes(group.sectionKey)
             return (

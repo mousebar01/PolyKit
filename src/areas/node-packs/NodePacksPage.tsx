@@ -407,7 +407,7 @@ export default function NodePacksPage(): JSX.Element {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border/45 bg-card/65 px-5 py-3">
         <div className="mr-auto min-w-[140px]">
           <h1 className="text-base font-semibold tracking-tight text-foreground">{t('nodePacks.title')}</h1>
         </div>
@@ -473,7 +473,7 @@ export default function NodePacksPage(): JSX.Element {
       </div>
 
       {visibleFilters.length > 1 && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-5 py-2">
+        <div className="flex shrink-0 items-center gap-1 border-b border-border/45 bg-background px-5 py-2">
           {visibleFilters.map((id) => (
             <Button
               key={id}
@@ -587,7 +587,7 @@ export default function NodePacksPage(): JSX.Element {
                   </span>
                   <h2 className="text-[13px] font-semibold tracking-wide text-foreground">{t('nodePacks.processors')}</h2>
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{processList.length}</Badge>
-                  <span className="h-px flex-1 bg-border" />
+                  <span className="h-px flex-1 bg-border/45" />
                 </div>}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {processList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
@@ -602,7 +602,7 @@ export default function NodePacksPage(): JSX.Element {
                   </span>
                   <h2 className="text-[13px] font-semibold tracking-wide text-foreground">{t('nodePacks.models')}</h2>
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{modelList.length}</Badge>
-                  <span className="h-px flex-1 bg-border" />
+                  <span className="h-px flex-1 bg-border/45" />
                 </div>}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {modelList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}

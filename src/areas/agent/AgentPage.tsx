@@ -37,7 +37,7 @@ export default function AgentPage(): JSX.Element {
 
   return (
     <div className="agent-chat-root flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-3">
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border/45 bg-card/65 px-3">
         <div className="flex items-center gap-2.5">
           <Bot className="size-4 text-primary" strokeWidth={1.8} />
           <h1 className="text-sm font-semibold text-foreground">{t('agent.title')}</h1>

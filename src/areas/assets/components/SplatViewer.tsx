@@ -230,7 +230,8 @@ const SplatViewer = forwardRef<SplatViewerHandle, { url: string; autoRotate: boo
       }
 
       // Floor grid, matching the mesh viewer.
-      const grid = new THREE.GridHelper(10, 20, 0x3f3f46, 0x27272a)
+      // Keep the splat viewport's floor grid in sync with the mesh viewer.
+      const grid = new THREE.GridHelper(10, 20, 0x5b5b5b, 0x424242)
       viewer.threeScene.add(grid)
 
       viewer

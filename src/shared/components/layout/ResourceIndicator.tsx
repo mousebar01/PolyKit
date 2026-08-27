@@ -114,9 +114,9 @@ export default function ResourceIndicator({ apiUrl }: { apiUrl: string }): JSX.E
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="no-drag mr-2 h-7 gap-2 rounded-md bg-muted/60 px-2.5 text-[10px] font-normal text-muted-foreground"
+          className="no-drag mr-2 h-7 gap-2 rounded-md bg-transparent px-2.5 text-[10px] font-normal text-muted-foreground hover:bg-muted/35"
           aria-label={t('top.resources')}
         >
           <Activity className="size-3.5" />

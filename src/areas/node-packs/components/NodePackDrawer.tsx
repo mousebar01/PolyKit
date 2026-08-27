@@ -104,8 +104,8 @@ export function NodePackDrawer({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[400px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 p-0 shadow-2xl">
-        <div className="shrink-0 border-b border-border px-5 pb-4 pt-5">
+      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[400px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-l-xl border-y-0 border-r-0 border-l-border/60 p-0 shadow-2xl">
+        <div className="shrink-0 border-b border-border/45 px-5 pb-4 pt-5">
           <div className="flex items-center gap-3.5 pr-8">
             <div className={`h-[52px] w-[52px] shrink-0 rounded-xl border border-border bg-muted p-3 ${isModel ? 'text-primary' : 'text-sky-400'}`}>
               {isModel ? ICONS.spark : ICONS.cube}
@@ -266,7 +266,7 @@ export function NodePackDrawer({
           </section>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2.5 border-t border-border px-5 py-4">
+        <div className="flex shrink-0 items-center gap-2.5 border-t border-border/45 px-5 py-4">
           {isCorrupted && !ext.builtin && !webMode ? (
             <Button type="button" variant="destructive" className="flex-1 gap-2" onClick={() => onUninstall(ext.id)} disabled={disabled}>
               <Trash2 className="h-4 w-4" />

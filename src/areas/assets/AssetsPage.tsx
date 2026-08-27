@@ -619,7 +619,7 @@ export default function AssetsPage(): JSX.Element {
 
   return (
     <>
-      <div className="flex shrink-0 flex-col overflow-hidden rounded-lg bg-card" style={{ width: panelWidth }}>
+      <div className="flex shrink-0 flex-col overflow-hidden" style={{ width: panelWidth }}>
         <AssetLibrarySidebar
           thumbnailBase={apiUrl}
           entries={libraryEntries}
@@ -662,8 +662,8 @@ export default function AssetsPage(): JSX.Element {
         className="w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 active:bg-primary/50"
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden rounded-lg bg-card/40">
-        <div className="mx-1 mt-1 flex h-10 shrink-0 items-center gap-2 overflow-x-auto rounded-md bg-card px-2.5 py-1">
+      <div className="flex flex-1 flex-col overflow-hidden bg-background">
+        <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-border/45 bg-card/65 px-2.5 py-1">
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={undoMesh} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
           </Button>
@@ -760,7 +760,7 @@ export default function AssetsPage(): JSX.Element {
           </div>
         </div>
 
-        <div className="relative mx-1 mb-1 flex-1 overflow-hidden rounded-md bg-background/60">
+        <div className="relative flex-1 overflow-hidden bg-background">
           <Suspense fallback={<AssetsLoading label="Loading 3D viewer…" />}>
             <Viewer3D lightSettings={lightSettings} gizmoMode={gizmoMode} gizmoUndoRef={gizmoUndoRef} />
           </Suspense>

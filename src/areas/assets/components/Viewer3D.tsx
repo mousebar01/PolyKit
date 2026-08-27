@@ -961,7 +961,7 @@ function ScaleGizmo({ object, onDragStart, onDragEnd }: { object: THREE.Object3D
 function EmptyState(): JSX.Element {
   const { t } = useI18n()
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/70">
+    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center text-muted-foreground/70">
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.75">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
       </svg>
@@ -1202,7 +1202,11 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
       onError={handleModelError}
       fallback={<ModelLoadError />}
     >
-      <div className="relative h-full w-full bg-background">
+      <div className="relative h-full w-full bg-[#303030]">
+        {/* Keep the workspace grounded even before a model is loaded. The
+            WebGL grid is rendered with the scene once a model exists; this
+            lightweight layer makes the empty state deterministic as well. */}
+        {!modelUrl && <div className="pointer-events-none absolute inset-0 z-0 viewer-empty-grid" aria-hidden="true" />}
         {!modelUrl && <EmptyState />}
 
         {/* Splat path → fully isolated viewer (mkkellogg, outside R3F) */}
@@ -1212,19 +1216,22 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
           </Suspense>
         ) : null}
 
-        {/* Mesh path → original Canvas, unchanged */}
+        {/* Mesh path → the interactive Canvas scene */}
         {!isSplat && (
         <Canvas
+          className="relative z-10"
           onPointerMissed={() => setSelected(false)}
           camera={{ position: [0, 1.5, 4], fov: 45 }}
           dpr={[1, 2]}
           gl={{
             antialias: true,
+            alpha: true,
             preserveDrawingBuffer: true,
             outputColorSpace: THREE.SRGBColorSpace,
           }}
         >
-          <color attach="background" args={['#18181b']} />
+          {/* Blender-style neutral graphite viewport; the app chrome stays near-black. */}
+          {modelUrl && <color attach="background" args={['#303030']} />}
           <CanvasCapture domRef={canvasRef} />
           <ambientLight intensity={lightSettings.ambientIntensity ?? DEFAULT_LIGHT_SETTINGS.ambientIntensity} />
           <Environment background={false}>
@@ -1233,7 +1240,9 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <Lightformer intensity={0.3 * (lightSettings.envIntensity ?? DEFAULT_LIGHT_SETTINGS.envIntensity)} position={[4, 1, -4]} scale={6} />
           </Environment>
 
-          <gridHelper args={[10, 20, '#3f3f46', '#27272a']} />
+          {modelUrl && <gridHelper args={[10, 20, '#5b5b5b', '#424242']} />}
+          {/* Keep the floor-plane axes visible; the vertical green Y axis is intentionally hidden. */}
+          <axesHelper args={[5]} scale={[1, 0, 1]} />
 
           {canRenderMesh && modelUrl && currentJob ? (
             <Selection enabled={selected}>
@@ -1281,7 +1290,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             dampingFactor={0.05}
           />
 
-          <GizmoHelper alignment="top-right" margin={[72, 72]} renderPriority={modelUrl && currentJob ? 2 : 0}>
+          <GizmoHelper alignment="top-right" margin={[72, 72]} renderPriority={2}>
             <GizmoBubbles />
           </GizmoHelper>
         </Canvas>

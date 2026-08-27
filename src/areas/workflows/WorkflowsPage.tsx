@@ -286,13 +286,13 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
   return (
     <div
       style={{ width: open ? width : 0 }}
-      className="flex shrink-0 order-first overflow-hidden border-r border-border transition-[width] duration-300 ease-in-out"
+      className="flex shrink-0 order-first overflow-hidden border-r border-border/40 bg-card/45 transition-[width] duration-300 ease-in-out"
     >
       <div className="flex shrink-0" style={{ width }}>
-        <div className="flex min-w-0 flex-1 flex-col bg-card/70">
+        <div className="flex min-w-0 flex-1 flex-col bg-card/55">
 
           {/* Header */}
-          <div className="border-b border-border px-4 py-4">
+          <div className="bg-card/35 px-4 py-4">
             <div className="flex items-center gap-2">
               <span className="flex items-center justify-center w-5 h-5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -308,7 +308,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
           </div>
 
           {/* Search */}
-          <div className="border-b border-border px-3.5 pb-2.5 pt-3">
+          <div className="bg-card/20 px-3.5 pb-2.5 pt-3">
             <div className="flex items-center gap-2 rounded-md border border-input bg-muted/70 px-2.5 py-1.5 focus-within:border-ring">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-muted-foreground">
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -349,7 +349,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                         key={type}
                         draggable
                         onDragStart={(e) => { e.dataTransfer.setData(DRAG_NODE_KEY, type); e.dataTransfer.effectAllowed = 'copy' }}
-                        className="flex cursor-grab flex-col gap-2 rounded-lg border border-border/80 bg-card px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
+                        className="flex cursor-grab flex-col gap-2 rounded-md border border-border/55 bg-card/75 px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
                       >
                         <div className="flex items-center gap-2">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" className="shrink-0">{icon}</svg>
@@ -362,7 +362,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                         key={ext.id}
                         draggable
                         onDragStart={(e) => { e.dataTransfer.setData(DRAG_KEY, ext.id); e.dataTransfer.effectAllowed = 'copy' }}
-                        className="flex cursor-grab flex-col gap-2 rounded-lg border border-border/80 bg-card px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
+                        className="flex cursor-grab flex-col gap-2 rounded-md border border-border/55 bg-card/75 px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
                       >
                         <p className="truncate text-xs font-semibold text-foreground">{ext.name}</p>
                         <div className="flex items-center gap-1 mt-auto">
@@ -451,7 +451,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                           key={ext.id}
                           draggable
                           onDragStart={(e) => { e.dataTransfer.setData(DRAG_KEY, ext.id); e.dataTransfer.effectAllowed = 'copy' }}
-                          className="flex cursor-grab flex-col gap-2 rounded-lg border border-border/80 bg-card px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
+                          className="flex cursor-grab flex-col gap-2 rounded-md border border-border/55 bg-card/75 px-3.5 py-3.5 transition-colors hover:border-primary/30 hover:bg-muted/60 active:cursor-grabbing"
                         >
                           <p className="truncate text-xs font-semibold text-foreground">{ext.name}</p>
                           {ext.description && cols === 1 && (
@@ -602,8 +602,8 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
   const step = activeRemoteRun?.step ?? currentJob?.step ?? t('common.processing')
 
   return (
-    <aside className="flex w-[292px] shrink-0 flex-col border-l border-border bg-card/70">
-      <div className="border-b border-border px-4 py-4">
+    <aside className="flex w-[292px] shrink-0 flex-col border-l border-border/40 bg-card/55">
+      <div className="bg-card/35 px-4 py-4">
         <div className="flex items-center gap-2">
           <span className="flex h-5 w-5 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -658,10 +658,10 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
                   key={url}
                   type="button"
                   onClick={() => openOutput(url)}
-                  className={`w-full text-left rounded-xl border p-3 transition-colors group
+                  className={`w-full text-left rounded-lg border p-3 transition-colors group
                     ${active
                       ? 'border-primary/45 bg-primary/10'
-                      : 'border-border bg-card hover:border-primary/30 hover:bg-muted/60'}`}
+                      : 'border-border/55 bg-card/70 hover:border-primary/30 hover:bg-muted/60'}`}
                 >
                   <div className="flex items-start gap-2.5">
                     <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 border
@@ -1421,7 +1421,7 @@ function WorkflowCanvasInner({
       )}
 
       {/* Header toolbar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/45 bg-card/65 px-3 py-2">
 
         {/* Open */}
         <button
@@ -2066,7 +2066,7 @@ export default function WorkflowsPage(): JSX.Element {
     <div className="flex flex-col flex-1 overflow-hidden">
 
       {/* Tab bar */}
-      <div className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border bg-card/70">
+      <div className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border/45 bg-card/55">
         {loading ? (
           <div className="h-full w-24 animate-pulse bg-muted/20" aria-hidden="true" />
         ) : (

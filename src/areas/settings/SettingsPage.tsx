@@ -37,7 +37,7 @@ export default function SettingsPage(): JSX.Element {
 
   return (
     <div className="flex h-full bg-background">
-      <nav className="flex w-[188px] shrink-0 flex-col gap-1 border-r border-border bg-card px-2 py-3" aria-label={t('settings.title')}>
+      <nav className="flex w-[188px] shrink-0 flex-col gap-1 border-r border-border/45 bg-card/65 px-2 py-3" aria-label={t('settings.title')}>
         <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('settings.title')}</p>
         {SECTIONS.map((item) => {
           const Icon = item.icon

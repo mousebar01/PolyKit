@@ -42,12 +42,12 @@ export function SettingsCard({
   return (
     <Card className="overflow-hidden shadow-none">
       {(title || description) && (
-        <CardHeader className="border-b border-border px-5 py-4">
+        <CardHeader className="border-b border-border/45 px-5 py-4">
           {title && <CardTitle>{title}</CardTitle>}
           {description && <CardDescription>{description}</CardDescription>}
         </CardHeader>
       )}
-      <div className="divide-y divide-border/70">{children}</div>
+      <div className="divide-y divide-border/45">{children}</div>
     </Card>
   )
 }

@@ -18,7 +18,7 @@ export default function Sidebar(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <aside className="flex w-[72px] shrink-0 flex-col rounded-md bg-card px-1.5 py-2" aria-label="Primary navigation">
+    <aside className="flex w-[72px] shrink-0 flex-col bg-background px-1.5 py-2" aria-label="Primary navigation">
       <nav className="flex flex-col gap-1" aria-label="Workspace navigation">
         {NAV_ITEMS.map((item) => {
           const active = currentPage === item.id
