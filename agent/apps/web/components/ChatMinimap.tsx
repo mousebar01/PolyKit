@@ -33,11 +33,9 @@ function createTurns(
   allMessages: Array<AgentMessage | Partial<AgentMessage>>,
 ): TurnInfo[] {
   const turns: TurnInfo[] = [];
-  let currentTurn: TurnInfo | null = null;
-
   for (const message of allMessages) {
     if (message.role === "user") {
-      currentTurn = {
+      const currentTurn: TurnInfo = {
         userMessage: message as UserMessage,
         scrollTop: null,
         index: turns.length,
@@ -52,7 +50,6 @@ function createTurns(
 
 const WINDOW_RADIUS = 6;
 const TICK_LENGTH = 8;
-const HOVER_TICK_LENGTH = 18;
 const MAX_TICK_GAP = 10;
 const TICK_HEIGHT = 16;
 const ACTIVE_TICK_LENGTH = 18;
