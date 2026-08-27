@@ -98,36 +98,6 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-const MAX_LIVE_PREVIEW_ACTIVITIES = 5;
-
-function countToolCalls(messages: AgentMessage[], indices: number[]): number {
-  let count = 0;
-  for (const idx of indices) {
-    const msg = messages[idx];
-    if (msg?.role !== "assistant") continue;
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
-  }
-  return count;
-}
-
-function limitProcessMessages(messages: AgentMessage[], indices: number[], limit = MAX_LIVE_PREVIEW_ACTIVITIES): Array<{ index: number; message: AgentMessage }> {
-  const activities: Array<{ index: number; message: AgentMessage }> = [];
-  for (const index of indices) {
-    const message = messages[index];
-    if (message?.role !== "assistant") {
-      if (message && hasDisplayableProcessMessage(message)) activities.push({ index, message });
-      continue;
-    }
-    for (const block of getDisplayableAssistantBlocks(message as AssistantMessage)) {
-      activities.push({
-        index,
-        message: withAssistantBlocks(message as AssistantMessage, [block], { omitUsage: true }),
-      });
-    }
-  }
-  return activities.slice(-limit);
-}
-
 function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
     return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
@@ -158,59 +128,10 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children, livePreview, isLive = false, t }: { messageCount: number; toolCallCount: number; children: ReactNode; livePreview?: ReactNode; isLive?: boolean; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(isLive);
-  const livePreviewRef = useRef<HTMLDivElement>(null);
-  const parts = [isLive ? t("chat.working") : t("chat.worked")];
-  if (!isLive && toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
-  if (!isLive && toolCallCount === 0) parts.push(`${messageCount} ${t(messageCount === 1 ? "chat.activity" : "chat.activities")}`);
-
-  useEffect(() => {
-    if (!isLive || expanded) return;
-    const preview = livePreviewRef.current;
-    if (!preview) return;
-    preview.scrollTop = preview.scrollHeight;
-  }, [expanded, isLive, messageCount]);
-
+function ProcessTimeline({ children, isLive = false }: { children: ReactNode; isLive?: boolean }) {
   return (
-    <div className={`process-details-group${expanded ? " is-expanded" : ""}${isLive ? " is-live" : ""}`}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        className="process-details-toggle"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          width: "auto",
-          minHeight: 24,
-          padding: "3px 0",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
-      >
-        <span className={`process-status-dot${isLive ? " is-live" : ""}`} aria-hidden="true" />
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-        </span>
-      </button>
-      {isLive && !expanded && livePreview && (
-        <div ref={livePreviewRef} className="process-details-timeline is-live-preview">{livePreview}</div>
-      )}
-      {expanded && (
-        <div className="process-details-timeline">
-          {children}
-        </div>
-      )}
+    <div className={`process-details-timeline${isLive ? " is-live" : ""}`}>
+      {children}
     </div>
   );
 }
@@ -710,18 +631,10 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                   rendered.push(renderMessage(userIdx));
                   if (endIdx > userIdx + 1) {
                     const liveIndices = Array.from({ length: endIdx - userIdx - 1 }, (_, offset) => userIdx + offset + 1);
-                    const liveActivities = limitProcessMessages(messages, liveIndices);
                     rendered.push(
-                      <ProcessDetailsGroup
-                        key={`live-process-${userIdx}`}
-                        isLive
-                        messageCount={liveActivities.length}
-                        toolCallCount={countToolCalls(messages, liveIndices)}
-                        t={t}
-                        livePreview={liveActivities.map(({ index, message }, activityIndex) => renderMessage(index, { attachRef: false, keyPrefix: `live-preview-${activityIndex}`, messageOverride: message, processDetails: true }))}
-                      >
+                      <ProcessTimeline key={`live-process-${userIdx}`} isLive>
                         {liveIndices.map((renderIdx) => renderMessage(renderIdx, { attachRef: false, keyPrefix: "live-process", processDetails: true }))}
-                      </ProcessDetailsGroup>,
+                      </ProcessTimeline>,
                     );
                   }
                   idx = endIdx;
@@ -752,14 +665,10 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                     .find((value): value is number => typeof value === "number")
                     ?? undefined;
                   const processGroup = (
-                    <ProcessDetailsGroup
-                       messageCount={processCount}
-                       t={t}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
+                    <ProcessTimeline>
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", processDetails: true }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false, processDetails: true })}
-                    </ProcessDetailsGroup>
+                    </ProcessTimeline>
                   );
                   rendered.push(
                     <div
