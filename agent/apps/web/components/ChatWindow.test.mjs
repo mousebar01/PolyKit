@@ -24,6 +24,21 @@ test("renders intermediate work directly without a group disclosure", () => {
   assert.doesNotMatch(source, /livePreview=/);
 });
 
+test("auto-collapses completed process work behind a thinking-duration summary", () => {
+  assert.match(source, /function SettledProcessDisclosure\(/);
+  assert.match(source, /const \[expanded, setExpanded\] = useState\(false\)/);
+  assert.match(source, /hasFinalAssistantAnswer\(finalAssistant\)/);
+  assert.match(source, /turnThinkingDuration\(anchorTimestamp, finalTimestamp\)/);
+  assert.match(source, /chat\.thoughtSeconds/);
+  assert.match(source, /chat\.thoughtMinutes/);
+});
+
+test("keeps thinking duration in minutes and seconds without an hour unit", () => {
+  assert.match(source, /minutes: Math\.floor\(totalSeconds \/ 60\)/);
+  assert.match(source, /seconds: totalSeconds % 60/);
+  assert.doesNotMatch(source, /hours:/);
+});
+
 test("keeps a DSH-style turn status visible for the full agent run", () => {
   assert.match(source, /function AgentTurnStatus\(/);
   assert.match(source, /elapsedMs >= 15_000/);
