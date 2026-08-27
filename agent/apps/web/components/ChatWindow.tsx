@@ -143,6 +143,47 @@ function ProcessTimeline({ children, isLive = false }: { children: ReactNode; is
   );
 }
 
+function turnThinkingDuration(start?: number, end?: number): { minutes: number; seconds: number } | null {
+  if (!start || !end || end <= start) return null;
+  const totalSeconds = Math.max(1, Math.round((end - start) / 1000));
+  return {
+    minutes: Math.floor(totalSeconds / 60),
+    seconds: totalSeconds % 60,
+  };
+}
+
+function SettledProcessDisclosure({
+  children,
+  duration,
+  t,
+}: {
+  children: ReactNode;
+  duration: { minutes: number; seconds: number } | null;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const label = duration === null
+    ? t("chat.thought")
+    : duration.minutes === 0
+      ? t("chat.thoughtSeconds", { seconds: duration.seconds })
+      : t("chat.thoughtMinutes", { minutes: duration.minutes, seconds: String(duration.seconds).padStart(2, "0") });
+
+  return (
+    <div className="settled-process-disclosure">
+      <button
+        type="button"
+        className="settled-process-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronDown className="settled-process-chevron" size={14} strokeWidth={1.7} aria-hidden="true" />
+        <span>{label}</span>
+      </button>
+      {expanded && children}
+    </div>
+  );
+}
+
 export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true, initialModel, initialToolPreset, initialThinkingLevel, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onChooseProject }: Props) {
   const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
@@ -670,12 +711,24 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
                     .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
                     .find((value): value is number => typeof value === "number")
                     ?? undefined;
-                  const processGroup = (
+                  const processTimeline = (
                     <ProcessTimeline>
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", processDetails: true }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false, processDetails: true })}
                     </ProcessTimeline>
                   );
+                  const anchorTimestamp = (messages[userIdx] as AgentMessage & { timestamp?: number }).timestamp;
+                  const finalTimestamp = (messages[finalAssistantIdx] as AgentMessage & { timestamp?: number }).timestamp;
+                  const processGroup = hasFinalAssistantAnswer(finalAssistant)
+                    ? (
+                      <SettledProcessDisclosure
+                        duration={turnThinkingDuration(anchorTimestamp, finalTimestamp)}
+                        t={t}
+                      >
+                        {processTimeline}
+                      </SettledProcessDisclosure>
+                    )
+                    : processTimeline;
                   rendered.push(
                     <div
                       key={`process-group-${userIdx}-${finalAssistantIdx}`}
