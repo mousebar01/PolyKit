@@ -64,8 +64,11 @@ test("searches the current conversation by turn and reuses turn jumping", () => 
   assert.match(minimapSource, /function normalizeSearchText/);
   assert.match(minimapSource, /getFinalAnswerText/);
   assert.match(minimapSource, /turn\.searchText\.includes\(normalizedQuery\)/);
+  assert.match(minimapSource, /const displayedTurns = useMemo/);
+  assert.match(minimapSource, /: turns;/);
   assert.match(minimapSource, /activateSearchResult[\s\S]*jumpTo\(turn\)/);
   assert.match(minimapSource, /onRevealHistory\(\)/);
+  assert.match(minimapSource, /turn\.index \+ 1/);
   assert.match(minimapSource, /Search this conversation|chat\.searchConversationPlaceholder/);
 });
 
@@ -76,6 +79,9 @@ test("supports keyboard search navigation and target highlighting", () => {
   assert.match(minimapSource, /event\.key === "Escape"/);
   assert.match(minimapSource, /styles\.searchTarget/);
   assert.match(minimapCss, /conversation-search-target/);
+  assert.match(minimapCss, /\.turnNumber/);
+  assert.match(minimapCss, /text-overflow:ellipsis/);
+  assert.match(minimapCss, /white-space:nowrap/);
   assert.match(minimapCss, /prefers-reduced-motion/);
 });
 
