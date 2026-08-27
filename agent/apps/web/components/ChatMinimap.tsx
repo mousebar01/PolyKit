@@ -8,10 +8,8 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { splitFinalAssistantBlocks } from "@/lib/message-display";
 import type {
   AgentMessage,
-  AssistantMessage,
   TextContent,
   UserMessage,
 } from "@/lib/types";
@@ -27,7 +25,6 @@ interface Props {
 
 interface TurnInfo {
   userMessage: UserMessage;
-  reply: string;
   scrollTop: number | null;
   index: number;
 }
@@ -42,28 +39,23 @@ function createTurns(
     if (message.role === "user") {
       currentTurn = {
         userMessage: message as UserMessage,
-        reply: "",
         scrollTop: null,
         index: turns.length,
       };
       turns.push(currentTurn);
       continue;
     }
-    if (message.role === "assistant" && currentTurn && !currentTurn.reply) {
-      currentTurn.reply = getAssistantPreview(message);
-    }
   }
 
   return turns;
 }
 
-const WINDOW_RADIUS = 15;
-const TICK_LENGTH = 10;
-const HOVER_TICK_LENGTH = 32;
-const BOOST_RADIUS = 4;
-const MAX_TICK_GAP = 14;
-const TICK_HEIGHT = 14;
-const ACTIVE_TICK_LENGTH = 20;
+const WINDOW_RADIUS = 6;
+const TICK_LENGTH = 8;
+const HOVER_TICK_LENGTH = 18;
+const MAX_TICK_GAP = 10;
+const TICK_HEIGHT = 16;
+const ACTIVE_TICK_LENGTH = 18;
 const ACTIVE_LOCK_MS = 1200;
 
 function getMessageText(message: UserMessage): string {
@@ -74,17 +66,6 @@ function getMessageText(message: UserMessage): string {
       .map((block) => block.text)
       .join(" ");
   return raw.replace(/\s+/g, " ").trim();
-}
-
-function getAssistantPreview(message: AgentMessage | Partial<AgentMessage>): string {
-  if (message.role !== "assistant") return "";
-  const { answerBlocks } = splitFinalAssistantBlocks(message as AssistantMessage);
-  return answerBlocks
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function getMinimapWindow(activeIndex: number, total: number) {
@@ -152,7 +133,6 @@ export function ChatMinimap({
       const containerRect = scrollEl.getBoundingClientRect();
       const nextTurns: TurnInfo[] = [];
       let refIndex = 0;
-      let currentTurn: TurnInfo | null = null;
 
       for (const message of allMessagesRef.current) {
         if (message.role !== "user" && message.role !== "assistant") continue;
@@ -161,9 +141,8 @@ export function ChatMinimap({
 
         if (message.role === "user") {
           const elementRect = element?.getBoundingClientRect();
-          currentTurn = {
+          const currentTurn: TurnInfo = {
             userMessage: message as UserMessage,
-            reply: "",
             scrollTop: elementRect
               ? elementRect.top - containerRect.top + scrollEl.scrollTop
               : null,
@@ -171,10 +150,6 @@ export function ChatMinimap({
           };
           nextTurns.push(currentTurn);
           continue;
-        }
-
-        if (currentTurn && !currentTurn.reply) {
-          currentTurn.reply = getAssistantPreview(message);
         }
       }
 
@@ -276,14 +251,12 @@ export function ChatMinimap({
         const index = windowState.startIndex + offset;
         const isActive = index === windowState.centerIndex;
         const isHovered = index === hoveredIndex;
-        const boost = hoveredIndex === null
-          ? 0
-          : Math.max(0, 1 - Math.abs(index - hoveredIndex) / BOOST_RADIUS);
-        const length = Math.round(TICK_LENGTH + (HOVER_TICK_LENGTH - TICK_LENGTH) * boost);
-        const tickWidth = isActive ? Math.max(ACTIVE_TICK_LENGTH, length) : length;
+        const tickWidth = isActive || isHovered ? ACTIVE_TICK_LENGTH : TICK_LENGTH;
         const tickBackground = isActive
-          ? (isHovered ? "var(--accent-hover)" : "var(--accent)")
-          : `color-mix(in srgb, var(--text) ${35 + Math.round(boost * 65)}%, var(--text-muted))`;
+          ? "var(--text)"
+          : isHovered
+            ? "var(--text-muted)"
+            : "var(--text-dim)";
         const prompt = getMessageText(turn.userMessage) || "Empty message";
 
         return (
@@ -307,13 +280,12 @@ export function ChatMinimap({
               data-active={isActive ? "true" : undefined}
               style={{
                 width: tickWidth,
-                height: isHovered ? 4 : 2,
+                height: isActive || isHovered ? 2 : 1,
                 background: tickBackground,
               }}
             />
             <span className={styles.preview} aria-hidden="true" data-open={isHovered ? "true" : undefined}>
               <span className={styles.prompt}>{prompt}</span>
-              {turn.reply && <span className={styles.reply}>{turn.reply}</span>}
             </span>
           </button>
         );
