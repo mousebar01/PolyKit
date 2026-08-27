@@ -4,6 +4,8 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const messageViewSource = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
+const minimapSource = await readFile(new URL("./ChatMinimap.tsx", import.meta.url), "utf8");
+const minimapCss = await readFile(new URL("./ChatMinimap.module.css", import.meta.url), "utf8");
 
 test("renders live assistant work with process detail styling", () => {
   assert.match(source, /keyPrefix: "live-process", processDetails: true/);
@@ -48,6 +50,33 @@ test("keeps a DSH-style turn status visible for the full agent run", () => {
   assert.match(source, /chat\.deepDiving/);
   assert.doesNotMatch(source, /phaseLabel\(/);
   assert.doesNotMatch(source, /animate-\[pulse_1\.5s_infinite\].*waitingModel/);
+});
+
+test("keeps the recent-turn rail compact and graduated", () => {
+  assert.match(minimapSource, /const WINDOW_RADIUS = 6/);
+  assert.match(minimapSource, /const HOVER_TICK_LENGTH = 24/);
+  assert.match(minimapSource, /const BOOST_RADIUS = 3/);
+  assert.match(minimapSource, /Math\.abs\(index - hoveredIndex\) \/ BOOST_RADIUS/);
+  assert.doesNotMatch(minimapSource, /reply:/);
+});
+
+test("searches the current conversation by turn and reuses turn jumping", () => {
+  assert.match(minimapSource, /function normalizeSearchText/);
+  assert.match(minimapSource, /getFinalAnswerText/);
+  assert.match(minimapSource, /turn\.searchText\.includes\(normalizedQuery\)/);
+  assert.match(minimapSource, /activateSearchResult[\s\S]*jumpTo\(turn\)/);
+  assert.match(minimapSource, /onRevealHistory\(\)/);
+  assert.match(minimapSource, /Search this conversation|chat\.searchConversationPlaceholder/);
+});
+
+test("supports keyboard search navigation and target highlighting", () => {
+  assert.match(minimapSource, /event\.key === "ArrowDown"/);
+  assert.match(minimapSource, /event\.key === "ArrowUp"/);
+  assert.match(minimapSource, /event\.key === "Enter"/);
+  assert.match(minimapSource, /event\.key === "Escape"/);
+  assert.match(minimapSource, /styles\.searchTarget/);
+  assert.match(minimapCss, /conversation-search-target/);
+  assert.match(minimapCss, /prefers-reduced-motion/);
 });
 
 test("shows a bottom control for unread content and active runs", () => {
