@@ -173,6 +173,7 @@ export function ChatMinimap({
       if (!scrollEl) return;
 
       const containerRect = scrollEl.getBoundingClientRect();
+      const indexedTurns = createTurns(allMessagesRef.current);
       const nextTurns: TurnInfo[] = [];
       let refIndex = 0;
 
@@ -183,7 +184,7 @@ export function ChatMinimap({
 
         if (message.role === "user") {
           const elementRect = element?.getBoundingClientRect();
-          const indexedTurn = createTurns(allMessagesRef.current)[nextTurns.length];
+          const indexedTurn = indexedTurns[nextTurns.length];
           const currentTurn: TurnInfo = {
             ...indexedTurn,
             userMessage: message as UserMessage,
@@ -380,7 +381,7 @@ export function ChatMinimap({
           : boost > 0
             ? `color-mix(in srgb, var(--text-muted) ${45 + Math.round(boost * 55)}%, var(--text-dim))`
             : "var(--text-dim)";
-        const prompt = getMessageText(turn.userMessage) || "Empty message";
+        const prompt = turn.prompt || t("chat.emptyMessage");
 
         return (
           <button
