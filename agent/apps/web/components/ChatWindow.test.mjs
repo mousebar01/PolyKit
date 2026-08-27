@@ -24,6 +24,16 @@ test("renders intermediate work directly without a group disclosure", () => {
   assert.doesNotMatch(source, /livePreview=/);
 });
 
+test("keeps a DSH-style turn status visible for the full agent run", () => {
+  assert.match(source, /function AgentTurnStatus\(/);
+  assert.match(source, /elapsedMs >= 15_000/);
+  assert.match(source, /className="agent-turn-status"/);
+  assert.match(source, /\{agentRunning && \(/);
+  assert.match(source, /chat\.deepDiving/);
+  assert.doesNotMatch(source, /phaseLabel\(/);
+  assert.doesNotMatch(source, /animate-\[pulse_1\.5s_infinite\].*waitingModel/);
+});
+
 test("shows a bottom control for unread content and active runs", () => {
   assert.match(source, /const CHAT_BOTTOM_GAP = 24/);
   assert.match(source, /const SCROLL_BOTTOM_HIDE_DISTANCE = 16/);
