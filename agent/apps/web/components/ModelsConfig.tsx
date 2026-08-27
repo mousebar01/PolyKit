@@ -1653,6 +1653,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
+  const [modelsConfigLoaded, setModelsConfigLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -1694,7 +1695,10 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
       })
       .catch(() => setConfig({ providers: {} }))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setModelsConfigLoaded(true);
+      });
     refreshAuthProviders();
   }, [refreshAuthProviders]);
 
@@ -1808,6 +1812,17 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+
+  useEffect(() => {
+    if (!modelsConfigLoaded || selection || providers.length > 0) return;
+    const firstOAuth = activeOAuth[0];
+    if (firstOAuth) {
+      setSelection({ type: "oauth", providerId: firstOAuth.id });
+      return;
+    }
+    const firstApiKey = activeApiKey[0];
+    if (firstApiKey) setSelection({ type: "apikey", providerId: firstApiKey.id });
+  }, [activeApiKey, activeOAuth, modelsConfigLoaded, providers.length, selection]);
 
   // Resolve current detail
   const detailContent = (() => {

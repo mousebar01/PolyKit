@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, Bot, Check, EyeOff, Layers3, Loader2, Plug, Settings2, Sparkles } from 'lucide-react'
+import { Archive, Bot, Check, Layers3, Loader2, Plug, Settings2, Sparkles } from 'lucide-react'
 
 import type {
   AgentSettings,
@@ -12,7 +12,6 @@ import { useI18n } from '@shared/i18n'
 import { SettingsCard, SettingsPathRow, SettingsRow, SettingsSection } from './SettingsLayout'
 import { I18nProvider } from '@agent/hooks/useI18n'
 import { ArchivedSessionsConfig } from '@agent/components/ArchivedSessionsConfig'
-import { HiddenWorkspacesConfig } from '@agent/components/HiddenWorkspacesConfig'
 import { ModelsConfig } from '@agent/components/ModelsConfig'
 import { SkillsConfig } from '@agent/components/SkillsConfig'
 import { PluginsConfig } from '@agent/components/PluginsConfig'
@@ -20,7 +19,7 @@ import { McpConfig } from '@agent/components/McpConfig'
 import '@agent/app/globals.css'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type AgentSubsection = 'runtime' | 'archives' | 'workspaces' | 'models' | 'skills' | 'plugins' | 'mcp'
+type AgentSubsection = 'runtime' | 'archives' | 'models' | 'skills' | 'plugins' | 'mcp'
 
 const DEFAULT_AGENT: AgentSettings = {
   enabled: true,
@@ -64,7 +63,6 @@ export function AgentSection(): JSX.Element {
     { id: 'plugins', label: t('settings.agentPlugins'), icon: Bot },
     { id: 'mcp', label: t('settings.agentMcp'), icon: Plug },
     { id: 'archives', label: t('settings.agentArchives'), icon: Archive },
-    { id: 'workspaces', label: t('settings.agentWorkspaces'), icon: EyeOff },
   ]
 
   function renderAdvancedPanel(): JSX.Element | null {
@@ -83,7 +81,6 @@ export function AgentSection(): JSX.Element {
             ? <McpConfig cwd={workspaceDir} sessionId={null} onAgentConfigure={() => setSubsection('runtime')} onReloaded={() => undefined} />
             : <div className="flex min-h-[460px] items-center justify-center px-4 py-8 text-sm text-muted-foreground">{t('settings.pleaseWait')}</div>)}
           {subsection === 'archives' && <ArchivedSessionsConfig />}
-          {subsection === 'workspaces' && <HiddenWorkspacesConfig />}
         </I18nProvider>
       </div>
     )

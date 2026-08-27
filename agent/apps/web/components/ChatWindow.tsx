@@ -161,7 +161,9 @@ function SettledProcessDisclosure({
   duration: { minutes: number; seconds: number } | null;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Keep the completed process timeline visible so deferred historical
+  // thinking blocks mount and can load their actual content immediately.
+  const [expanded, setExpanded] = useState(true);
   const label = duration === null
     ? t("chat.thought")
     : duration.minutes === 0

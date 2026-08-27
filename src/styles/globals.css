@@ -14,9 +14,9 @@
   :root {
     --app-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --brand-font: 'Space Grotesk', var(--app-font);
-    /* Editor palette: the workspace is near-black, while floating panels sit
-       one clear graphite step above it. Blue remains reserved for active tools. */
-    --background: 0 0% 5.5%;
+    /* Editor palette: a blue-graphite workspace keeps large empty areas calm,
+       while floating panels sit one clear surface step above it. */
+    --background: 220 10% 8%;
     --foreground: 215 16% 91%;
     --card: 220 8% 15%;
     --card-foreground: 215 16% 91%;
@@ -135,10 +135,11 @@
     -webkit-app-region: no-drag;
   }
   .app-bg {
-    /* Pure black outer breathing room makes the single app-shell radius read
-       clearly without introducing another border or floating card. */
-    background-color: hsl(0 0% 0%);
-    background-image: none;
+    /* Keep the outer breathing room in the same graphite family as the
+       workspace. A very soft top wash gives empty areas depth without adding
+       another panel or a decorative border. */
+    background-color: hsl(var(--card) / 0.24);
+    background-image: radial-gradient(120% 80% at 50% -24%, hsl(var(--card) / 0.42), transparent 58%);
   }
   .animate-slide-up {
     animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;

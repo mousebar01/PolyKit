@@ -243,9 +243,14 @@ function AssetCard({
   const { t } = useI18n()
   const openable = isAssetLibraryEntryOpenable(entry)
   const thumbnailUrl = entry.thumbnail ? `${thumbnailBase ?? ''}${entry.thumbnail}` : undefined
+  const [thumbnailState, setThumbnailState] = useState<'loading' | 'loaded' | 'error'>(thumbnailUrl ? 'loading' : 'error')
   const [actionsAt, setActionsAt] = useState<{ x: number; y: number } | null>(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setThumbnailState(thumbnailUrl ? 'loading' : 'error')
+  }, [thumbnailUrl])
 
   const openActionsAt = (x: number, y: number) => {
     if (selectMode) return
@@ -318,14 +323,17 @@ function AssetCard({
         </span>
       )}
       <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden bg-muted/40 transition-colors group-hover:bg-muted/60`}>
-        <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+        {(!thumbnailUrl || thumbnailState === 'error') && (
+          <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+        )}
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
             alt=""
             loading="lazy"
-            onError={(event) => { event.currentTarget.style.display = 'none' }}
-            className="absolute inset-0 h-full w-full object-contain brightness-[0.96] contrast-[1.03] saturate-[0.96] transition-[filter,opacity] duration-200"
+            onLoad={() => setThumbnailState('loaded')}
+            onError={() => setThumbnailState('error')}
+            className={`absolute inset-0 h-full w-full object-contain brightness-[0.96] contrast-[1.03] saturate-[0.96] transition-[filter,opacity] duration-200 ${thumbnailState === 'error' ? 'hidden' : ''}`}
           />
         )}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.025] via-transparent to-black/[0.1]" aria-hidden="true" />

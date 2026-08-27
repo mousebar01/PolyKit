@@ -422,7 +422,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.thinking": "思考",
     "i18n.loadingThinking": "正在加载思考内容...",
     "i18n.loadingThinkingShort": "正在恢复思考摘要...",
-    "i18n.thought": "已思考",
+    "i18n.thought": "思考",
     "i18n.copyMessage": "复制消息",
     "i18n.editFromHere": "从此处编辑",
     "i18n.editFromHereTitle": "从此处编辑，此会话内创建分支",

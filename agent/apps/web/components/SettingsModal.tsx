@@ -10,13 +10,12 @@ import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { MobileDevicesConfig } from "./MobileDevicesConfig";
 import { ArchivedSessionsConfig } from "./ArchivedSessionsConfig";
-import { HiddenWorkspacesConfig } from "./HiddenWorkspacesConfig";
-import { Archive, Check, EyeOff, Moon, Plug, Smartphone, Sun, X } from "lucide-react";
+import { Archive, Check, Moon, Plug, Smartphone, Sun, X } from "lucide-react";
 
-type SettingsSection = "general" | "archives" | "workspaces" | "mobile" | "models" | "skills" | "plugins" | "mcp";
+type SettingsSection = "general" | "archives" | "mobile" | "models" | "skills" | "plugins" | "mcp";
 
 const SECTION_STORAGE_KEY = "pi-settings-section";
-const SECTION_IDS: SettingsSection[] = ["general", "archives", "workspaces", "mobile", "models", "skills", "plugins", "mcp"];
+const SECTION_IDS: SettingsSection[] = ["general", "archives", "mobile", "models", "skills", "plugins", "mcp"];
 
 interface Props {
   cwd: string | null;
@@ -50,8 +49,6 @@ function SectionIcon({ section }: { section: SettingsSection }) {
       );
     case "archives":
       return <Archive {...common} />;
-    case "workspaces":
-      return <EyeOff {...common} />;
     case "models":
       return (
         <svg {...common}>
@@ -129,7 +126,6 @@ export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPlug
     switch (id) {
       case "general": return t("common.general");
       case "archives": return t("common.archived");
-      case "workspaces": return t("common.hiddenWorkspaces");
       case "models": return t("common.models");
       case "mobile": return t("common.mobileDevices");
       case "skills": return t("common.skills");
@@ -236,8 +232,6 @@ export function SettingsModal({ cwd, sessionId, onClose, onModelsRefresh, onPlug
             )}
 
             {section === "archives" && <ArchivedSessionsConfig onSessionDeleted={onSessionDeleted} onSessionsChanged={onSessionsChanged} />}
-
-            {section === "workspaces" && <HiddenWorkspacesConfig onChanged={onSessionsChanged} />}
 
             {section === "models" && (
               <ModelsConfig embedded onClose={handleClose} />

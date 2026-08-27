@@ -88,12 +88,12 @@ function createTurns(
 }
 
 const WINDOW_RADIUS = 6;
-const TICK_LENGTH = 8;
+const TICK_LENGTH = 24;
 const HOVER_TICK_LENGTH = 24;
 const BOOST_RADIUS = 3;
-const MAX_TICK_GAP = 10;
+const MAX_TICK_GAP = 0;
 const TICK_HEIGHT = 16;
-const ACTIVE_TICK_LENGTH = 18;
+const ACTIVE_TICK_LENGTH = 24;
 const ACTIVE_LOCK_MS = 1200;
 
 function getMessageText(message: UserMessage): string {
@@ -136,6 +136,7 @@ export function ChatMinimap({
   const [selectedResult, setSelectedResult] = useState(0);
   const [navHeight, setNavHeight] = useState(300);
   const navRef = useRef<HTMLElement>(null);
+  const searchDialogRef = useRef<HTMLDialogElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const turnsRef = useRef<TurnInfo[]>([]);
   const measureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,10 +300,16 @@ export function ChatMinimap({
   }, [normalizedQuery, turns]);
 
   useEffect(() => {
-    if (!searchOpen) return;
+    const dialog = searchDialogRef.current;
+    if (!searchOpen) {
+      if (dialog?.open) dialog.close();
+      return;
+    }
+    if (dialog && !dialog.open) dialog.showModal();
     const currentResultIndex = displayedTurns.findIndex((turn) => turn.index === activeIndex);
     setSelectedResult(currentResultIndex >= 0 ? currentResultIndex : 0);
-    requestAnimationFrame(() => searchInputRef.current?.focus());
+    const focusFrame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(focusFrame);
   }, [activeIndex, displayedTurns, searchOpen]);
 
   useEffect(() => {
@@ -383,7 +390,7 @@ export function ChatMinimap({
             type="button"
             className={styles.tickButton}
             style={{
-              transform: `translateY(calc(-50% + ${(offset - windowTurns.length / 2) * slot + TICK_HEIGHT / 2}px))`,
+              transform: `translateY(calc(-50% + ${(offset - (windowTurns.length - 1) / 2) * slot}px))`,
             }}
             aria-label={`Jump to: ${prompt}`}
             aria-current={isActive ? "true" : undefined}
@@ -422,9 +429,28 @@ export function ChatMinimap({
       </button>
 
       {searchOpen && (
-        <div className={styles.searchPanel}>
+        <dialog
+          ref={searchDialogRef}
+          className={styles.searchDialog}
+          aria-labelledby="chat-search-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeSearch();
+          }}
+          onClose={closeSearch}
+        >
+          <div className={styles.searchDialogHeading}>
+            <div className={styles.searchDialogTitleGroup}>
+              <h2 id="chat-search-title">{t("chat.searchConversation")}</h2>
+              <p>{t("chat.searchConversationHint")}</p>
+            </div>
+            <button type="button" onClick={closeSearch} aria-label={t("chat.close")} className={styles.searchClose}>
+              <X size={15} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </div>
+
           <div className={styles.searchHeader}>
-            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+            <Search size={15} strokeWidth={1.8} aria-hidden="true" />
             <input
               ref={searchInputRef}
               type="search"
@@ -434,9 +460,6 @@ export function ChatMinimap({
               placeholder={t("chat.searchConversationPlaceholder")}
               aria-label={t("chat.searchConversation")}
             />
-            <button type="button" onClick={closeSearch} aria-label={t("chat.close")} className={styles.searchClose}>
-              <X size={14} strokeWidth={1.8} aria-hidden="true" />
-            </button>
           </div>
 
           <div className={styles.searchResults} role="listbox" aria-label={t("chat.searchResults")}>
@@ -461,7 +484,7 @@ export function ChatMinimap({
               ))
             )}
           </div>
-        </div>
+        </dialog>
       )}
     </nav>
   );

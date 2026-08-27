@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo, useCallback, type RefObject } from "react";
-import { Brain, Check, ChevronDown, Copy, Eye, FileText, GitBranch, Pencil, Search, Terminal, Wrench } from "lucide-react";
+import { Check, ChevronDown, Copy, Eye, FileText, GitBranch, Pencil, Search, Sparkles, Terminal, Wrench } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { MessageSelectionPopover, useMessageSelectionState, type MessageSelectionSnapshot } from "./MessageSelectionPopover";
 import { copyText } from "@/lib/clipboard";
@@ -740,7 +740,9 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, runnin
   running: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  // Thinking is readable context, so keep it visible as soon as the message
+  // is mounted. Users can still collapse it for a compact transcript.
+  const [expanded, setExpanded] = useState(true);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -790,7 +792,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, runnin
         className="thinking-block-toggle"
         aria-expanded={expanded}
       >
-        <Brain className="thinking-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
+        <Sparkles className="thinking-icon" size={14} strokeWidth={1.7} aria-hidden="true" />
         <span className="thinking-label">{t("i18n.thought")}</span>
         <span className="activity-separator" aria-hidden />
         <span ref={previewRef} className="thinking-preview" data-follow-end={running || undefined}>{thinkingPreview}</span>

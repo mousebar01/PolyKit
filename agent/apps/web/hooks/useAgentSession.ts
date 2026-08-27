@@ -459,8 +459,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const params = new URLSearchParams({ deferThinking: "1" });
-      const res = await fetch(agentApiPath(`/sessions/${encodeURIComponent(sid)}?${params}`));
+      // Load the complete readable transcript when entering a session. The
+      // server still supports deferred thinking for lightweight callers, but
+      // the chat view should not require a second interaction to reveal it.
+      const res = await fetch(agentApiPath(`/sessions/${encodeURIComponent(sid)}`));
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -519,9 +521,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
-      const params = new URLSearchParams({ deferThinking: "1" });
+      const params = new URLSearchParams();
       if (leafId) params.set("leafId", leafId);
-      const url = agentApiPath(`/sessions/${encodeURIComponent(sid)}/context?${params}`);
+      const query = params.toString();
+      const url = agentApiPath(`/sessions/${encodeURIComponent(sid)}/context${query ? `?${query}` : ""}`);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };

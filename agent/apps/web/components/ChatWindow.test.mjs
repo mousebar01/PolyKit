@@ -27,9 +27,9 @@ test("renders intermediate work directly without a group disclosure", () => {
   assert.doesNotMatch(source, /livePreview=/);
 });
 
-test("auto-collapses completed process work behind a thinking-duration summary", () => {
+test("shows completed process work so deferred thinking content can load", () => {
   assert.match(source, /function SettledProcessDisclosure\(/);
-  assert.match(source, /const \[expanded, setExpanded\] = useState\(false\)/);
+  assert.match(source, /const \[expanded, setExpanded\] = useState\(true\)/);
   assert.match(source, /hasFinalAssistantAnswer\(finalAssistant\)/);
   assert.match(source, /turnThinkingDuration\(anchorTimestamp, finalTimestamp\)/);
   assert.match(source, /chat\.thoughtSeconds/);
@@ -72,6 +72,9 @@ test("searches the current conversation by turn and reuses turn jumping", () => 
   assert.match(minimapSource, /onRevealHistory\(\)/);
   assert.match(minimapSource, /turn\.index \+ 1/);
   assert.match(minimapSource, /Search this conversation|chat\.searchConversationPlaceholder/);
+  assert.match(minimapSource, /<dialog[\s\S]*styles\.searchDialog/);
+  assert.match(minimapSource, /dialog\.showModal\(\)/);
+  assert.match(minimapCss, /\.searchDialog::backdrop/);
 });
 
 test("supports keyboard search navigation and target highlighting", () => {

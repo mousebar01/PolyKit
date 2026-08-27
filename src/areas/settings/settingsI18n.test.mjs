@@ -64,7 +64,7 @@ test('technical product and protocol names remain stable', async () => {
 
 test('Agent settings keep the migrated management sections', async () => {
   const agent = await read('./components/AgentSection.tsx')
-  for (const section of ['runtime', 'models', 'skills', 'plugins', 'mcp', 'archives', 'workspaces']) {
+  for (const section of ['runtime', 'models', 'skills', 'plugins', 'mcp', 'archives']) {
     assert.match(agent, new RegExp(`id: '${section}'`), `${section} settings section is missing`)
   }
 })
