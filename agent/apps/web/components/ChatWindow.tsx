@@ -12,7 +12,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ArrowDown, ChevronDown, FolderOpen } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem, type SelectedModel, type ThinkingLevelOption } from "@/hooks/useAgentSession";
+import { useAgentSession, type NoticeItem, type SelectedModel, type ThinkingLevelOption } from "@/hooks/useAgentSession";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -41,25 +41,34 @@ interface Props {
   onChooseProject?: () => void;
 }
 
-function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
-  if (phase?.kind === "running_tools") {
-    const actions = [...new Set(phase.tools.map((tool) => toolPhaseAction(tool.name, t)))];
-    if (actions.length === 0) return t("chat.runningTool");
-    return t("chat.runningActions", { actions: actions.join(" · ") });
-  }
-  if (phase?.kind === "waiting_model") return t("chat.waitingModel");
-  if (phase?.kind === "running_command") return t("chat.runningCommand");
-  return null;
+function formatTurnDuration(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function toolPhaseAction(toolName: string, t: (key: string, params?: Record<string, string | number>) => string): string {
-  const name = toolName.toLowerCase();
-  if (/(read|view|open|cat)/.test(name)) return t("chat.action.read");
-  if (/(write|edit|patch|replace|create)/.test(name)) return t("chat.action.edit");
-  if (/(search|grep|find|glob|web|fetch|browse)/.test(name)) return t("chat.action.search");
-  if (/(bash|shell|exec|command|terminal)/.test(name)) return t("chat.action.run");
-  if (/(list|tree|directory|files)/.test(name)) return t("chat.action.inspect");
-  return t("chat.action.useTool");
+function AgentTurnStatus({ label }: { label: string }) {
+  const [startedAt] = useState(() => Date.now());
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setElapsedMs(Math.max(0, Date.now() - startedAt));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  return (
+    <div className="agent-turn-status" role="status" aria-live="polite">
+      <span>{label}</span>
+      {elapsedMs >= 15_000 && (
+        <span className="agent-turn-status-clock" aria-hidden="true">
+          {formatTurnDuration(elapsedMs)}
+        </span>
+      )}
+    </div>
+  );
 }
 
 const CHAT_COLUMN_PADDING = 16;
@@ -173,7 +182,6 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
-    agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -702,15 +710,11 @@ export function ChatWindow({ session, newSessionCwd, showWorkspacePicker = true,
               </div>
             )}
 
-            {agentRunning && !streamState.streamingMessage && agentPhase && (
-              <div className="process-details-timeline is-live streaming-process-timeline">
-                <div className="process-message py-1 text-[12px] text-text-muted">
-                  <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
-                </div>
-              </div>
+            {agentRunning && (
+              <AgentTurnStatus label={t("chat.deepDiving")} />
             )}
 
-            {bashRunning && !pendingBash && (
+            {bashRunning && !pendingBash && !agentRunning && (
               <div className="py-2 text-[13px] text-text-muted">
                  <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
               </div>
