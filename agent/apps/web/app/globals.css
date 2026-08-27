@@ -420,6 +420,47 @@ pre, code {
   gap: 3px;
 }
 
+/* Turn-level model activity mirrors DSH: a persistent text shimmer
+   across first-token wait, tool execution, and streaming. */
+.agent-turn-status {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  min-height: 26px;
+  margin: 2px 0 6px;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 40%,
+    var(--text) 50%,
+    var(--text-muted) 60%,
+    var(--text-muted) 100%
+  );
+  background-position: 100% 0;
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: agent-turn-status-shimmer 1.8s linear infinite;
+}
+
+.agent-turn-status-clock {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  -webkit-text-fill-color: var(--text-dim);
+}
+
+@keyframes agent-turn-status-shimmer {
+  to { background-position: 0 0; }
+}
+
 /* DSH-style transcript rows: thinking and tools are quiet inline events.
    Expanded detail is indented, not promoted to a card. */
 .thinking-block,
@@ -586,9 +627,15 @@ pre, code {
 
 @media (prefers-reduced-motion: reduce) {
   .process-status-dot.is-live,
+  .agent-turn-status,
   .thinking-block.is-running .thinking-block-toggle::after,
   .tool-call-block.is-running .tool-call-toggle::after {
     animation: none;
+  }
+
+  .agent-turn-status {
+    background-position: 0 0;
+    background-size: 100% 100%;
   }
 }
 
