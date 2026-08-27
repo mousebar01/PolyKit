@@ -165,6 +165,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.waitingModel": "正在等待模型...",
     "chat.runningCommand": "正在运行命令...",
     "chat.thinking": "正在思考...",
+    "chat.deepDiving": "正在深入思考...",
     "chat.processDetails": "处理详情",
     "chat.working": "正在工作",
     "chat.scrollToBottom": "滚动到对话底部",
