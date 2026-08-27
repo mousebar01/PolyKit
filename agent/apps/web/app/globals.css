@@ -1474,30 +1474,88 @@ html.dark .settings-segment.is-selected {
   color: var(--accent);
 }
 
-.assistant-message-action {
-  height: 22px;
-  display: inline-flex;
+.assistant-message-chrome {
+  display: flex;
+  min-height: 26px;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.assistant-message-metadata {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.assistant-message-metadata > * + *::before {
+  margin-right: 6px;
+  color: var(--text-dim);
+  content: "·";
+}
+
+.assistant-model-identity {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.assistant-usage {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-message-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-message-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.assistant-message-actions[data-visible] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.assistant-message-action {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 400;
-  white-space: nowrap;
-  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
 .assistant-message-action:hover {
-  color: var(--accent);
+  color: var(--text);
   background: var(--bg-hover);
 }
 
-.assistant-message-action:disabled {
+.assistant-message-action[data-active] {
   color: var(--accent);
+}
+
+.assistant-message-action:disabled {
   cursor: wait;
 }
 
