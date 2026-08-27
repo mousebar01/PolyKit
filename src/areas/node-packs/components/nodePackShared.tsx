@@ -88,7 +88,7 @@ export function TypePill({ type }: { type: 'model' | 'process' }): JSX.Element {
     <Badge
       variant="outline"
       className={type === 'process'
-        ? 'border-emerald-500/25 bg-emerald-500/10 text-[10px] font-semibold uppercase tracking-wider text-emerald-400'
+        ? 'border-sky-500/25 bg-sky-500/10 text-[10px] font-semibold uppercase tracking-wider text-sky-400'
         : 'border-primary/30 bg-primary/10 text-[10px] font-semibold uppercase tracking-wider text-primary'}
     >
       {type === 'process' ? t('nodePacks.typeProcess') : t('nodePacks.typeModel')}
@@ -116,7 +116,7 @@ export function IOBadge({ node }: { node: NodePackNode }): JSX.Element {
 const LED_TONES = {
   green: 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.12)]',
   amber: 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.12)]',
-  brand: 'bg-primary shadow-[0_0_0_3px_rgba(197,249,85,0.18)] animate-pulse',
+  brand: 'bg-primary shadow-[0_0_0_3px_rgba(93,148,217,0.18)] animate-pulse',
 } as const
 
 const TEXT_TONES = {

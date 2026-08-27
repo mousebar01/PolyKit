@@ -106,6 +106,8 @@ async def run_generation(
     workspace = runtime_paths.workspace
     artifact_root = workspace / ".artifacts" / job_id
     model_outputs_dir = artifact_root / "models"
+    thumbnail_target: Path | None = None
+    thumbnail_workspace_path: str | None = None
 
     def progress_cb(pct: int, step: str = "") -> None:
         if pct > job.progress:
@@ -243,6 +245,11 @@ async def run_generation(
         job.step = "Generation complete"
         job.output_url = workspace_url(output_path, collection)
         run_coordinator.mark_completed(job)
+        thumbnail_target = output_path
+        try:
+            thumbnail_workspace_path = output_path.relative_to(workspace).as_posix()
+        except ValueError:
+            thumbnail_target = None
 
     except GenerationCancelled:
         cleanup_artifact_root(artifact_root)
@@ -265,3 +272,11 @@ async def run_generation(
         run_coordinator.clear_active(job_id)
         model_runtime_registry.end_generation(job_id)
         run_coordinator.generation_lock.release()
+        if job.status == "done" and thumbnail_target is not None and thumbnail_workspace_path is not None:
+            # Best-effort card preview generation runs after the model lock is
+            # released; the generation response never waits for thumbnail work.
+            try:
+                from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
+                prewarm_thumbnail(thumbnail_workspace_path, thumbnail_target, _LIBRARY_SIZE)
+            except Exception as exc:
+                print(f"[Thumbnails] generation prewarm could not be queued: {exc}")

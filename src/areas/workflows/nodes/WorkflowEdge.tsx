@@ -4,9 +4,9 @@ import { useNodePacksStore } from '@shared/stores/nodePacksStore'
 import { buildAllWorkflowNodePacks } from '../mockNodePacks'
 
 const HANDLE_COLOR: Record<string, string> = {
-  audio: '#34d399',
-  image: '#38bdf8',
-  mesh:  '#c5f955',
+  audio: '#5680b8',
+  image: '#5680b8',
+  mesh:  '#5d94d9',
   text:  '#fbbf24',
 }
 

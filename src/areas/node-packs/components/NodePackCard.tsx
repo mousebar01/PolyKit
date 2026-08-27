@@ -56,16 +56,16 @@ export function NodePackCard({
   }
 
   return (
-    <Card className="group relative flex min-h-[230px] flex-col overflow-hidden rounded-xl bg-card p-5 shadow-none transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-lg">
+    <Card className="group relative flex min-h-[210px] flex-col overflow-hidden rounded-lg bg-card p-4 shadow-none transition-all duration-150 hover:border-primary/35 hover:shadow-lg">
       <button
         type="button"
-        className="absolute inset-0 z-10 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="absolute inset-0 z-10 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onOpen(ext)}
         aria-label={t('nodePacks.openDetails', { name: displayName })}
       />
 
       <div className="flex items-center gap-3">
-        <div className={`h-10 w-10 shrink-0 rounded-lg border border-border bg-muted p-2.5 ${isModel ? 'text-primary' : 'text-emerald-400'}`}>
+        <div className={`h-10 w-10 shrink-0 rounded-lg border border-border bg-muted p-2.5 ${isModel ? 'text-primary' : 'text-sky-400'}`}>
           {isModel ? ICONS.spark : ICONS.cube}
         </div>
         <div className="min-w-0 flex-1">
@@ -74,7 +74,7 @@ export function NodePackCard({
           </div>
           {isLocal && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="text-orange-400/90">{t('nodePacks.local')}</span>
+              <span className="text-sky-400/90">{t('nodePacks.local')}</span>
             </div>
           )}
         </div>

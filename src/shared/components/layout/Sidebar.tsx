@@ -18,30 +18,31 @@ export default function Sidebar(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <aside className="flex w-[72px] shrink-0 flex-col gap-1 border-r border-border bg-card/70 px-2 py-4" aria-label="Primary navigation">
-      {NAV_ITEMS.map((item) => {
-        const active = currentPage === item.id
-        const Icon = item.icon
-        return (
-          <Button
-            key={item.id}
-            type="button"
-            variant="ghost"
-            title={t(item.label)}
-            aria-current={active ? 'page' : undefined}
-            onClick={() => navigate(item.id)}
-            className={cn(
-              'relative h-14 flex-col gap-1 rounded-lg px-1 text-[10px] leading-none',
-              active
-                ? 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Icon className="size-5" strokeWidth={1.7} />
-            <span>{t(item.label)}</span>
-          </Button>
-        )
-      })}
+    <aside className="flex w-[72px] shrink-0 flex-col rounded-md bg-card px-1.5 py-2" aria-label="Primary navigation">
+      <nav className="flex flex-col gap-1" aria-label="Workspace navigation">
+        {NAV_ITEMS.map((item) => {
+          const active = currentPage === item.id
+          const Icon = item.icon
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              variant="ghost"
+              title={t(item.label)}
+              aria-label={t(item.label)}
+              aria-current={active ? 'page' : undefined}
+              onClick={() => navigate(item.id)}
+              className={cn(
+                'h-12 w-full flex-col gap-1 rounded-md px-1 text-[10px] leading-none text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                active && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary shadow-sm shadow-primary/10',
+              )}
+            >
+              <Icon className="size-[18px]" strokeWidth={1.8} />
+              <span className="max-w-full truncate">{t(item.label)}</span>
+            </Button>
+          )
+        })}
+      </nav>
     </aside>
   )
 }

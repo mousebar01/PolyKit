@@ -66,7 +66,7 @@ const DEFAULT_EDGE_OPTS = { type: 'workflowEdge' }
 // ─── IO badge ─────────────────────────────────────────────────────────────────
 
 const IO_STYLES: Record<'image' | 'text' | 'mesh' | 'audio', string> = {
-  audio: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+  audio: 'bg-sky-500/15 text-sky-400 border-sky-500/25',
   image: 'bg-sky-500/15 text-sky-400 border-sky-500/25',
   mesh:  'bg-primary/15 text-primary border-primary/25',
   text:  'bg-amber-500/15 text-amber-400 border-amber-500/25',
@@ -189,9 +189,9 @@ const PANEL_MAX = 860
 const PANEL_BUILTIN_NODES = [
   { type: 'imageNode',   labelKey: 'workflows.nodeImage' as TranslationKey, color: '#38bdf8', icon: <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></> },
   { type: 'textNode',    labelKey: 'workflows.nodeText' as TranslationKey, color: '#fbbf24', icon: <><path d="M17 6.1H3M21 12.1H3M15.1 18H3"/></> },
-  { type: 'meshNode',    labelKey: 'workflows.nodeMesh' as TranslationKey, color: '#c5f955', icon: <><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></> },
-  { type: 'outputNode',  labelKey: 'workflows.nodeOutput' as TranslationKey, color: '#ff3e8f', icon: <><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></> },
-  { type: 'previewNode', labelKey: 'workflows.nodePreview' as TranslationKey, color: '#38bdf8', icon: <><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></> },
+  { type: 'meshNode',    labelKey: 'workflows.nodeMesh' as TranslationKey, color: '#5d94d9', icon: <><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></> },
+  { type: 'outputNode',  labelKey: 'workflows.nodeOutput' as TranslationKey, color: '#5680b8', icon: <><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></> },
+  { type: 'previewNode', labelKey: 'workflows.nodePreview' as TranslationKey, color: '#5680b8', icon: <><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></> },
   { type: 'noteNode',    labelKey: 'workflows.nodeNote' as TranslationKey, color: '#a1a1aa', icon: <><path d="M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v10a2 2 0 0 1-1 1H9l-4 4V5z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></> },
 ]
 
@@ -400,7 +400,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                           className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3.5 text-left transition-colors hover:border-primary/50 hover:bg-primary/10"
                         >
                           <div className="flex items-center gap-2">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C5F955" strokeWidth="1.8" className="shrink-0">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0">
                               <path d="M12 3v18M3 12h18M5.5 5.5l13 13M18.5 5.5l-13 13" />
                             </svg>
                             <p className="truncate text-xs font-semibold text-primary">{template.name}</p>
@@ -673,7 +673,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
                         <span className="truncate text-[11px] font-medium text-foreground">{outputDisplayName(url)}</span>
-                        {index === 0 && <span className="shrink-0 text-[9px] text-emerald-400">{t('workflows.latest')}</span>}
+                        {index === 0 && <span className="shrink-0 text-[9px] text-sky-400">{t('workflows.latest')}</span>}
                       </span>
                       <span className="mt-1 block truncate text-[10px] text-muted-foreground">{url.replace(/^\/workspace\//, '')}</span>
                     </span>
@@ -709,9 +709,9 @@ function PanelToggleIcon({ open }: { open: boolean }) {
 const BUILTIN_NODES = [
   { type: 'imageNode',   labelKey: 'workflows.nodeImage' as TranslationKey, descriptionKey: 'workflows.nodeImageDescription' as TranslationKey, color: '#38bdf8' },
   { type: 'textNode',    labelKey: 'workflows.nodeText' as TranslationKey, descriptionKey: 'workflows.nodeTextDescription' as TranslationKey, color: '#fbbf24' },
-  { type: 'meshNode',    labelKey: 'workflows.nodeMesh' as TranslationKey, descriptionKey: 'workflows.nodeMeshDescription' as TranslationKey, color: '#c5f955' },
-  { type: 'outputNode',  labelKey: 'workflows.nodeOutput' as TranslationKey, descriptionKey: 'workflows.nodeOutputDescription' as TranslationKey, color: '#ff3e8f' },
-  { type: 'previewNode', labelKey: 'workflows.nodePreview' as TranslationKey, descriptionKey: 'workflows.nodePreviewDescription' as TranslationKey, color: '#38bdf8' },
+  { type: 'meshNode',    labelKey: 'workflows.nodeMesh' as TranslationKey, descriptionKey: 'workflows.nodeMeshDescription' as TranslationKey, color: '#5d94d9' },
+  { type: 'outputNode',  labelKey: 'workflows.nodeOutput' as TranslationKey, descriptionKey: 'workflows.nodeOutputDescription' as TranslationKey, color: '#5680b8' },
+  { type: 'previewNode', labelKey: 'workflows.nodePreview' as TranslationKey, descriptionKey: 'workflows.nodePreviewDescription' as TranslationKey, color: '#5680b8' },
   { type: 'noteNode',    labelKey: 'workflows.nodeNote' as TranslationKey, descriptionKey: 'workflows.nodeNoteDescription' as TranslationKey, color: '#a1a1aa' },
 ]
 
@@ -1001,7 +1001,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               </div>
 
               <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/50 p-3">
-                <span className="mt-0.5 inline-flex shrink-0 items-center rounded border border-pink-500/30 bg-pink-500/10 px-1.5 py-0.5 text-[9px] font-medium text-pink-400">{t('workflows.typeScene')}</span>
+                <span className="mt-0.5 inline-flex shrink-0 items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">{t('workflows.typeScene')}</span>
                 <div>
                   <p className="text-[11px] font-medium text-foreground">{t('workflows.nodeOutput')}</p>
                   <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t('workflows.outputDescription')}</p>
@@ -1421,13 +1421,13 @@ function WorkflowCanvasInner({
       )}
 
       {/* Header toolbar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card/80 px-5 py-3">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
 
         {/* Open */}
         <button
           onClick={onOpen}
           title={t('workflows.open')}
-          className="flex shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3.5 py-2 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
+          className="flex shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -1439,7 +1439,7 @@ function WorkflowCanvasInner({
         <button
           onClick={onImport}
           title={t('workflows.import')}
-          className="flex shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3.5 py-2 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
+          className="flex shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1455,7 +1455,7 @@ function WorkflowCanvasInner({
           onClick={undo}
           disabled={!canUndo}
           title={t('workflows.undo')}
-          className="rounded-lg border border-input bg-background p-2.5 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          className="rounded-md border border-input bg-background p-2 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 7v6h6"/><path d="M3 13A9 9 0 1 0 5.7 6.3"/>
@@ -1467,7 +1467,7 @@ function WorkflowCanvasInner({
           onClick={redo}
           disabled={!canRedo}
           title={t('workflows.redo')}
-          className="rounded-lg border border-input bg-background p-2.5 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          className="rounded-md border border-input bg-background p-2 text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 7v6h-6"/><path d="M21 13A9 9 0 1 1 18.3 6.3"/>
@@ -1480,7 +1480,7 @@ function WorkflowCanvasInner({
           {/* Run / Stop */}
           <button
             onClick={handleRun}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors
+            className={`flex items-center gap-2 rounded-md border px-3.5 py-1.5 transition-colors
               ${isRunning
                 ? 'border-destructive/30 bg-destructive/10 text-destructive hover:border-destructive/50 hover:bg-destructive/20'
                 : 'border-primary/30 bg-primary/10 text-primary hover:border-primary/50 hover:bg-primary/20'}`}
@@ -1500,7 +1500,7 @@ function WorkflowCanvasInner({
 
           {/* Progress indicator */}
           {isRunning && (
-            <div className="flex max-w-[180px] items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5">
+            <div className="flex max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 py-1.5">
               <svg className="animate-spin shrink-0 text-primary" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
               </svg>
@@ -1512,7 +1512,7 @@ function WorkflowCanvasInner({
           <button
             onClick={() => setHelpOpen(true)}
             title={t('workflows.help')}
-            className="flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-input bg-background p-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background p-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-ring hover:bg-muted hover:text-foreground"
           >
             ?
           </button>
@@ -1523,7 +1523,7 @@ function WorkflowCanvasInner({
 
       {/* Run error banner — surface subprocess/backend failures instead of failing silently */}
       {runState.status === 'error' && runState.error && (
-        <div className="flex shrink-0 items-start gap-2.5 border-b border-destructive/30 bg-destructive/10 px-5 py-3">
+        <div className="flex shrink-0 items-start gap-2.5 border-b border-destructive/30 bg-destructive/10 px-3 py-2.5">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 shrink-0 text-destructive">
             <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
@@ -1559,7 +1559,7 @@ function WorkflowCanvasInner({
         <button
           onClick={onTogglePanel}
           title={panelOpen ? t('workflows.closeNodeLibrary') : t('workflows.openNodeLibrary')}
-          className="absolute left-3 top-3 z-10 rounded-lg border border-border bg-card/95 p-2 text-muted-foreground shadow-md transition-colors backdrop-blur-sm hover:border-ring hover:bg-muted hover:text-foreground"
+          className="absolute left-3 top-3 z-10 rounded-md border border-border bg-card/95 p-2 text-muted-foreground shadow-md transition-colors backdrop-blur-sm hover:border-ring hover:bg-muted hover:text-foreground"
         >
           <PanelToggleIcon open={panelOpen} />
         </button>
@@ -1582,9 +1582,9 @@ function WorkflowCanvasInner({
           fitView
           fitViewOptions={{ padding: 0.3 }}
           proOptions={{ hideAttribution: true }}
-          className="bg-[#0f0f10]"
+          className="bg-[#191919]"
         >
-          <Background color="#27272a" gap={24} size={1} />
+          <Background color="#303030" gap={24} size={1} />
         </ReactFlow>
       </div>
     </div>
@@ -1595,15 +1595,15 @@ function WorkflowCanvasInner({
 // Schematic thumbnail of a workflow's graph for the Open popup cards — plain
 // SVG built from stored node positions, no React Flow instance needed.
 
-// Node tint by role, echoing the real canvas: inputs green, processing lime,
-// outputs blue, everything else neutral.
+// Node tint by role, echoing the real canvas: inputs blue, processing blue,
+// outputs cyan-blue, everything else neutral.
 const MINI_NODE_TINTS: Record<string, { fill: string; stroke: string }> = {
-  imageNode:     { fill: 'rgba(52,211,153,0.22)',  stroke: '#34d399' },
-  textNode:      { fill: 'rgba(52,211,153,0.22)',  stroke: '#34d399' },
-  meshNode:      { fill: 'rgba(52,211,153,0.22)',  stroke: '#34d399' },
-  nodePackNode: { fill: 'rgba(197,249,85,0.22)', stroke: '#c5f955' },
-  outputNode:    { fill: 'rgba(56,189,248,0.22)',  stroke: '#38bdf8' },
-  previewNode:   { fill: 'rgba(56,189,248,0.22)',  stroke: '#38bdf8' },
+  imageNode:     { fill: 'rgba(86,128,184,0.22)',  stroke: '#5680b8' },
+  textNode:      { fill: 'rgba(86,128,184,0.22)',  stroke: '#5680b8' },
+  meshNode:      { fill: 'rgba(86,128,184,0.22)',  stroke: '#5680b8' },
+  nodePackNode: { fill: 'rgba(93,148,217,0.22)', stroke: '#5d94d9' },
+  outputNode:    { fill: 'rgba(86,128,184,0.22)',  stroke: '#5680b8' },
+  previewNode:   { fill: 'rgba(86,128,184,0.22)',  stroke: '#5680b8' },
 }
 const MINI_NODE_DEFAULT_TINT = { fill: 'rgba(113,113,122,0.25)', stroke: '#71717a' }
 
@@ -1657,7 +1657,7 @@ function WorkflowMiniPreview({ wf }: { wf: Workflow }): JSX.Element {
     <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
       <defs>
         <pattern id="wf-mini-grid" width="11" height="11" patternUnits="userSpaceOnUse">
-          <circle cx="1" cy="1" r="0.8" fill="#27272a" />
+          <circle cx="1" cy="1" r="0.8" fill="#303030" />
         </pattern>
       </defs>
       <rect width={VIEW_W} height={VIEW_H} fill="url(#wf-mini-grid)" />

@@ -104,10 +104,10 @@ export function NodePackDrawer({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[418px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 p-0 shadow-2xl">
+      <DialogContent className="bottom-0 left-auto right-0 top-0 flex h-full w-[400px] max-w-[92vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 p-0 shadow-2xl">
         <div className="shrink-0 border-b border-border px-5 pb-4 pt-5">
           <div className="flex items-center gap-3.5 pr-8">
-            <div className={`h-[52px] w-[52px] shrink-0 rounded-xl border border-border bg-muted p-3 ${isModel ? 'text-primary' : 'text-emerald-400'}`}>
+            <div className={`h-[52px] w-[52px] shrink-0 rounded-xl border border-border bg-muted p-3 ${isModel ? 'text-primary' : 'text-sky-400'}`}>
               {isModel ? ICONS.spark : ICONS.cube}
             </div>
             <div className="min-w-0">
@@ -115,7 +115,7 @@ export function NodePackDrawer({
               <DialogDescription className="sr-only">{description?.trim() || t('nodePacks.openDetails', { name: displayName })}</DialogDescription>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <TypePill type={ext.type} />
-                {isLocal && <Badge variant="outline" className="border-orange-500/25 text-orange-400">{t('nodePacks.local')}</Badge>}
+                {isLocal && <Badge variant="outline" className="border-sky-500/25 text-sky-400">{t('nodePacks.local')}</Badge>}
               </div>
             </div>
           </div>

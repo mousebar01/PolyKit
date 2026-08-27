@@ -37,8 +37,8 @@ export default function SettingsPage(): JSX.Element {
 
   return (
     <div className="flex h-full bg-background">
-      <nav className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border bg-card/60 px-3 py-6" aria-label={t('settings.title')}>
-        <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('settings.title')}</p>
+      <nav className="flex w-[188px] shrink-0 flex-col gap-1 border-r border-border bg-card px-2 py-3" aria-label={t('settings.title')}>
+        <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('settings.title')}</p>
         {SECTIONS.map((item) => {
           const Icon = item.icon
           const active = section === item.id
@@ -50,8 +50,8 @@ export default function SettingsPage(): JSX.Element {
               aria-current={active ? 'page' : undefined}
               onClick={() => setSection(item.id)}
               className={active
-                ? 'relative h-9 justify-start gap-2.5 bg-primary/10 px-3 text-primary hover:bg-primary/15 hover:text-primary'
-                : 'relative h-9 justify-start gap-2.5 px-3 text-muted-foreground hover:text-foreground'}
+                ? 'relative h-8 justify-start gap-2.5 rounded-md bg-primary/10 px-2.5 text-primary hover:bg-primary/15 hover:text-primary'
+                : 'relative h-8 justify-start gap-2.5 rounded-md px-2.5 text-muted-foreground hover:bg-muted hover:text-foreground'}
             >
               <Icon className="size-4" />
               {t(item.label)}
@@ -61,7 +61,7 @@ export default function SettingsPage(): JSX.Element {
       </nav>
 
       <main className="flex-1 overflow-y-auto bg-background">
-        <div className="mx-auto max-w-6xl p-6 lg:p-8">
+        <div className="mx-auto max-w-6xl p-5 lg:p-6">
           {section === 'application' && <ApplicationSection />}
           {section === 'agent' && <AgentSection />}
           {section === 'storage' && <StorageSection />}

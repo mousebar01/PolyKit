@@ -96,6 +96,16 @@ function prepareSceneMaterials(scene: THREE.Object3D): void {
         texture.needsUpdate = true
       }
 
+      // Keep untextured generated meshes on the same neutral studio-gray
+      // baseline as the library snapshot. A pure white default material clips
+      // under the key/fill rig and hides silhouette detail.
+      const hasVertexColors = child.geometry.getAttribute('color') !== undefined
+      const colorMaterial = material as THREE.Material & { color?: THREE.Color }
+      if (!textured.map && !hasVertexColors && colorMaterial.color && !material.userData.polyKitNeutralStudio) {
+        colorMaterial.color.multiplyScalar(0.72)
+        material.userData.polyKitNeutralStudio = true
+      }
+
       // Trellis meshes can contain back-facing triangles after remeshing.  A
       // two-sided material keeps the texture visible while the user inspects
       // the asset from every angle.

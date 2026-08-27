@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: polykit
+Version: 0.0.0
+Summary: Local AI-powered 3D mesh generation from images
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: fastapi>=0.115.6
+Requires-Dist: uvicorn[standard]==0.34.0
+Requires-Dist: python-multipart==0.0.20
+Requires-Dist: psutil>=7.2.2
+Requires-Dist: nvidia-ml-py>=13.610.43
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: mcp>=1.0.0
+Requires-Dist: trimesh>=4.5.0
+Requires-Dist: Pillow>=10.0.0
+Requires-Dist: pymeshlab<2025,>=2023.12; sys_platform == "linux" and platform_machine == "x86_64"
+Requires-Dist: pymeshlab>=2023.12; sys_platform != "linux" or platform_machine != "x86_64"
+Requires-Dist: huggingface_hub>=0.27.0
+Requires-Dist: hf_xet>=0.1.0
+Requires-Dist: cryptography>=42.0.0
+Requires-Dist: certifi>=2024.0.0
+Dynamic: license-file

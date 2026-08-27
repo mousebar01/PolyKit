@@ -8,7 +8,7 @@ import { useNavStore } from '@shared/stores/navStore'
 import type { WFNodeData } from '@shared/types/runtime.d'
 import BaseNode from './BaseNode'
 
-const INPUT_COLOR = '#ff3e8f'
+const INPUT_COLOR = '#5d94d9'
 
 export default function OutputNode({ id, data, selected }: { id: string; data: WFNodeData; selected?: boolean }) {
   const { navigate } = useNavStore()
@@ -27,7 +27,7 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
       selected={selected}
       title="Output"
       minWidth={160}
-      icon={<Box className="h-3 w-3 text-pink-400" />}
+      icon={<Box className="h-3 w-3 text-primary" />}
       subheader={
         <div className="flex items-center gap-1.5 px-3 py-2">
           <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">mesh</span>
@@ -43,8 +43,8 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
         {outputUrl ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5">
-              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-              <span className="text-[10px] text-emerald-400">Mesh ready</span>
+              <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+              <span className="text-[10px] text-sky-400">Mesh ready</span>
             </div>
             <Button
               type="button"

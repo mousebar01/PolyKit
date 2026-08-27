@@ -407,10 +407,37 @@ export default function NodePacksPage(): JSX.Element {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-start justify-between gap-6 px-6 pb-5 pt-6">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{t('nodePacks.title')}</h1>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3">
+        <div className="mr-auto min-w-[140px]">
+          <h1 className="text-base font-semibold tracking-tight text-foreground">{t('nodePacks.title')}</h1>
         </div>
+
+        <div className="relative min-w-[220px] flex-[1_1_260px] max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('nodePacks.search')}
+            className="h-9 pl-9 pr-10"
+          />
+          {search ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+              onClick={() => setSearch('')}
+              aria-label={t('nodePacks.clearSearch')}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">/</kbd>
+          )}
+        </div>
+
         <div className="flex shrink-0 gap-2">
           {!isWeb && (
             <Button
@@ -445,57 +472,28 @@ export default function NodePacksPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3 px-6 pb-5">
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            ref={searchRef}
-            type="text"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('nodePacks.search')}
-            className="h-10 pl-9 pr-10"
-          />
-          {search ? (
+      {visibleFilters.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-5 py-2">
+          {visibleFilters.map((id) => (
             <Button
+              key={id}
               type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
-              onClick={() => setSearch('')}
-              aria-label={t('nodePacks.clearSearch')}
+              variant={filter === id ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-8 gap-1.5 px-2.5"
+              onClick={() => setFilter(id)}
             >
-              <X className="h-3.5 w-3.5" />
+              {filterLabel(id)}
+              <Badge variant="outline" className="h-5 min-w-5 justify-center px-1.5 font-mono text-[10px] text-muted-foreground">
+                {counts[id]}
+              </Badge>
             </Button>
-          ) : (
-            <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">/</kbd>
-          )}
+          ))}
         </div>
-
-        {visibleFilters.length > 1 && (
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/25 p-1">
-            {visibleFilters.map((id) => (
-              <Button
-                key={id}
-                type="button"
-                variant={filter === id ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-8 gap-1.5 px-2.5"
-                onClick={() => setFilter(id)}
-              >
-                {filterLabel(id)}
-                <Badge variant="outline" className="h-5 min-w-5 justify-center px-1.5 font-mono text-[10px] text-muted-foreground">
-                  {counts[id]}
-                </Badge>
-              </Button>
-            ))}
-          </div>
-        )}
-
-      </div>
+      )}
 
       {showGHForm && !isWeb && (
-        <div className="shrink-0 animate-fade-in px-6 pb-5">
+        <div className="shrink-0 animate-fade-in px-5 pb-4">
           <Card className="flex flex-col gap-3 p-4 shadow-none">
             <div className="flex gap-2">
               <Input
@@ -561,7 +559,7 @@ export default function NodePacksPage(): JSX.Element {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
         {allNodePacks.length === 0 && extLoading ? (
           <div className="flex items-center justify-center py-16">
             <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -584,14 +582,14 @@ export default function NodePacksPage(): JSX.Element {
             {processList.length > 0 && (
               <section className="mt-1">
                 {showGroupHeadings && <div className="mb-4 flex items-center gap-3 px-0.5">
-                  <span className="grid h-6 w-6 place-items-center rounded-md border border-emerald-500/25 bg-emerald-500/10 p-1 text-emerald-400">
+                  <span className="grid h-6 w-6 place-items-center rounded-md border border-sky-500/25 bg-sky-500/10 p-1 text-sky-400">
                     <Box className="h-full w-full" strokeWidth={1.5} />
                   </span>
                   <h2 className="text-[13px] font-semibold tracking-wide text-foreground">{t('nodePacks.processors')}</h2>
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{processList.length}</Badge>
                   <span className="h-px flex-1 bg-border" />
                 </div>}
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {processList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
                 </div>
               </section>
@@ -606,14 +604,14 @@ export default function NodePacksPage(): JSX.Element {
                   <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">{modelList.length}</Badge>
                   <span className="h-px flex-1 bg-border" />
                 </div>}
-                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                   {modelList.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
                 </div>
               </section>
             )}
           </>
         ) : (
-          <div className="mt-1 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+          <div className="mt-1 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
             {filteredNodePacks.map((ext) => <NodePackCard key={ext.id} ext={ext} loadError={extLoadError(ext)} {...cardHandlers} />)}
           </div>
         )}

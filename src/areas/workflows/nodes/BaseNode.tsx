@@ -49,7 +49,7 @@ export default function BaseNode({
     <div
       ref={rootRef}
       style={autoHeight ? { width: '100%' } : { width: '100%', height: '100%' }}
-      className={`relative flex flex-col rounded-xl border bg-card/95 text-card-foreground shadow-xl backdrop-blur-sm transition-all ${running ? 'border-primary shadow-[0_0_16px_rgba(197,249,85,0.28)] animate-pulse' : selected ? 'border-primary/70' : isDisabled ? 'border-border opacity-50' : 'border-border'}`}
+      className={`relative flex flex-col rounded-lg border bg-card/95 text-card-foreground shadow-xl backdrop-blur-sm transition-all ${running ? 'border-primary shadow-[0_0_16px_rgba(231,131,29,0.28)] animate-pulse' : selected ? 'border-primary/70' : isDisabled ? 'border-border opacity-50' : 'border-border'}`}
     >
       <NodeResizer
         minWidth={minWidth}

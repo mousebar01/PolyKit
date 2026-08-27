@@ -87,8 +87,8 @@ def _entry(workspace_path: str, path: Path) -> dict:
     if reason:
         entry["nonOpenableReason"] = reason
     if capability in {"mesh", "rigged-mesh"}:
-        from services.asset_thumbnails import _RENDER_VERSION
-        entry["thumbnail"] = f"/workspace-library/thumbnail?path={workspace_path}&v={_RENDER_VERSION}"
+        from services.asset_thumbnails import _LIBRARY_SIZE, _RENDER_VERSION
+        entry["thumbnail"] = f"/workspace-library/thumbnail?path={workspace_path}&v={_RENDER_VERSION}&size={_LIBRARY_SIZE}"
         if extension in {"glb", "gltf"}:
             from services.asset_previews import _PREVIEW_VERSION
             entry["preview"] = f"/workspace-library/preview?path={workspace_path}&v={_PREVIEW_VERSION}"
@@ -151,8 +151,8 @@ def _walk(root: Path, relative_root: str) -> list[dict]:
 async def asset_thumbnail(path: str, size: int = 256):
     """Render (or return a cached) static PNG hero view for a workspace mesh.
 
-    The library grid loads this lazily; the first request renders via Open3D
-    offscreen and caches it next to the workspace.
+    The library grid loads this lazily; the first request renders a server-side
+    snapshot and caches it next to the workspace.
     """
     import asyncio
     from fastapi.responses import FileResponse, Response
@@ -171,9 +171,10 @@ async def asset_thumbnail(path: str, size: int = 256):
         raise HTTPException(404, "Thumbnail could not be rendered for this asset.")
     # Short cache: the URL carries a render-version param, so version bumps
     # change the URL and bust the cache; within a version, revalidation is cheap.
-    # Thumbnails are static PNG hero views (see asset_thumbnails); the hover
-    # 3D preview provides the rotating turntable.
-    return FileResponse(thumb, media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
+    # Thumbnails are static front-facing PNG views (see asset_thumbnails).
+    # The URL already carries source mtime/size and render version, so this
+    # artifact is immutable for its lifetime; let the browser keep it warm.
+    return FileResponse(thumb, media_type="image/png", headers={"Cache-Control": "public, max-age=86400, immutable"})
 
 
 def _render_thumbnail(workspace_path: str, mesh_path: Path, px: int):
@@ -183,11 +184,10 @@ def _render_thumbnail(workspace_path: str, mesh_path: Path, px: int):
 
 @router.get("/preview")
 async def asset_preview(path: str, v: int = 1):
-    """Return (or generate) a lightweight textured GLB for client-side preview.
+    """Return (or generate) a lightweight textured GLB for optional detail preview.
 
-    The library grid mounts a small three.js scene on hover and fetches this
-    instead of the full mesh — the server simplifies the geometry and
-    downscales textures once, then serves the cached result.
+    This endpoint remains available for clients that need an interactive detail
+    view; the asset library cards use the static front-facing PNG thumbnail.
     """
     import asyncio
     from fastapi.responses import FileResponse
@@ -222,14 +222,8 @@ async def list_library():
     except OSError as exc:
         return {"success": False, "error": {"code": "list-failed", "message": str(exc)}}
 
-    # Warm 3D previews in the background so hovering a card is instant on the
-    # first visit. Generation is cached + idempotent and runs on a daemon
-    # thread, so repeated list calls are harmless.
-    try:
-        from services.asset_previews import start_prewarm
-        start_prewarm([e["workspacePath"] for e in entries if e.get("preview")])
-    except Exception:
-        pass
+    # Cards use the static thumbnail URL. Do not prewarm interactive GLBs here:
+    # listing the library should stay cheap and must not trigger hidden 3D work.
     return {"success": True, "entries": entries}
 
 
@@ -431,6 +425,14 @@ async def upload_asset(
     dest.write_bytes(data)
 
     workspace_path = f"{root}/{dest.name}"
+    if is_mesh:
+        # Do not make the upload wait for Open3D/EGL.  The bounded prewarm pool
+        # prepares the card while the caller continues with its workflow.
+        try:
+            from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
+            prewarm_thumbnail(workspace_path, dest, _LIBRARY_SIZE)
+        except Exception as exc:
+            print(f"[Thumbnails] upload prewarm could not be queued: {exc}")
     return {
         "success": True,
         "workspacePath": workspace_path,

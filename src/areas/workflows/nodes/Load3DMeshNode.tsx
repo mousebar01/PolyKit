@@ -8,7 +8,7 @@ import type { WFNodeData } from '@shared/types/runtime.d'
 import ServerFileBrowser from '../components/ServerFileBrowser'
 import BaseNode from './BaseNode'
 
-const OUTPUT_COLOR = '#c5f955'
+const OUTPUT_COLOR = '#5d94d9'
 
 interface ServerMesh {
   workspacePath: string

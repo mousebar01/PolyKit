@@ -21,6 +21,7 @@ from services.workflow_executor import (
     topological_order,
     validate_prompt_links,
 )
+from services.runtime_paths import runtime_paths
 from services.workspace_paths import normalize_collection
 
 router = APIRouter(tags=["workflow-runs"])
@@ -39,6 +40,8 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
     run_coordinator.set_active(job_id)
     cancel_event = run_coordinator.cancel_events.get(job_id)
     collection = normalize_collection(request.collection or "Workflows")
+    thumbnail_target = None
+    thumbnail_workspace_path = None
 
     try:
         if run_coordinator.is_cancelled(job_id):
@@ -67,6 +70,11 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         job.step = "Workflow complete"
         job.output_url = workspace_url(final_mesh, collection)
         run_coordinator.mark_completed(job)
+        thumbnail_target = final_mesh
+        try:
+            thumbnail_workspace_path = final_mesh.relative_to(runtime_paths.workspace).as_posix()
+        except ValueError:
+            thumbnail_target = None
 
     except (WorkflowError, ProcessExecutionError) as exc:
         if run_coordinator.is_cancelled(job_id):
@@ -92,6 +100,12 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         run_coordinator.clear_active(job_id)
         model_runtime_registry.end_generation(job_id)
         run_coordinator.generation_lock.release()
+        if thumbnail_target is not None and thumbnail_workspace_path is not None:
+            try:
+                from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
+                prewarm_thumbnail(thumbnail_workspace_path, thumbnail_target, _LIBRARY_SIZE)
+            except Exception as exc:
+                print(f"[Thumbnails] workflow prewarm could not be queued: {exc}")
 
 
 class WorkflowRunStatus(BaseModel):

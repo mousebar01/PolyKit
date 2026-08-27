@@ -59,8 +59,8 @@ function AssetsLoading({ label }: { label: string }): JSX.Element {
 }
 
 const MIN_WIDTH = 220
-const MAX_WIDTH = 520
-const DEFAULT_WIDTH = 320
+const MAX_WIDTH = 440
+const DEFAULT_WIDTH = 280
 
 const EXPORT_FORMATS = ['glb', 'obj', 'stl', 'ply'] as const
 type ExportFormat = typeof EXPORT_FORMATS[number]
@@ -352,6 +352,7 @@ export default function AssetsPage(): JSX.Element {
   const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate' | 'scale' | null>(null)
   const dragging = useRef(false)
   const gizmoUndoRef = useRef<(() => boolean) | null>(null)
+  const libraryRefreshKeyRef = useRef<string | null>(null)
 
   const lightSettings = useAppStore((state) => state.lightSettings)
   const setLightSettings = useAppStore((state) => state.setLightSettings)
@@ -416,6 +417,17 @@ export default function AssetsPage(): JSX.Element {
     void loadLibraryEntries()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
   }, [libraryLoaded, libraryLoading])
+
+  useEffect(() => {
+    if (!libraryLoaded || libraryLoading || currentJob?.status !== 'done' || !currentJob.outputUrl) return
+    const refreshKey = `${currentJob.id}:${currentJob.outputUrl}`
+    if (libraryRefreshKeyRef.current === refreshKey) return
+    libraryRefreshKeyRef.current = refreshKey
+    // The server prewarms the thumbnail when the output is published; refresh
+    // the list once so the newly generated card appears without a manual reload.
+    void loadLibraryEntries()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only when a new output is complete
+  }, [currentJob?.id, currentJob?.outputUrl, currentJob?.status, libraryLoaded, libraryLoading])
 
   function handleExport(format: ExportFormat) {
     if (!currentJob?.outputUrl) return
@@ -607,13 +619,14 @@ export default function AssetsPage(): JSX.Element {
 
   return (
     <>
-      <div className="flex shrink-0 flex-col overflow-hidden border-r border-border bg-card" style={{ width: panelWidth }}>
+      <div className="flex shrink-0 flex-col overflow-hidden rounded-lg bg-card" style={{ width: panelWidth }}>
         <AssetLibrarySidebar
           thumbnailBase={apiUrl}
           entries={libraryEntries}
           selectedEntryId={librarySelectedEntryId}
           loading={libraryLoading}
           opening={libraryOpening}
+           importing={importing}
           error={libraryError}
           searchQuery={librarySearchQuery}
           sortMode={librarySortMode}
@@ -626,6 +639,7 @@ export default function AssetsPage(): JSX.Element {
           onSortModeChange={setLibrarySortMode}
           onToggleSection={(sectionKey) => setLibraryCollapsedSectionKeys((current) => toggleAssetLibrarySectionKey(current, sectionKey))}
           onOpenSelected={() => { void handleOpenSelectedLibraryEntry() }}
+           onImport={() => { void handleImportMesh() }}
           onRefresh={() => { void loadLibraryEntries() }}
           onRename={(entry) => setLibraryRenameTarget(entry)}
           onDelete={(workspacePaths) => {
@@ -645,19 +659,17 @@ export default function AssetsPage(): JSX.Element {
 
       <div
         onMouseDown={onMouseDown}
-        className="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-primary/40 active:bg-primary/60"
+        className="w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 active:bg-primary/50"
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="flex h-14 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-card px-4 py-2">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg bg-card/40">
+        <div className="mx-1 mt-1 flex h-10 shrink-0 items-center gap-2 overflow-x-auto rounded-md bg-card px-2.5 py-1">
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={undoMesh} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
           </Button>
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={redoMesh} disabled={!canRedo} title="Redo (Ctrl+Y)" aria-label="Redo">
             <Redo2 className="h-4 w-4" />
           </Button>
-
-          <div className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
           <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => { void handleImportMesh() }} disabled={importing}>
             {importing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -666,8 +678,6 @@ export default function AssetsPage(): JSX.Element {
 
           {hasModel && (
             <>
-              <div className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-
               <Popover open={openPanel === 'export'} onOpenChange={(open) => setOpenPanel(open ? 'export' : null)}>
                 <PopoverTrigger asChild>
                   <Button type="button" variant={openPanel === 'export' ? 'secondary' : 'outline'} size="sm" className="shrink-0 gap-1.5">
@@ -720,7 +730,6 @@ export default function AssetsPage(): JSX.Element {
 
           {hasModel && meshSelected && (
             <>
-              <div className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
               <ToolButton label="Move" active={gizmoMode === 'translate'} onClick={() => setGizmoMode((mode) => (mode === 'translate' ? null : 'translate'))}>
                 <Move className="h-4 w-4" />
               </ToolButton>
@@ -751,7 +760,7 @@ export default function AssetsPage(): JSX.Element {
           </div>
         </div>
 
-        <div className="relative flex-1 overflow-hidden">
+        <div className="relative mx-1 mb-1 flex-1 overflow-hidden rounded-md bg-background/60">
           <Suspense fallback={<AssetsLoading label="Loading 3D viewer…" />}>
             <Viewer3D lightSettings={lightSettings} gizmoMode={gizmoMode} gizmoUndoRef={gizmoUndoRef} />
           </Suspense>

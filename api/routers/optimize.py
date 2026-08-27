@@ -70,6 +70,21 @@ def _resolve_input_path(raw_path: str) -> Path:
     return resolved
 
 
+def _schedule_thumbnail(path: Path) -> None:
+    """Queue a best-effort card preview for a newly written workspace mesh."""
+    try:
+        workspace_path = path.resolve().relative_to(runtime_paths.workspace.resolve()).as_posix()
+    except ValueError:
+        return
+    if path.suffix.lower() not in {".glb", ".gltf", ".obj", ".stl", ".ply"}:
+        return
+    try:
+        from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
+        prewarm_thumbnail(workspace_path, path, _LIBRARY_SIZE)
+    except Exception as exc:
+        print(f"[Thumbnails] optimize prewarm could not be queued: {exc}")
+
+
 @router.post("/mesh")
 def optimize_mesh(body: OptimizeRequest):
     _require_pymeshlab()
@@ -89,6 +104,7 @@ def optimize_mesh(body: OptimizeRequest):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_name
     result.export(str(output_path))
+    _schedule_thumbnail(output_path)
 
     face_count = len(result.faces)
     rel = output_path.relative_to(runtime_paths.workspace).as_posix()
@@ -203,6 +219,7 @@ def smooth_mesh(body: SmoothRequest):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_name
     result.export(str(output_path))
+    _schedule_thumbnail(output_path)
 
     rel = output_path.relative_to(runtime_paths.workspace).as_posix()
     return {"url": f"/workspace/{rel}"}
@@ -231,6 +248,7 @@ def transform_mesh(body: TransformRequest):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_name
     loaded.export(str(output_path))
+    _schedule_thumbnail(output_path)
 
     rel = output_path.relative_to(runtime_paths.workspace).as_posix()
     return {"url": f"/workspace/{rel}"}

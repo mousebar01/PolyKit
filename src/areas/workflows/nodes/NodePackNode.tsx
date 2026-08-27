@@ -14,14 +14,14 @@ import BaseNode from './BaseNode'
 // These encode workflow data types on the canvas and are an explicit DESIGN.md
 // exception to ordinary app-surface semantic colors.
 const HANDLE_COLOR: Record<string, string> = {
-  audio: '#34d399',
-  image: '#38bdf8',
-  mesh: '#c5f955',
+  audio: '#5680b8',
+  image: '#5680b8',
+  mesh: '#5d94d9',
   text: '#fbbf24',
 }
 
 const TAG_CLS: Record<string, string> = {
-  audio: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+  audio: 'border-sky-500/30 bg-sky-500/10 text-sky-400',
   image: 'border-sky-500/30 bg-sky-500/10 text-sky-400',
   mesh: 'border-primary/30 bg-primary/10 text-primary',
   text: 'border-amber-500/30 bg-amber-500/10 text-amber-400',

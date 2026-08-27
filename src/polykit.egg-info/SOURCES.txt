@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+src/areas/workflows/nodes/mesh-remesher/processor.py
+src/areas/workflows/nodes/mesh-repair/processor.py
+src/areas/workflows/nodes/mesh-smoother/processor.py
+src/polykit.egg-info/PKG-INFO
+src/polykit.egg-info/SOURCES.txt
+src/polykit.egg-info/dependency_links.txt
+src/polykit.egg-info/requires.txt
+src/polykit.egg-info/top_level.txt

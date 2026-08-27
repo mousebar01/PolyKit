@@ -13,9 +13,9 @@ export interface RouteConfig {
 }
 
 export const ROUTES: Record<Page, RouteConfig> = {
-  assets:    { component: AssetsPage,    wrapperClass: 'flex flex-1 overflow-hidden' },
-  workflows: { component: WorkflowsPage, wrapperClass: 'flex flex-1 overflow-hidden' },
-  nodePacks: { component: NodePacksPage,  wrapperClass: 'flex-1 overflow-y-auto'      },
-  agent:     { component: AgentPage,      wrapperClass: 'flex-1 overflow-hidden'      },
-  settings:  { component: SettingsPage,  wrapperClass: 'flex-1 overflow-hidden'      },
+  assets:    { component: AssetsPage,    wrapperClass: 'flex min-h-0 flex-1 overflow-hidden' },
+  workflows: { component: WorkflowsPage, wrapperClass: 'flex min-h-0 flex-1 overflow-hidden' },
+  nodePacks: { component: NodePacksPage,  wrapperClass: 'min-h-0 flex-1 overflow-y-auto'      },
+  agent:     { component: AgentPage,      wrapperClass: 'min-h-0 flex-1 overflow-hidden'      },
+  settings:  { component: SettingsPage,  wrapperClass: 'min-h-0 flex-1 overflow-hidden'      },
 }

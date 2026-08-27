@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import {
+  ArrowDownUp,
   Box,
-  Check,
+  CheckSquare,
   ChevronRight,
-  Layers3,
-  MoreHorizontal,
+  LayoutGrid,
+  List,
   Pencil,
   RefreshCw,
   Search,
+  Star,
   Trash2,
+  Upload,
 } from 'lucide-react'
 
 import {
@@ -16,10 +19,9 @@ import {
   Button,
   Card,
   Input,
-  Label,
   Popover,
+  PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -27,7 +29,6 @@ import {
   SelectValue,
 } from '@shared/components/ui'
 import { useI18n, type TranslationKey } from '@shared/i18n'
-import AssetPreview3D from './AssetPreview3D'
 import type { ProjectedAssetLibraryEntry } from '../assetLibraryProjection'
 import {
   ASSET_LIBRARY_SORT_OPTIONS,
@@ -54,6 +55,82 @@ const CAPABILITY_LABEL_KEYS: Record<AssetCapability, TranslationKey> = {
   'scene-manifest': 'assets.capabilitySceneManifests',
 }
 
+type AssetLibraryViewMode = 'grid' | 'list'
+
+const ASSET_FAVORITES_STORAGE_KEY = 'polykit.asset-library.favorites'
+const ASSET_VIEW_MODE_STORAGE_KEY = 'polykit.asset-library.view-mode'
+
+function readFavoritePaths(): Set<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ASSET_FAVORITES_STORAGE_KEY) ?? '[]')
+    return new Set(Array.isArray(raw) ? raw.filter((value): value is string => typeof value === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeFavoritePaths(paths: Set<string>): void {
+  try {
+    localStorage.setItem(ASSET_FAVORITES_STORAGE_KEY, JSON.stringify([...paths]))
+  } catch {
+    // Favorites are a convenience; private browsing or a full quota must not block the library.
+  }
+}
+
+function readAssetLibraryViewMode(): AssetLibraryViewMode {
+  try {
+    return localStorage.getItem(ASSET_VIEW_MODE_STORAGE_KEY) === 'list' ? 'list' : 'grid'
+  } catch {
+    return 'grid'
+  }
+}
+
+function writeAssetLibraryViewMode(viewMode: AssetLibraryViewMode): void {
+  try {
+    localStorage.setItem(ASSET_VIEW_MODE_STORAGE_KEY, viewMode)
+  } catch {
+    // The view choice is a convenience and must not block the library.
+  }
+}
+
+function AssetActionItems({
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  onRename: () => void
+  onDelete: () => void
+  onClose: () => void
+}): JSX.Element {
+  const { t } = useI18n()
+  return (
+    <div className="flex flex-col gap-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2 px-2 text-xs"
+        onClick={() => { onClose(); onRename() }}
+        role="menuitem"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+        {t('assets.rename')}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full justify-start gap-2 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => { onClose(); onDelete() }}
+        role="menuitem"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        {t('assets.delete')}
+      </Button>
+    </div>
+  )
+}
+
 interface AssetLibrarySidebarProps {
   entries: ProjectedAssetLibraryEntry[]
   selectedEntryId: string | null
@@ -61,6 +138,7 @@ interface AssetLibrarySidebarProps {
   thumbnailBase?: string
   loading: boolean
   opening: boolean
+  importing: boolean
   error: string | null
   searchQuery: string
   sortMode: AssetLibrarySortMode
@@ -70,6 +148,7 @@ interface AssetLibrarySidebarProps {
   onSortModeChange: (value: AssetLibrarySortMode) => void
   onToggleSection: (sectionKey: string) => void
   onOpenSelected: () => void
+  onImport: () => void
   onRefresh: () => void
   onRename: (entry: ProjectedAssetLibraryEntry) => void
   onDelete: (workspacePaths: string[]) => void
@@ -80,90 +159,139 @@ function AssetCard({
   selected,
   selectMode,
   checked,
+  viewMode,
   onSelect,
   onToggle,
   onOpen,
+  onRename,
+  onDelete,
+  favorite,
+  onToggleFavorite,
   thumbnailBase,
 }: {
   entry: ProjectedAssetLibraryEntry
   selected: boolean
   selectMode: boolean
   checked: boolean
+  viewMode: AssetLibraryViewMode
   onSelect: () => void
   onToggle: () => void
   onOpen: () => void
+  onRename: () => void
+  onDelete: () => void
+  favorite: boolean
+  onToggleFavorite: () => void
   thumbnailBase?: string
 }): JSX.Element {
   const { t } = useI18n()
   const openable = isAssetLibraryEntryOpenable(entry)
-  const badge = entry.capability ? t(CAPABILITY_LABEL_KEYS[entry.capability]) : entry.state.replace(/-/g, ' ')
   const thumbnailUrl = entry.thumbnail ? `${thumbnailBase ?? ''}${entry.thumbnail}` : undefined
-  const previewUrl = entry.preview ? `${thumbnailBase ?? ''}${entry.preview}` : undefined
-  const [previewHovered, setPreviewHovered] = useState(false)
-  const hoverTimer = useRef<number | null>(null)
+  const [actionsAt, setActionsAt] = useState<{ x: number; y: number } | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => () => {
-    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
-  }, [])
-
-  const startPreviewHover = () => {
-    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current)
-    hoverTimer.current = window.setTimeout(() => setPreviewHovered(true), 180)
+  const openActionsAt = (x: number, y: number) => {
+    if (selectMode) return
+    onSelect()
+    setActionsAt({ x, y })
   }
 
-  const stopPreviewHover = () => {
-    if (hoverTimer.current !== null) {
-      window.clearTimeout(hoverTimer.current)
-      hoverTimer.current = null
+  const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    openActionsAt(event.clientX, event.clientY)
+  }
+
+  const isCardSelected = selectMode ? checked : selected
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault()
+      const rect = cardRef.current?.getBoundingClientRect()
+      openActionsAt(rect?.left ?? 0, rect?.bottom ?? 0)
+      return
     }
-    setPreviewHovered(false)
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    if (selectMode) onToggle()
+    else onSelect()
   }
+
+  const cardLayoutClass = 'flex-col gap-0'
+  const mediaClass = viewMode === 'grid'
+    ? 'h-24 w-full rounded-t-md'
+    : 'h-28 w-full rounded-b-md'
+  const detailsClass = viewMode === 'grid'
+    ? 'px-0.5 pb-0.5 pt-2'
+    : 'order-first px-1.5 py-2'
 
   return (
-    <button
-      type="button"
-      aria-pressed={selectMode ? checked : selected}
+    <Popover open={actionsAt !== null} onOpenChange={(open) => { if (!open) setActionsAt(null) }}>
+      <div
+        ref={cardRef}
+        role="button"
+        tabIndex={0}
+        aria-haspopup={selectMode ? undefined : 'menu'}
+        aria-pressed={isCardSelected}
       aria-label={selectMode
         ? t('assets.toggleForDeletion', { name: entry.displayName })
         : t('assets.selectLibraryAsset', { name: entry.displayName })}
       onDoubleClick={selectMode ? undefined : onOpen}
-      onClick={selectMode ? onToggle : onSelect}
-      onMouseEnter={startPreviewHover}
-      onMouseLeave={stopPreviewHover}
-      onFocus={startPreviewHover}
-      onBlur={stopPreviewHover}
-      className={`group flex flex-col items-stretch gap-1.5 rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${selected ? 'border-primary/50 bg-primary/10' : 'border-border bg-card hover:bg-muted/40'} ${!openable ? 'opacity-60' : ''}`}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('[data-asset-action]')) return
+        if (selectMode) onToggle()
+        else onSelect()
+      }}
+      onContextMenu={handleContextMenu}
+      onKeyDown={handleCardKeyDown}
+      className={`group relative flex ${cardLayoutClass} items-stretch rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${isCardSelected ? 'border-primary bg-primary/10 ring-1 ring-primary/20' : 'border-transparent bg-card/80 hover:bg-card'} ${!openable ? 'opacity-60' : ''}`}
     >
-      <div className="relative flex h-16 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40 transition-colors group-hover:bg-muted/60">
-        {!(previewUrl && previewHovered) && (
-          <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
-        )}
-        {thumbnailUrl && !(previewUrl && previewHovered) && (
+      <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden bg-muted/40 transition-colors group-hover:bg-muted/60`}>
+        <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+        {thumbnailUrl && (
           <img
             src={thumbnailUrl}
             alt=""
             loading="lazy"
             onError={(event) => { event.currentTarget.style.display = 'none' }}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-contain brightness-[0.96] contrast-[1.03] saturate-[0.96] transition-[filter,opacity] duration-200"
           />
         )}
-        {previewUrl && previewHovered && <AssetPreview3D url={previewUrl} className="absolute inset-0" />}
-        {selectMode ? (
-          <span
-            className={`absolute left-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded border transition-colors ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background/85 text-transparent'}`}
-            aria-hidden="true"
-          >
-            <Check className="h-2.5 w-2.5" strokeWidth={3} />
-          </span>
-        ) : selected ? (
-          <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-primary" strokeWidth={2.5} aria-hidden="true" />
-        ) : null}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.025] via-transparent to-black/[0.1]" aria-hidden="true" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          data-asset-action
+          className={`absolute right-1.5 top-1.5 z-10 h-7 w-7 rounded-md bg-transparent p-0 transition-opacity hover:bg-transparent focus-visible:opacity-100 ${favorite ? 'text-primary opacity-100 hover:text-primary' : `text-muted-foreground hover:text-foreground ${isCardSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}`}
+          onClick={(event) => { event.stopPropagation(); onToggleFavorite() }}
+          aria-label={t(favorite ? 'assets.unfavorite' : 'assets.favorite')}
+          aria-pressed={favorite}
+          title={t(favorite ? 'assets.unfavorite' : 'assets.favorite')}
+        >
+          <Star className="h-3.5 w-3.5" fill={favorite ? 'currentColor' : 'none'} strokeWidth={1.8} />
+        </Button>
       </div>
-      <div className="flex min-w-0 flex-col">
+      <div className={`flex min-w-0 flex-1 flex-col ${detailsClass}`}>
         <span className="truncate text-[11px] font-medium text-foreground">{entry.displayName}</span>
-        <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{badge}</span>
       </div>
-    </button>
+      </div>
+      <PopoverAnchor asChild>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none fixed left-0 top-0 h-px w-px"
+          style={{ left: actionsAt?.x ?? -100, top: actionsAt?.y ?? -100 }}
+        />
+      </PopoverAnchor>
+      {actionsAt && (
+        <PopoverContent align="start" side="bottom" sideOffset={4} className="w-36 p-1.5" role="menu">
+          <AssetActionItems
+            onRename={onRename}
+            onDelete={onDelete}
+            onClose={() => setActionsAt(null)}
+          />
+        </PopoverContent>
+      )}
+    </Popover>
   )
 }
 
@@ -173,6 +301,7 @@ export default function AssetLibrarySidebar({
   thumbnailBase,
   loading,
   opening,
+  importing,
   error,
   searchQuery,
   sortMode,
@@ -182,6 +311,7 @@ export default function AssetLibrarySidebar({
   onSortModeChange,
   onToggleSection,
   onOpenSelected,
+  onImport,
   onRefresh,
   onRename,
   onDelete,
@@ -189,14 +319,11 @@ export default function AssetLibrarySidebar({
   const { t } = useI18n()
   const [selectMode, setSelectMode] = useState(false)
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
-  const [actionsOpen, setActionsOpen] = useState(false)
+  const [favoritePaths, setFavoritePaths] = useState<Set<string>>(readFavoritePaths)
+  const [viewMode, setViewMode] = useState<AssetLibraryViewMode>(readAssetLibraryViewMode)
   const defaultSortApplied = useRef(false)
 
   const entryGroups = filterAssetLibraryEntryGroups(entries, searchQuery, sortMode)
-  const visibleEntryIds = new Set(entryGroups.flatMap((group) => group.entries.map((entry) => entry.id)))
-  const selectedEntry = selectedEntryId && visibleEntryIds.has(selectedEntryId)
-    ? entries.find((entry) => entry.id === selectedEntryId) ?? null
-    : null
   const normalizedSearchQuery = searchQuery.trim()
 
   useEffect(() => {
@@ -205,51 +332,85 @@ export default function AssetLibrarySidebar({
     if (sortMode === 'type') onSortModeChange(DEFAULT_ASSET_LIBRARY_SORT_MODE)
   }, [onSortModeChange, sortMode])
 
-  useEffect(() => {
-    setActionsOpen(false)
-  }, [selectedEntryId, selectMode])
-
   const leaveSelectMode = () => {
     setSelectMode(false)
     setSelectedPaths(new Set())
   }
 
-  const renameSelected = () => {
-    if (!selectedEntry) return
-    setActionsOpen(false)
-    onRename(selectedEntry)
+  const toggleFavorite = (workspacePath: string) => {
+    setFavoritePaths((current) => {
+      const next = new Set(current)
+      if (next.has(workspacePath)) next.delete(workspacePath)
+      else next.add(workspacePath)
+      writeFavoritePaths(next)
+      return next
+    })
   }
 
-  const deleteSelected = () => {
-    if (!selectedEntry) return
-    setActionsOpen(false)
-    onDelete([selectedEntry.workspacePath])
+  const changeViewMode = (nextViewMode: AssetLibraryViewMode) => {
+    setViewMode(nextViewMode)
+    writeAssetLibraryViewMode(nextViewMode)
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 pb-3 pt-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Layers3 className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-          <h2 className="truncate text-xs font-semibold text-foreground">{t('assets.title')}</h2>
-        </div>
-        <div className="flex items-center gap-1.5">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 bg-card/45 px-3 py-3">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="asset-library-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+              placeholder={t('assets.searchPlaceholder')}
+              aria-label={t('assets.search')}
+              className="h-9 rounded-md border-border/70 bg-card pl-8 pr-2 text-xs"
+            />
+          </div>
           <Button
             type="button"
-            variant={selectMode ? 'secondary' : 'outline'}
             size="sm"
-            className="h-8 px-2.5"
+            className="h-9 shrink-0 gap-1.5 rounded-md px-3"
+            onClick={onImport}
+            disabled={importing || loading || opening}
+            title={t('assets.import')}
+          >
+            {importing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {importing ? t('assets.importing') : t('assets.import')}
+          </Button>
+        </div>
+
+        <div className="mt-2 flex items-center gap-1">
+          <Button
+            type="button"
+            variant={selectMode ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-8 w-8"
             onClick={() => {
               if (selectMode) leaveSelectMode()
               else setSelectMode(true)
             }}
             aria-pressed={selectMode}
+            aria-label={selectMode ? t('assets.done') : t('assets.select')}
+            title={selectMode ? t('assets.done') : t('assets.select')}
           >
-            {selectMode ? t('assets.done') : t('assets.select')}
+            <CheckSquare className="h-4 w-4" />
           </Button>
+          <Select value={sortMode} onValueChange={(value) => onSortModeChange(value as AssetLibrarySortMode)}>
+            <SelectTrigger className="h-8 w-[94px] gap-1.5 px-2 text-[11px]" aria-label={t('assets.sort')}>
+              <ArrowDownUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ASSET_LIBRARY_SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{t(SORT_LABEL_KEYS[option.value])}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon"
             className="h-8 w-8"
             onClick={onRefresh}
@@ -259,36 +420,6 @@ export default function AssetLibrarySidebar({
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-        </div>
-      </div>
-
-      <div className="flex shrink-0 items-end gap-2 border-b border-border px-4 py-3.5">
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <Label htmlFor="asset-library-search" className="text-[11px] text-muted-foreground">{t('assets.search')}</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="asset-library-search"
-              type="search"
-              value={searchQuery}
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-              placeholder={t('assets.searchPlaceholder')}
-              className="h-9 pl-8 text-xs"
-            />
-          </div>
-        </div>
-        <div className="flex w-28 shrink-0 flex-col gap-1.5">
-          <Label className="text-[11px] text-muted-foreground">{t('assets.sort')}</Label>
-          <Select value={sortMode} onValueChange={(value) => onSortModeChange(value as AssetLibrarySortMode)}>
-            <SelectTrigger className="h-9 text-xs" aria-label={t('assets.sort')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ASSET_LIBRARY_SORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>{t(SORT_LABEL_KEYS[option.value])}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
@@ -306,7 +437,7 @@ export default function AssetLibrarySidebar({
               <section key={group.sectionKey} role="group" aria-label={t(CAPABILITY_LABEL_KEYS[group.capability])}>
                 <button
                   type="button"
-                  className="sticky top-0 z-10 flex w-full items-center gap-2 bg-card/95 px-4 pb-2 pt-3 text-left backdrop-blur-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className="sticky top-0 z-10 flex w-full items-center gap-2 bg-card px-3 pb-2 pt-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   onClick={() => onToggleSection(group.sectionKey)}
                   aria-expanded={!collapsed}
                 >
@@ -315,7 +446,7 @@ export default function AssetLibrarySidebar({
                   <Badge variant="outline" className="ml-auto h-5 px-1.5 font-mono text-[10px] text-muted-foreground">{group.entries.length}</Badge>
                 </button>
                 {!collapsed && (
-                  <div className="grid grid-cols-2 gap-2 px-4 pt-1">
+                  <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-2 px-3 pt-1' : 'flex flex-col gap-2 px-3 pt-1'}>
                     {group.entries.map((entry) => (
                       <AssetCard
                         key={entry.id}
@@ -323,6 +454,7 @@ export default function AssetLibrarySidebar({
                         selected={entry.id === selectedEntryId}
                         selectMode={selectMode}
                         checked={selectedPaths.has(entry.workspacePath)}
+                        viewMode={viewMode}
                         onSelect={() => onSelectEntry(entry.id)}
                         onToggle={() => {
                           setSelectedPaths((current) => {
@@ -333,6 +465,10 @@ export default function AssetLibrarySidebar({
                           })
                         }}
                         onOpen={onOpenSelected}
+                        onRename={() => onRename(entry)}
+                        onDelete={() => onDelete([entry.workspacePath])}
+                        favorite={favoritePaths.has(entry.workspacePath)}
+                        onToggleFavorite={() => toggleFavorite(entry.workspacePath)}
                         thumbnailBase={thumbnailBase}
                       />
                     ))}
@@ -344,73 +480,60 @@ export default function AssetLibrarySidebar({
         </div>
       )}
 
-      <div className="flex shrink-0 flex-col gap-2.5 border-t border-border px-4 py-4">
-        {error && (
-          <Card className="rounded-md bg-muted/20 px-3.5 py-2.5 shadow-none">
-            <p role="alert" className="text-[11px] text-amber-400">{error}</p>
-          </Card>
-        )}
-        {selectMode ? (
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="flex-1 gap-1.5"
-              onClick={() => selectedPaths.size > 0 && onDelete([...selectedPaths])}
-              disabled={selectedPaths.size === 0}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {t('assets.deleteSelected', { count: selectedPaths.size })}
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={leaveSelectMode}>{t('common.cancel')}</Button>
-          </div>
-        ) : (
-          <div className="flex justify-end">
-            <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  disabled={!selectedEntry}
-                  aria-label={t('assets.moreAssetActions')}
-                  aria-haspopup="menu"
-                  title={t('assets.moreActions')}
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" side="top" className="w-40 p-1.5" role="menu">
-                <div className="flex flex-col gap-0.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-full justify-start gap-2 px-2 text-xs"
-                    onClick={renameSelected}
-                    role="menuitem"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    {t('assets.rename')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-full justify-start gap-2 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={deleteSelected}
-                    role="menuitem"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    {t('assets.delete')}
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        )}
+      {(error || selectMode) && (
+        <div className="flex shrink-0 flex-col gap-2.5 bg-card/45 px-4 py-3">
+          {error && (
+            <Card className="rounded-md bg-muted/20 px-3.5 py-2.5 shadow-none">
+              <p role="alert" className="text-[11px] text-amber-400">{error}</p>
+            </Card>
+          )}
+          {selectMode && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="flex-1 gap-1.5"
+                onClick={() => selectedPaths.size > 0 && onDelete([...selectedPaths])}
+                disabled={selectedPaths.size === 0}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {t('assets.deleteSelected', { count: selectedPaths.size })}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={leaveSelectMode}>{t('common.cancel')}</Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex shrink-0 items-center gap-2 bg-card/45 px-3 py-2">
+        <div className="flex items-center gap-0.5 rounded-md bg-muted/20 p-0.5" role="group" aria-label={t('assets.viewMode')}>
+          <Button
+            type="button"
+            variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => changeViewMode('list')}
+            aria-pressed={viewMode === 'list'}
+            aria-label={t('assets.listView')}
+            title={t('assets.listView')}
+          >
+            <List className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => changeViewMode('grid')}
+            aria-pressed={viewMode === 'grid'}
+            aria-label={t('assets.gridView')}
+            title={t('assets.gridView')}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">{entries.length}</span>
       </div>
     </div>
   )

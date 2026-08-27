@@ -54,7 +54,7 @@ Legacy palette classes may remain during migration, but touched UI should move t
 
 ### 4. Primary color is emphasis, not decoration
 
-PolyKit primary is the lime brand color. Use it for:
+PolyKit primary is a restrained Blender-inspired blue accent. Use it for:
 
 - the primary action on a surface,
 - selected navigation state,
@@ -63,7 +63,7 @@ PolyKit primary is the lime brand color. Use it for:
 
 Do not flood large surfaces with primary. Most UI should remain neutral so 3D content and outputs stay visually dominant.
 
-Pink is a secondary brand accent, not a generic action color.
+Cyan is a secondary technical accent for information and auxiliary states, not a generic action color.
 
 ### 5. One control anatomy per interaction
 
@@ -135,15 +135,30 @@ Use the Tailwind spacing scale. Arbitrary pixel values require a concrete layout
 
 ### 9. Radius and elevation
 
-Use the shared radius scale derived from `--radius`.
+Use the shared radius scale derived from `--radius`. Radius should communicate containment and hierarchy, not decorate every element.
 
 - controls: `rounded-md`
 - cards/panels: `rounded-lg`
 - large dialogs: `rounded-xl`
+- nested media and inset surfaces: equal to or slightly tighter than their parent
+- `rounded-full`: reserved for icon buttons, avatars, and compact status chips
 
-Avoid mixing `rounded-lg`, `rounded-xl`, and `rounded-2xl` randomly on adjacent surfaces.
+Avoid mixing `rounded-lg`, `rounded-xl`, and `rounded-2xl` randomly on adjacent surfaces. Keep nested corners optically consistent: an inner surface should not have a larger radius than the container around it.
 
-Use borders before shadows. Shadows are for floating layers: dialogs, dropdowns, popovers, tooltips, and transient overlays.
+Use surface contrast before borders, and borders before shadows. Shadows are for floating layers: dialogs, dropdowns, popovers, tooltips, and transient overlays.
+
+### 9.1. Surface-first hierarchy: restrained borders and dividers
+
+Express hierarchy with background, fill, spacing, and radius first. Borders and dividers are state and structure cues, not decoration.
+
+- Start with the semantic surface stack (`background` → `card` → `muted`) and generous spacing before adding a line.
+- Default cards, rows, and media tiles should have no visible outline when their fill and spacing already separate them.
+- Use a border for selected, focused, disabled, destructive, or otherwise meaningful state; keep it subtle outside the active state.
+- Use dividers only between major regions or when spacing and surface grouping cannot make the relationship clear.
+- Never stack an outer card border, an inner media border, and a content divider on the same component.
+- When a filled surface and a radius already establish grouping, do not add a redundant separator.
+
+Preferred pattern: a rounded `card` surface containing a tighter rounded `muted` inset, separated by padding rather than lines.
 
 ### 10. Surface hierarchy
 

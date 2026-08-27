@@ -116,7 +116,7 @@ export default function ResourceIndicator({ apiUrl }: { apiUrl: string }): JSX.E
           type="button"
           variant="outline"
           size="sm"
-          className="no-drag mr-3 h-8 gap-2 rounded-full bg-muted/40 px-3 text-[10px] font-normal text-muted-foreground"
+          className="no-drag mr-2 h-7 gap-2 rounded-md bg-muted/60 px-2.5 text-[10px] font-normal text-muted-foreground"
           aria-label={t('top.resources')}
         >
           <Activity className="size-3.5" />

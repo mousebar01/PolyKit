@@ -12,6 +12,7 @@ dependencies = [
   "httpx>=0.27.0",
   "mcp>=1.0.0",
   "trimesh>=4.5.0",
+  "Pillow>=10.0.0", # static thumbnail encoding and software fallback
   # 2025.x wheels require newer manylinux/glibc baselines than some x86 Linux
   # hosts. Jetson/aarch64 and desktop platforms use the newest compatible line.
   "pymeshlab>=2023.12,<2025; sys_platform == 'linux' and platform_machine == 'x86_64'",
