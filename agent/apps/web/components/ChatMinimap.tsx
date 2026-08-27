@@ -50,6 +50,8 @@ function createTurns(
 
 const WINDOW_RADIUS = 6;
 const TICK_LENGTH = 8;
+const HOVER_TICK_LENGTH = 24;
+const BOOST_RADIUS = 3;
 const MAX_TICK_GAP = 10;
 const TICK_HEIGHT = 16;
 const ACTIVE_TICK_LENGTH = 18;
@@ -248,11 +250,15 @@ export function ChatMinimap({
         const index = windowState.startIndex + offset;
         const isActive = index === windowState.centerIndex;
         const isHovered = index === hoveredIndex;
-        const tickWidth = isActive || isHovered ? ACTIVE_TICK_LENGTH : TICK_LENGTH;
+        const boost = hoveredIndex === null
+          ? 0
+          : Math.max(0, 1 - Math.abs(index - hoveredIndex) / BOOST_RADIUS);
+        const hoverWidth = Math.round(TICK_LENGTH + (HOVER_TICK_LENGTH - TICK_LENGTH) * boost);
+        const tickWidth = isActive ? Math.max(ACTIVE_TICK_LENGTH, hoverWidth) : hoverWidth;
         const tickBackground = isActive
           ? "var(--text)"
-          : isHovered
-            ? "var(--text-muted)"
+          : boost > 0
+            ? `color-mix(in srgb, var(--text-muted) ${45 + Math.round(boost * 55)}%, var(--text-dim))`
             : "var(--text-dim)";
         const prompt = getMessageText(turn.userMessage) || "Empty message";
 
