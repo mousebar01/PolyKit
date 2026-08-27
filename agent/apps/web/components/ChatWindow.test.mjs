@@ -14,21 +14,14 @@ test("keeps copy actions out of process-detail fragments", () => {
   assert.match(messageViewSource, /textContent && !isStreaming && !processDetails/);
 });
 
-test("keeps the latest five activities in the scrollable live preview", () => {
-  assert.match(source, /const MAX_LIVE_PREVIEW_ACTIVITIES = 5/);
-  assert.match(source, /activities\.slice\(-limit\)/);
-  assert.match(source, /livePreview=\{liveActivities\.map/);
-  assert.match(source, /preview\.scrollTop = preview\.scrollHeight/);
-});
-
-test("completed work groups remain collapsed by default", () => {
-  assert.match(source, /const \[expanded, setExpanded\] = useState\(isLive\)/);
-  assert.match(source, /isLive && !expanded && livePreview/);
-});
-
-test("live work groups start expanded so active output is not preview-clipped", () => {
-  assert.match(source, /const \[expanded, setExpanded\] = useState\(isLive\)/);
-  assert.match(source, /\{expanded && \(/);
+test("renders intermediate work directly without a group disclosure", () => {
+  assert.match(source, /function ProcessTimeline\(/);
+  assert.match(source, /<ProcessTimeline key=\{\`live-process-/);
+  assert.match(source, /<ProcessTimeline>/);
+  assert.doesNotMatch(source, /ProcessDetailsGroup/);
+  assert.doesNotMatch(source, /process-details-toggle/);
+  assert.doesNotMatch(source, /MAX_LIVE_PREVIEW_ACTIVITIES/);
+  assert.doesNotMatch(source, /livePreview=/);
 });
 
 test("shows a bottom control for unread content and active runs", () => {
