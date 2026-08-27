@@ -66,6 +66,8 @@ test("searches the current conversation by turn and reuses turn jumping", () => 
   assert.match(minimapSource, /turn\.searchText\.includes\(normalizedQuery\)/);
   assert.match(minimapSource, /const displayedTurns = useMemo/);
   assert.match(minimapSource, /: turns;/);
+  assert.doesNotMatch(minimapSource, /source\.slice\(\)\.reverse\(\)/);
+  assert.match(minimapSource, /data-current=\{turn\.index === activeIndex/);
   assert.match(minimapSource, /activateSearchResult[\s\S]*jumpTo\(turn\)/);
   assert.match(minimapSource, /onRevealHistory\(\)/);
   assert.match(minimapSource, /turn\.index \+ 1/);
