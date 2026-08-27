@@ -394,7 +394,7 @@ export default function NodePacksPage(): JSX.Element {
 
   if (!initialLoadReady) {
     return (
-      <div className="relative flex h-full flex-col overflow-hidden bg-background">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-divider bg-card/20">
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="flex items-center gap-2.5 rounded-lg border border-divider bg-card px-3 py-2 text-xs text-muted-foreground" role="status" aria-live="polite">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted border-t-primary" />
@@ -406,7 +406,7 @@ export default function NodePacksPage(): JSX.Element {
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-divider bg-card/20">
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-divider bg-card/65 px-5 py-3">
         <div className="mr-auto min-w-[140px]">
           <h1 className="text-base font-semibold tracking-tight text-foreground">{t('nodePacks.title')}</h1>

@@ -292,7 +292,7 @@ export default function AgentPage(): JSX.Element {
     : null
 
   return (
-    <div className="agent-chat-root flex h-full min-h-0 flex-col bg-background">
+    <div className="agent-chat-root flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider bg-card/20">
       <header className="flex h-10 shrink-0 items-center justify-between bg-card/65 px-3">
         <div className="flex items-center gap-2.5">
           <Bot className="size-4 text-primary" strokeWidth={1.8} />

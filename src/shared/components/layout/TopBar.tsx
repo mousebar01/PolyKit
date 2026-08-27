@@ -8,7 +8,7 @@ export default function TopBar(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <header className="drag-region flex h-11 shrink-0 items-center border-b border-divider bg-background px-3">
+    <header className="drag-region flex h-11 shrink-0 items-center bg-background px-3">
       <div className="no-drag flex min-w-0 items-center gap-3">
         <PolyKitWordmark className="text-[15px]" />
         <span className="hidden text-[11px] text-muted-foreground sm:inline">3D workspace</span>

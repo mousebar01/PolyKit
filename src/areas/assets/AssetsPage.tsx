@@ -627,10 +627,9 @@ export default function AssetsPage(): JSX.Element {
         className="w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 active:bg-primary/50"
       />
 
-      {/* The viewport is the page's primary workspace, so it should flow to
-          the edge without a second outer frame. Its toolbar and overlays still
-          provide the necessary internal separation. */}
-      <div className="flex flex-1 flex-col overflow-hidden bg-background">
+      {/* Keep the viewport as one clipped surface so its toolbar, canvas, and
+          overlays share the same rounded outer corners. */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg bg-background">
         <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-divider bg-card/65 px-2.5 py-1">
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={undoMesh} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
