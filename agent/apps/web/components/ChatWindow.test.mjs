@@ -10,8 +10,9 @@ test("renders live assistant work with process detail styling", () => {
   assert.match(source, /isStreaming processDetails modelNames=/);
 });
 
-test("keeps copy actions out of process-detail fragments", () => {
-  assert.match(messageViewSource, /textContent && !isStreaming && !processDetails/);
+test("keeps final-answer chrome out of process-detail fragments", () => {
+  assert.match(messageViewSource, /!isStreaming && !processDetails/);
+  assert.match(messageViewSource, /assistant-message-chrome/);
 });
 
 test("renders intermediate work directly without a group disclosure", () => {
@@ -64,6 +65,14 @@ test("sending a message re-enters bottom-following mode", () => {
   assert.match(source, /const handleSendAndFollow/);
   assert.match(source, /setAwayFromBottom\(false\);[\s\S]*handleSend\(message, images\);[\s\S]*requestAnimationFrame\(performScrollToBottom\)/);
   assert.match(source, /onSend=\{handleSendAndFollow\}/);
+});
+
+test("shows model identity only when the final-answer model changes", () => {
+  assert.match(source, /hasFinalAssistantAnswer\(msg\)/);
+  assert.match(source, /previousFinalAssistant\.provider !== assistant\.provider/);
+  assert.match(source, /previousFinalAssistant\.model !== assistant\.model/);
+  assert.match(source, /modelList\.find/);
+  assert.match(source, /assistantIdentity=\{assistantIdentity\}/);
 });
 
 test("passes fork actions to rendered assistant messages", () => {
