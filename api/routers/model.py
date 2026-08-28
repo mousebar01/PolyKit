@@ -556,6 +556,16 @@ def _download_file_streamed(
                             })
                             last_emit = now
 
+                # A proxy/CDN can close a large response early without
+                # raising an HTTP error.  Never promote that truncated
+                # temporary file to the final model path: preserve it for a
+                # ranged retry instead.
+                if total_bytes is not None and bytes_downloaded < total_bytes:
+                    raise OSError(
+                        f"Incomplete download for {filename}: "
+                        f"received {bytes_downloaded} of {total_bytes} bytes"
+                    )
+
             temp_path.replace(final_path)
             return bytes_downloaded
 
