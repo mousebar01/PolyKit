@@ -5,19 +5,24 @@
 import { spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const apiDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'api')
 const rootDir = join(apiDir, '..')
 const venvPython = process.platform === 'win32'
   ? join(rootDir, '.venv', 'Scripts', 'python.exe')
   : join(rootDir, '.venv', 'bin', 'python')
+const explicitPython = process.env.POLYKIT_PYTHON
+  ? resolve(rootDir, process.env.POLYKIT_PYTHON)
+  : null
 
 // Prefer an explicitly versioned modern interpreter when the host also
-// exposes an older `python3`; the project uses Python 3.10+ syntax.
+// exposes an older `python3`; the project uses Python 3.10+ syntax. Resolve an
+// explicit project-relative interpreter before the unittest subprocess changes
+// cwd to api/, otherwise `.venv/bin/python` would become `api/.venv/bin/python`.
 const condaPrefix = process.env.CONDA_PREFIX
 const candidates = [
-  process.env.POLYKIT_PYTHON ? [process.env.POLYKIT_PYTHON, []] : null,
+  explicitPython ? [explicitPython, []] : null,
   [venvPython, []],
   condaPrefix ? [join(condaPrefix, 'bin', 'python'), []] : null,
   [join(homedir(), 'miniconda3', 'envs', 'polykit', 'bin', 'python'), []],
