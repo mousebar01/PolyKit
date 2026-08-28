@@ -61,7 +61,7 @@ export default function SettingsPage(): JSX.Element {
       </nav>
 
       <main className="flex-1 overflow-y-auto bg-background">
-        <div className="mx-auto max-w-4xl p-5 lg:p-6">
+        <div className="w-full max-w-5xl p-5 lg:p-6">
           {section === 'application' && <ApplicationSection />}
           {section === 'agent' && <AgentSection />}
           {section === 'storage' && <StorageSection />}

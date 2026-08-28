@@ -1400,10 +1400,13 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-         <SectionTitle>API Key</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "#4ade80" : "var(--border)", display: "inline-block" }} />
-          <span style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, color: "var(--text)" }}>{provider.displayName}</span>
+          <SectionTitle>API Key</SectionTitle>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 999, background: provider.configured ? "rgba(52,211,153,0.1)" : "var(--bg-panel)", color: provider.configured ? "#6ee7b7" : "var(--text-dim)" }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: provider.configured ? "#34d399" : "var(--text-dim)", display: "inline-block" }} />
+          <span style={{ fontSize: 11, color: "inherit" }}>
              {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
           </span>
         </div>
@@ -1812,6 +1815,9 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  // OAuth/API-key details save through their own auth endpoints. The models
+  // config footer is only relevant for editable models.json entries.
+  const showConfigFooter = !selection || selection.type === "provider" || selection.type === "model";
 
   useEffect(() => {
     if (!modelsConfigLoaded || selection || providers.length > 0) return;
@@ -1868,26 +1874,26 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   })();
 
   const dialogStyle: React.CSSProperties = embedded
-    ? { height: "100%", width: "100%", flex: 1, background: "var(--bg-panel)", display: "flex", flexDirection: "column", overflow: "hidden" }
+    ? { width: "100%", minHeight: 0, background: "transparent", display: "flex", flexDirection: "column" }
     : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border-soft)", borderRadius: 10, display: "flex", flexDirection: "column", overflow: "hidden" };
 
   return (
     <>
-    <div style={embedded ? { height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" } : { position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
+    <div style={embedded ? { display: "flex", flexDirection: "column", minHeight: 0 } : { position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (!embedded && e.target === e.currentTarget) onClose(); }}>
       <div style={dialogStyle}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border-soft)", background: "var(--bg-elevated)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px 14px", borderBottom: "1px solid var(--border-soft)", background: "transparent", flexShrink: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+             <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, color: "var(--text)" }}>{t("common.models")}</span>
+            <code style={{ fontSize: 11, lineHeight: 1.2, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
           </div>
-          {!embedded && (<button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>)}
+          {!embedded && (<button onClick={onClose} aria-label={t("i18n.close")} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "4px 6px" }}>×</button>)}
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div style={{ flex: embedded ? "0 0 auto" : 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: embedded ? "visible" : "hidden" }}>
 
           {/* Left: tree */}
           <div style={{
@@ -1905,7 +1911,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                   <div
                     key={p.id}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 6px", borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
@@ -1922,7 +1928,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                   <div
                     key={p.id}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 6px", borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
@@ -1948,7 +1954,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                     {/* Provider row */}
                     <div
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px 7px 6px", borderLeft: isProviderSelected ? "2px solid var(--accent)" : "2px solid transparent", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
                       onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
                     >
@@ -1971,7 +1977,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                         <div
                           key={i}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
+                          style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px 5px 26px", borderLeft: isModelSelected ? "2px solid var(--accent)" : "2px solid transparent", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
                           onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
@@ -2015,9 +2021,12 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           </div>
 
           {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 16, background: "var(--bg-panel)" }}>
+          <div style={{ flex: 1, minWidth: 0, overflowY: embedded ? "visible" : "auto", padding: embedded ? "16px 20px 20px" : 16, background: embedded ? "transparent" : "var(--bg-panel)" }}>
             {loading ? null : (
-              <div className="agent-config-detail-surface">
+              <div
+                className="agent-config-detail-surface"
+                style={embedded ? { minHeight: "auto", padding: 0, border: "none", borderRadius: 0, background: "transparent" } : undefined}
+              >
                 {detailContent ?? (
                   <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
                      {t("i18n.selectProviderModel")}
@@ -2029,32 +2038,35 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border-soft)", background: "var(--bg-elevated)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
-          <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-             {t("i18n.cancel")}
-          </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            padding: "6px 16px",
-            minWidth: 92,
-            background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: 6,
-            color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
-            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
-            {savedOk && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-             <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
-          </button>
-        </div>
+        {showConfigFooter && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "12px 20px", borderTop: "1px solid var(--border-soft)", background: "transparent", flexShrink: 0 }}>
+            {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
+            <button onClick={onClose} style={{ height: 36, padding: "0 18px", background: "transparent", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
+               {t("i18n.cancel")}
+            </button>
+            <button onClick={handleSave} disabled={saving || savedOk} style={{
+              position: "relative",
+              height: 36,
+              padding: "0 18px",
+              minWidth: 108,
+              background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
+              border: "none", borderRadius: 7,
+              color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
+              cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+              transition: "background-color 0.2s ease, color 0.2s ease",
+              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+            }}>
+              {savedOk && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+               <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
     {pickerOpen && (

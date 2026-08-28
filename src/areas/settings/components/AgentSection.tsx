@@ -68,7 +68,7 @@ export function AgentSection(): JSX.Element {
   function renderAdvancedPanel(): JSX.Element | null {
     if (subsection === 'runtime') return null
     return (
-      <div className="agent-chat-root flex min-h-[460px] flex-col overflow-hidden rounded-lg border border-divider bg-card/70">
+      <div className={`agent-chat-root flex flex-col overflow-hidden rounded-lg border border-divider bg-card ${subsection === 'models' ? '' : 'min-h-[460px]'}`}>
         <I18nProvider>
           {subsection === 'models' && <ModelsConfig embedded onClose={() => setSubsection('runtime')} />}
           {subsection === 'skills' && (workspaceDir
@@ -109,17 +109,19 @@ export function AgentSection(): JSX.Element {
 
   return (
     <SettingsSection title={t('settings.agent')} subtitle={t('settings.agentSubtitle')}>
-      <div className="mb-4 flex flex-wrap gap-1 rounded-lg border border-divider bg-card/75 p-1">
+      <div className="mb-5 flex flex-wrap items-center gap-1 border-b border-divider pb-1">
         {subSections.map((item) => {
           const Icon = item.icon
           return (
             <Button
               key={item.id}
               type="button"
-              variant={subsection === item.id ? 'secondary' : 'ghost'}
+              variant="ghost"
               size="sm"
               aria-current={subsection === item.id ? 'page' : undefined}
-              className={subsection === item.id ? 'gap-1.5' : 'gap-1.5 text-muted-foreground'}
+              className={subsection === item.id
+                ? 'h-8 gap-1.5 rounded-none border-b-2 border-primary bg-transparent px-3 text-primary hover:bg-transparent hover:text-primary'
+                : 'h-8 gap-1.5 rounded-md px-3 text-muted-foreground hover:bg-muted/60 hover:text-foreground'}
               onClick={() => setSubsection(item.id)}
             >
               <Icon className="size-3.5" />
