@@ -19,6 +19,7 @@ export interface BaseNodeProps {
   deletable?: boolean
   collapsible?: boolean
   defaultExpanded?: boolean
+  actions?: ReactNode
   subheader?: ReactNode
   handles?: ReactNode
   minWidth?: number
@@ -34,6 +35,7 @@ export default function BaseNode({
   deletable = true,
   collapsible = false,
   defaultExpanded = true,
+  actions,
   subheader, handles,
   minWidth = 180,
   minHeight = 60,
@@ -76,6 +78,8 @@ export default function BaseNode({
             </Badge>
           )}
         </div>
+
+        {actions}
 
         {showInGenerate !== undefined && (
           <Button

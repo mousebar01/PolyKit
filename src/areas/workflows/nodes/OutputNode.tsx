@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { ArrowRight, Box, Play } from 'lucide-react'
-import { Handle, NodeToolbar, Position } from '@xyflow/react'
+import { Handle, Position } from '@xyflow/react'
 
 import { Button } from '@shared/components/ui'
 import { useAppStore } from '@shared/stores/appStore'
@@ -26,31 +26,26 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
   }, [outputUrl, setCurrentJob, navigate])
 
   return (
-    <>
-      <NodeToolbar
-        isVisible={Boolean(selected) && data.enabled !== false && !isRunning}
-        position={Position.Top}
-        offset={6}
-        className="flex items-center rounded-md border border-border bg-card p-1"
-      >
-        <Button
-          type="button"
-          variant="default"
-          size="icon"
-          className="nodrag h-7 w-7"
-          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
-          title={t('workflows.runToHereHint')}
-          aria-label={t('workflows.runToHereHint')}
-        >
-          <Play className="size-3.5" fill="currentColor" />
-        </Button>
-      </NodeToolbar>
     <BaseNode
       id={id}
       selected={selected}
       title="Output"
       minWidth={160}
       icon={<Box className="h-3 w-3 text-primary" />}
+      actions={(
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="nodrag mt-0.5 h-6 w-6 shrink-0 text-primary hover:bg-primary/10 hover:text-primary"
+          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
+          disabled={isRunning || data.enabled === false}
+          title={t('workflows.runToHereHint')}
+          aria-label={t('workflows.runToHereHint')}
+        >
+          <Play className="size-3" fill="currentColor" />
+        </Button>
+      )}
       subheader={
         <div className="flex items-center gap-1.5 px-3 py-2">
           <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">mesh</span>
@@ -84,6 +79,5 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
         )}
       </div>
     </BaseNode>
-    </>
   )
 }

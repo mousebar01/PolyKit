@@ -1,5 +1,5 @@
 import { ImageIcon, Play } from 'lucide-react'
-import { Handle, NodeToolbar, Position, useReactFlow } from '@xyflow/react'
+import { Handle, Position, useReactFlow } from '@xyflow/react'
 
 import { useWorkflowRunStore } from '../workflowRunStore'
 import { useWorkflowNodeExecution } from '../workflowNodeExecutionContext'
@@ -25,31 +25,26 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
   const imageUrl = incomingEdge ? nodeImageOutputs[incomingEdge.source] : undefined
 
   return (
-    <>
-      <NodeToolbar
-        isVisible={Boolean(selected) && !isRunning}
-        position={Position.Top}
-        offset={6}
-        className="flex items-center rounded-md border border-border bg-card p-1"
-      >
-        <Button
-          type="button"
-          variant="default"
-          size="icon"
-          className="nodrag h-7 w-7"
-          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
-          title={t('workflows.runToHereHint')}
-          aria-label={t('workflows.runToHereHint')}
-        >
-          <Play className="size-3.5" fill="currentColor" />
-        </Button>
-      </NodeToolbar>
     <BaseNode
       id={id}
       selected={selected}
       title="Preview Views"
       minWidth={200}
       icon={<ImageIcon className="h-3 w-3 text-sky-400" />}
+      actions={(
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="nodrag mt-0.5 h-6 w-6 shrink-0 text-primary hover:bg-primary/10 hover:text-primary"
+          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
+          disabled={isRunning}
+          title={t('workflows.runToHereHint')}
+          aria-label={t('workflows.runToHereHint')}
+        >
+          <Play className="size-3" fill="currentColor" />
+        </Button>
+      )}
       subheader={
         <div className="flex items-center gap-1.5 px-3 py-2">
           <span className="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">image</span>
@@ -91,6 +86,5 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
         )}
       </div>
     </BaseNode>
-    </>
   )
 }
