@@ -11,6 +11,7 @@ export interface WorkflowExecutionRequest {
   workflow_id: string
   prompt: Record<string, WorkflowExecutionNode>
   output_node_id?: string
+  target_node_ids?: string[]
   collection: string
 }
 
@@ -23,6 +24,8 @@ export interface CompileOptions {
    * precedence over a node preview or the globally selected image.
    */
   imageNodeWorkspacePaths?: Record<string, string>
+  /** Compile only the selected output sink and its upstream dependencies. */
+  targetNodeId?: string
 }
 
 const IMAGE_NODE = 'polykit.image'
@@ -199,6 +202,12 @@ export async function compileServerWorkflow(
       }
     }
   }
+  if (options.targetNodeId && !enabledSinks.some((sink) => sink.id === options.targetNodeId)) {
+    return {
+      ok: false,
+      error: 'Choose an enabled Output or Preview node to run to that point.',
+    }
+  }
 
   const prompt: Record<string, WorkflowExecutionNode> = {}
   let outputNodeId: string | undefined
@@ -273,6 +282,7 @@ export async function compileServerWorkflow(
       workflow_id: workflow.id,
       prompt,
       output_node_id: outputNodeId,
+      ...(options.targetNodeId ? { target_node_ids: [options.targetNodeId] } : {}),
       collection: 'Workflows',
     },
   }

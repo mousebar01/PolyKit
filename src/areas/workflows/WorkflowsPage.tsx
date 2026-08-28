@@ -13,7 +13,7 @@ import {
   type Edge,
   type OnConnectStartParams,
 } from '@xyflow/react'
-import { FolderPlus, Image as ImageIcon } from 'lucide-react'
+import { CornerDownRight, FolderPlus, Image as ImageIcon } from 'lucide-react'
 import { useWorkflowsStore, NODE_TYPES_WITHOUT_TARGET, NODE_TYPES_WITHOUT_SOURCE, FOLDER_COLORS } from '@shared/stores/workflowsStore'
 import { useNodePacksStore } from '@shared/stores/nodePacksStore'
 import { useAppStore } from '@shared/stores/appStore'
@@ -1099,6 +1099,7 @@ function WorkflowCanvasInner({
   const [edges, setEdges, onEdgesChange] = useEdgesState(workflow.edges as Edge[])
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null)
 
   // Pending connection: set when user drags a handle and releases on empty canvas
   const pendingConnectionRef  = useRef<OnConnectStartParams | null>(null)
@@ -1124,6 +1125,7 @@ function WorkflowCanvasInner({
     histIdxRef.current = 0
     setHistIdx(0)
     skipPushRef.current = true
+    setSelectedOutputId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-sync only when the workflow switches; adding nodes/edges would reset the editor on every change
   }, [workflow.id])
 
@@ -1407,7 +1409,15 @@ function WorkflowCanvasInner({
     setPaletteOpen(false)
   }, [screenToFlowPosition, setNodes, setEdges, pendingDropPos])
 
-  const handleRun = useCallback(() => {
+  const selectedOutputNode = useMemo(
+    () => selectedOutputId
+      ? nodes.find((node) => node.id === selectedOutputId && (node.type === 'outputNode' || node.type === 'previewNode') && node.data?.enabled !== false)
+      : undefined,
+    [nodes, selectedOutputId],
+  )
+  const canRunToHere = Boolean(selectedOutputNode && !isRunning)
+
+  const handleRun = useCallback((targetNodeId?: string) => {
     if (isRunning) { cancel(); return }
     if (preflightIssues.length > 0) {
       showToast(preflightIssues[0].message)
@@ -1415,7 +1425,7 @@ function WorkflowCanvasInner({
     }
     const wf: Workflow = { ...workflow, nodes: nodes as WFNode[], edges: edges as WFEdge[], updatedAt: new Date().toISOString() }
     onSave(wf)
-    runWorkflow(wf, allNodePacks)
+    runWorkflow(wf, allNodePacks, undefined, targetNodeId)
   }, [workflow, nodes, edges, onSave, allNodePacks, isRunning, runWorkflow, cancel, preflightIssues, showToast])
 
   return (
@@ -1490,9 +1500,24 @@ function WorkflowCanvasInner({
         <div className="flex-1" />
 
         <div className="flex items-center gap-1">
+          {/* ComfyUI-style partial execution: run the selected output sink and its dependencies. */}
+          {canRunToHere && selectedOutputNode && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleRun(selectedOutputNode.id)}
+              title={t('workflows.runToHereHint')}
+              className="gap-1.5 px-2.5 text-[11px]"
+            >
+              <CornerDownRight className="size-3.5" />
+              {t('workflows.runToHere')}
+            </Button>
+          )}
+
           {/* Run / Stop */}
           <button
-            onClick={handleRun}
+            onClick={() => handleRun()}
             className={`flex items-center gap-2 rounded-md border px-3.5 py-1.5 transition-colors
               ${isRunning
                 ? 'border-destructive/30 bg-destructive/10 text-destructive hover:border-destructive/50 hover:bg-destructive/20'
@@ -1584,6 +1609,10 @@ function WorkflowCanvasInner({
           edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onSelectionChange={({ nodes: selected }) => {
+            const target = selected.find((node) => node.type === 'outputNode' || node.type === 'previewNode')
+            setSelectedOutputId(target?.id ?? null)
+          }}
           onConnectStart={onConnectStart}
           onConnect={onConnect}
           isValidConnection={isValidConnection}

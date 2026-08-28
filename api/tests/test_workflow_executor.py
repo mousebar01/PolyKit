@@ -5,6 +5,7 @@ from services.workflow_executor import (
     WorkflowError,
     is_reference,
     resolve_reference,
+    select_execution_prompt,
     topological_order,
 )
 
@@ -93,6 +94,44 @@ class TopologicalOrderTests(unittest.TestCase):
         request.prompt["a"].inputs["text"] = ["b", "text"]
         with self.assertRaises(WorkflowError):
             topological_order(request.prompt)
+
+
+class PartialExecutionTests(unittest.TestCase):
+    def test_selects_only_target_sink_and_its_upstream_branch(self) -> None:
+        request = WorkflowExecutionRequest(
+            target_node_ids=["preview-a"],
+            prompt=_prompt({
+                "image": {"class_type": "polykit.image", "inputs": {"image": {"kind": "base64", "data": "eA=="}}},
+                "a": {"class_type": "m/a", "inputs": {"image": ["image", "image"]}},
+                "preview-a": {"class_type": "polykit.preview", "inputs": {"image": ["a", "image"]}},
+                "b": {"class_type": "m/b", "inputs": {"image": ["image", "image"]}},
+                "preview-b": {"class_type": "polykit.preview", "inputs": {"image": ["b", "image"]}},
+            }),
+        )
+
+        selected = select_execution_prompt(request)
+
+        self.assertEqual(list(selected), ["image", "a", "preview-a"])
+        self.assertNotIn("b", selected)
+        self.assertNotIn("preview-b", selected)
+
+    def test_requires_sink_targets(self) -> None:
+        request = WorkflowExecutionRequest(
+            target_node_ids=["model"],
+            prompt=_prompt({
+                "model": {"class_type": "m/model", "inputs": {}},
+            }),
+        )
+        with self.assertRaisesRegex(WorkflowError, "output or preview"):
+            select_execution_prompt(request)
+
+    def test_rejects_missing_target(self) -> None:
+        request = WorkflowExecutionRequest(
+            target_node_ids=["missing"],
+            prompt=_prompt({"out": {"class_type": "polykit.output", "inputs": {}}}),
+        )
+        with self.assertRaisesRegex(WorkflowError, "missing node"):
+            select_execution_prompt(request)
 
 
 if __name__ == "__main__":

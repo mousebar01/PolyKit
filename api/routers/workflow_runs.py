@@ -18,6 +18,7 @@ from services.workflow_engine import WorkflowEngine
 from services.workflow_executor import (
     SINK_NODES,
     WorkflowError,
+    select_execution_prompt,
     topological_order,
     validate_prompt_links,
 )
@@ -199,16 +200,17 @@ async def execute_workflow(
         if request.schema_version != 1:
             raise ValueError(f"Unsupported workflow execution schema: {request.schema_version}")
         collection = normalize_collection(request.collection or "Workflows")
-        order = topological_order(request.prompt)
-        for node in request.prompt.values():
+        execution_prompt = select_execution_prompt(request)
+        order = topological_order(execution_prompt)
+        for node in execution_prompt.values():
             _require_known_class_type(node.class_type)
         if request.output_node_id is not None:
             output_node = request.prompt.get(request.output_node_id)
             if output_node is None or output_node.class_type not in SINK_NODES:
                 raise ValueError("output_node_id must point to an output or preview sink")
-        if not any(request.prompt[node_id].class_type in SINK_NODES for node_id in order):
+        if not any(execution_prompt[node_id].class_type in SINK_NODES for node_id in order):
             raise ValueError("Workflow must include an output or preview sink")
-        validate_prompt_links(request)
+        validate_prompt_links(request, execution_prompt)
     except (KeyError, ValueError, OSError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -227,7 +229,7 @@ async def execute_workflow(
         "run_id": job_id,
         "status": "pending",
         "workflow_id": request.workflow_id,
-        "queued_nodes": len(request.prompt),
+        "queued_nodes": len(execution_prompt),
     }
 
 

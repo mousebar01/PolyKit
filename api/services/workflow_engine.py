@@ -61,6 +61,7 @@ from services.workflow_executor import (
     is_reference,
     os_cache_enabled,
     resolve_reference,
+    select_execution_prompt,
     topological_order,
 )
 
@@ -315,7 +316,8 @@ class WorkflowEngine:
         if isinstance(self.node_cache, ArtifactNodeOutputCache):
             self.node_cache.prune()
 
-        order = topological_order(request.prompt)
+        execution_prompt = select_execution_prompt(request)
+        order = topological_order(execution_prompt)
         total = max(len(order), 1)
 
         outputs: Dict[str, Dict[str, Any]] = {}
@@ -328,7 +330,7 @@ class WorkflowEngine:
             if context.cancelled():
                 cleanup_artifact_root(artifact_root)
                 return None
-            node = request.prompt[node_id]
+            node = execution_prompt[node_id]
             job.progress = max(job.progress, round(90 * idx / total))
             persist()
 

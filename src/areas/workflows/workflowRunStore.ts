@@ -35,7 +35,12 @@ interface WorkflowRunStore {
   activeWorkflowId: string | null
   nodeImageOutputs: Record<string, string>
 
-  run: (workflow: Workflow, allNodePacks: WorkflowNodePack[], overrideImageData?: string) => Promise<void>
+  run: (
+    workflow: Workflow,
+    allNodePacks: WorkflowNodePack[],
+    overrideImageData?: string,
+    targetNodeId?: string,
+  ) => Promise<void>
   cancel: () => void
   reset: () => void
 }
@@ -46,7 +51,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
   activeWorkflowId: null,
   nodeImageOutputs: {},
 
-  async run(workflow, allNodePacks, overrideImageData?) {
+  async run(workflow, allNodePacks, overrideImageData?, targetNodeId?) {
     _pollAbortController.current?.abort()
     _cancel.current = false
     _activeRunId.current = null
@@ -81,6 +86,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
       const compiled = await compileServerWorkflow(workflow, allNodePacks, {
         selectedImagePath,
         selectedImageData,
+        targetNodeId,
       })
       if (!compiled.ok) {
         throw new Error(compiled.error)

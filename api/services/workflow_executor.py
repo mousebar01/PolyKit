@@ -97,6 +97,44 @@ def topological_order(prompt: Dict[str, WorkflowExecutionNode]) -> List[str]:
     return order
 
 
+def select_execution_prompt(request: WorkflowExecutionRequest) -> Dict[str, WorkflowExecutionNode]:
+    """Return the requested output branches and every node they depend on.
+
+    ``target_node_ids`` mirrors ComfyUI's partial execution behavior: when one
+    or more output/preview sinks are selected, only their upstream dependency
+    closure is scheduled.  A missing target or a non-sink target is rejected
+    before a job is queued so the editor can surface a useful error.
+    """
+    targets = request.target_node_ids
+    if targets is None:
+        return request.prompt
+    if not targets:
+        raise WorkflowError("target_node_ids must contain at least one output or preview node")
+
+    required: set[str] = set()
+    pending = list(dict.fromkeys(targets))
+    target_set = set(pending)
+    while pending:
+        node_id = pending.pop()
+        if node_id in required:
+            continue
+        node = request.prompt.get(node_id)
+        if node is None:
+            raise WorkflowError(f"Execution target references missing node '{node_id}'")
+        if node_id in target_set and node.class_type not in SINK_NODES:
+            raise WorkflowError(
+                f"Execution target '{node_id}' must be an output or preview sink"
+            )
+        required.add(node_id)
+        for value in node.inputs.values():
+            if is_reference(value):
+                pending.append(value[0])
+
+    # Keep the original insertion order. The DAG validator will still reject
+    # cycles or malformed references in the selected branch.
+    return {node_id: node for node_id, node in request.prompt.items() if node_id in required}
+
+
 def resolve_reference(value: Any, outputs: Dict[str, Dict[str, Any]]) -> Any:
     if not is_reference(value):
         raise WorkflowError(f"Expected a [node_id, output_name] reference, got: {value!r}")
@@ -111,8 +149,12 @@ def resolve_reference(value: Any, outputs: Dict[str, Dict[str, Any]]) -> Any:
     return node_outputs[output_name]
 
 
-def validate_prompt_links(request: WorkflowExecutionRequest) -> None:
+def validate_prompt_links(
+    request: WorkflowExecutionRequest,
+    prompt: Optional[Dict[str, WorkflowExecutionNode]] = None,
+) -> None:
     """Validate typed reference links before any execution starts."""
+    prompt = request.prompt if prompt is None else prompt
     defn_cache: Dict[str, Optional[Any]] = {}
 
     def _definition(class_type: str) -> Optional[Any]:
@@ -120,14 +162,14 @@ def validate_prompt_links(request: WorkflowExecutionRequest) -> None:
             defn_cache[class_type] = get_node_definition(class_type)
         return defn_cache[class_type]
 
-    for node_id, node in request.prompt.items():
+    for node_id, node in prompt.items():
         for input_name, value in node.inputs.items():
             if not is_reference(value):
                 continue
             ref_node_id = value[0]
-            if ref_node_id not in request.prompt:
+            if ref_node_id not in prompt:
                 continue
-            upstream_def = _definition(request.prompt[ref_node_id].class_type)
+            upstream_def = _definition(prompt[ref_node_id].class_type)
             upstream_outputs = upstream_def.outputs if upstream_def else []
             upstream_type = upstream_outputs[0] if upstream_outputs else None
             if input_name in {"image", "mesh", "text"} and upstream_type and upstream_type != input_name:

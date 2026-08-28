@@ -56,6 +56,16 @@ test('valid image → model → output compiles with a payload', async () => {
   assert.ok(res.ok && res.payload.output_node_id === 'out')
 })
 
+test('selected output compiles a partial execution target', async () => {
+  const res = await compileServerWorkflow(
+    wf([img(), model(), out()], [edge('img', 'gen', 'input-0'), edge('gen', 'out')]),
+    PACKS,
+    { selectedImageData: PNG, targetNodeId: 'out' },
+  )
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.ok && res.payload.target_node_ids, ['out'])
+})
+
 test('unsupported node type reports the exact node', async () => {
   const res = await compileServerWorkflow(wf([img(), node('bogus', 'bogusNode', {})]), PACKS)
   assert.equal(res.ok, false)

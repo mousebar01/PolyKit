@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,4 +22,5 @@ class WorkflowExecutionRequest(BaseModel):
     workflow_id: Optional[str] = None
     prompt: Dict[str, WorkflowExecutionNode]
     output_node_id: Optional[str] = None
+    target_node_ids: Optional[List[str]] = None
     collection: str = "Workflows"
