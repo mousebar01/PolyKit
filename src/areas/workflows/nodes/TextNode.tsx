@@ -14,6 +14,7 @@ export default function TextNode({ id, data, selected }: { id: string; data: WFN
   const { updateNodeData, setNodes } = useReactFlow()
   const ioRowRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const manualHeightRef = useRef(false)
   const [handleTop, setHandleTop] = useState('50%')
 
   useLayoutEffect(() => {
@@ -32,6 +33,10 @@ export default function TextNode({ id, data, selected }: { id: string; data: WFN
   useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
+    if (manualHeightRef.current) {
+      textarea.style.overflowY = textarea.scrollHeight > textarea.clientHeight ? 'auto' : 'hidden'
+      return
+    }
     textarea.style.height = '0px'
     const contentHeight = textarea.scrollHeight
     textarea.style.height = `${Math.min(Math.max(contentHeight, MIN_TEXTAREA_HEIGHT), MAX_TEXTAREA_HEIGHT)}px`
@@ -65,10 +70,14 @@ export default function TextNode({ id, data, selected }: { id: string; data: WFN
           ref={textareaRef}
           value={text}
           onChange={(event) => updateNodeData(id, { params: { ...data.params, text: event.target.value } })}
+          onMouseDown={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            if (rect.right - event.clientX < 18 && rect.bottom - event.clientY < 18) manualHeightRef.current = true
+          }}
           placeholder="Enter text…"
           rows={1}
           aria-label="Text input"
-          className="nodrag nowheel min-h-0 resize-none overflow-y-auto px-2.5 py-2 text-[11px] leading-relaxed"
+          className="nodrag nowheel min-h-0 max-h-[520px] resize-y overflow-y-auto px-2.5 py-2 text-[11px] leading-relaxed"
         />
       </div>
     </BaseNode>
