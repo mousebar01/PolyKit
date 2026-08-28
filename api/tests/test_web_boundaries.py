@@ -47,6 +47,7 @@ class WebBoundaryTests(unittest.TestCase):
             runtime_paths.update(workspace_dir=root)
             (root / "Workflows").mkdir()
             (root / "Workflows" / "hero.glb").write_bytes(b"glb")
+            (root / "Workflows" / "hero.png").write_bytes(b"png")
             (root / "Workflows" / "notes.csv").write_text("ignore", encoding="utf-8")
             (root / "Workflows" / ".hidden.glb").write_bytes(b"ignore")
 
@@ -54,7 +55,12 @@ class WebBoundaryTests(unittest.TestCase):
                 result = asyncio.run(workspace_library.list_library())
 
             self.assertTrue(result["success"])
-            self.assertEqual([entry["workspacePath"] for entry in result["entries"]], ["Workflows/hero.glb"])
+            self.assertEqual([entry["workspacePath"] for entry in result["entries"]], ["Workflows/hero.glb", "Workflows/hero.png"])
+
+            image_entry = result["entries"][1]
+            self.assertEqual(image_entry["capability"], "image")
+            self.assertEqual(image_entry["previewKind"], "image")
+            self.assertTrue(image_entry["openable"])
 
     def test_workspace_library_rejects_traversal_and_reads_safe_mesh(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -78,6 +84,26 @@ class WebBoundaryTests(unittest.TestCase):
             self.assertEqual(unsafe["error"]["code"], "unsafe-path")
             self.assertTrue(safe["success"])
             self.assertEqual(safe["preview"]["kind"], "3d-model")
+
+    def test_workspace_library_reads_image_preview_without_mesh_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_paths.update(workspace_dir=root)
+            (root / "Workflows").mkdir()
+            (root / "Workflows" / "hero.png").write_bytes(b"png")
+
+            result = asyncio.run(
+                workspace_library.read_library(
+                    workspace_library.LibraryRequest(workspacePath="Workflows/hero.png")
+                )
+            )
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["entry"]["capability"], "image")
+            self.assertEqual(result["preview"], {
+                "kind": "image",
+                "imageUrl": "/workspace/Workflows/hero.png",
+            })
 
     def test_workspace_library_classifies_rigged_glb_and_keeps_previews(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

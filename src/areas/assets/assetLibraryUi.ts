@@ -20,6 +20,7 @@ export interface AssetLibraryOpenSelection {
 }
 
 const ASSET_LIBRARY_CAPABILITY_SECTIONS = [
+  { capability: 'image', label: 'Images' },
   { capability: 'mesh', label: 'Mesh' },
   { capability: 'rigged-mesh', label: 'Rigged mesh' },
   { capability: 'animation-motion', label: 'Animations/motions' },
@@ -38,7 +39,7 @@ export const ASSET_LIBRARY_SORT_OPTIONS = [
 
 export function getDefaultAssetLibraryCollapsedSectionKeys(): string[] {
   return ASSET_LIBRARY_CAPABILITY_SECTIONS
-    .filter((capabilitySection) => capabilitySection.capability !== 'mesh')
+    .filter((capabilitySection) => !['image', 'mesh'].includes(capabilitySection.capability))
     .map((capabilitySection) => `capability:${capabilitySection.capability}`)
 }
 
@@ -67,7 +68,7 @@ export function describeAssetLibraryOpenability(entry: ProjectedAssetLibraryEntr
   if (target.kind === 'linked-source') return `Ready to open linked source ${entry.source?.displayName ?? target.sourceWorkspacePath} in Generate.`
   if (target.kind === 'self') return 'Ready to open this asset directly in Generate.'
   if (entry.nonOpenableReason) return entry.nonOpenableReason
-  if (!/\.(glb|gltf)$/i.test(entry.workspacePath)) return 'Only .glb/.gltf workspace assets are openable in this release.'
+  if (!/\.(glb|gltf|png|jpe?g|webp|gif|bmp)$/i.test(entry.workspacePath)) return 'Only images or .glb/.gltf workspace assets are openable in this release.'
   return target.reason
 }
 
@@ -120,6 +121,7 @@ export function createAssetLibraryOpenJob(
       progress: 100,
       outputUrl: target.url,
       originalOutputUrl: target.url,
+      outputKind: target.assetKind,
       createdAt: now,
     },
   }

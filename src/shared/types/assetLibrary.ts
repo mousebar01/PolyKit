@@ -1,6 +1,7 @@
 import type { ArtifactProvenance } from './artifacts'
 
 export const ASSET_CAPABILITIES = [
+  'image',
   'mesh',
   'rigged-mesh',
   'animation-motion',
@@ -10,7 +11,7 @@ export const ASSET_CAPABILITIES = [
 ] as const
 
 export const ASSET_ENTRY_STATES = ['ready', 'unknown-metadata', 'unsupported', 'unsafe'] as const
-export const ASSET_LIBRARY_PREVIEW_KINDS = ['3d-model', 'text', 'binary', 'none'] as const
+export const ASSET_LIBRARY_PREVIEW_KINDS = ['3d-model', 'image', 'text', 'binary', 'none'] as const
 export const ASSET_LIBRARY_MANIFEST_CAPABILITIES = ['generated-world', 'scene-manifest'] as const
 export const ASSET_LIBRARY_SOURCE_SCOPES = ['workflows', 'exports'] as const
 
@@ -64,9 +65,9 @@ export interface AssetLibraryEntry {
   warnings: string[]
   openable: boolean
   nonOpenableReason?: string
-  /** Relative URL of a rendered preview PNG (meshes); undefined for others. */
+  /** Relative URL of a rendered preview (mesh snapshot or source image). */
   thumbnail?: string
-  /** Relative URL of a lightweight textured GLB for client-side 3D preview (glb/gltf only). */
+  /** Relative URL of a lightweight textured GLB or source image preview. */
   preview?: string
   createdAt?: string
   updatedAt?: string
@@ -85,6 +86,7 @@ export interface AssetLibraryManifestRef {
 
 export type AssetLibraryPreviewPayload =
   | { kind: '3d-model', viewerKind: 'glb' | 'gltf' }
+  | { kind: 'image', imageUrl: string }
   | { kind: 'text', content: string, byteLength: number, truncated: boolean }
   | { kind: 'binary', binaryKind: string, byteLength: number, message: string }
   | { kind: 'none' }

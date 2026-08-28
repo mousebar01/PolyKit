@@ -23,6 +23,7 @@ export interface GenerationJob {
   step?: string
   outputUrl?: string
   originalOutputUrl?: string   // mesh URL before any optimization
+  outputKind?: 'mesh' | 'image'
   modelId?: string             // model used for this generation
   originalTriangles?: number   // polygon count of the original mesh
   generationOptions?: GenerationOptions

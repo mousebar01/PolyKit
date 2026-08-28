@@ -149,7 +149,12 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
             : {},
         })
         if (outputUrl && artifactKind !== 'image') useAppStore.getState().pushMeshUrl(outputUrl)
-        useAppStore.getState().updateCurrentJob({ status: 'done', progress: 100, outputUrl })
+        useAppStore.getState().updateCurrentJob({
+          status: 'done',
+          progress: 100,
+          outputUrl,
+          outputKind: artifactKind === 'image' ? 'image' : 'mesh',
+        })
         return
       }
 

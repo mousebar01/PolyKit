@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  Image as ImageIcon,
   LayoutGrid,
   List,
   Pencil,
@@ -88,6 +89,7 @@ function ExportFormatItems({
 type AssetCapability = NonNullable<ProjectedAssetLibraryEntry['capability']>
 
 const CAPABILITY_LABEL_KEYS: Record<AssetCapability, TranslationKey> = {
+  image: 'assets.capabilityImages',
   mesh: 'assets.capabilityMesh',
   'rigged-mesh': 'assets.capabilityRiggedMesh',
   'animation-motion': 'assets.capabilityAnimations',
@@ -136,11 +138,13 @@ function writeAssetLibraryViewMode(viewMode: AssetLibraryViewMode): void {
 
 function AssetActionItems({
   onExport,
+  canExport,
   onRename,
   onDelete,
   onClose,
 }: {
   onExport: () => void
+  canExport: boolean
   onRename: () => void
   onDelete: () => void
   onClose: () => void
@@ -148,17 +152,19 @@ function AssetActionItems({
   const { t } = useI18n()
   return (
     <div className="flex flex-col gap-0.5">
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 w-full justify-start gap-2 px-2 text-xs"
-        onClick={onExport}
-        role="menuitem"
-      >
-        <Download className="h-3.5 w-3.5" />
-        {t('assets.export')}
-      </Button>
+      {canExport && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-full justify-start gap-2 px-2 text-xs"
+          onClick={onExport}
+          role="menuitem"
+        >
+          <Download className="h-3.5 w-3.5" />
+          {t('assets.export')}
+        </Button>
+      )}
       <Button
         type="button"
         variant="ghost"
@@ -322,9 +328,11 @@ function AssetCard({
           {checked ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </span>
       )}
-      <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden bg-muted/40 transition-colors group-hover:bg-muted/60`}>
+      <div className={`relative flex ${mediaClass} items-center justify-center overflow-hidden transition-colors group-hover:bg-muted/60 ${entry.capability === 'image' ? 'alpha-checker' : 'bg-muted/40'}`}>
         {(!thumbnailUrl || thumbnailState === 'error') && (
-          <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+          entry.capability === 'image'
+            ? <ImageIcon className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+            : <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
         )}
         {thumbnailUrl && (
           <img
@@ -387,6 +395,7 @@ function AssetCard({
           ) : (
             <AssetActionItems
               onExport={() => setExportMenuOpen(true)}
+              canExport={entry.capability === 'mesh' || entry.capability === 'rigged-mesh'}
               onRename={onRename}
               onDelete={onDelete}
               onClose={() => setActionsAt(null)}
@@ -466,9 +475,12 @@ export default function AssetLibrarySidebar({
   }
 
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null
+  const exportablePaths = new Set(entries
+    .filter((entry) => entry.capability === 'mesh' || entry.capability === 'rigged-mesh')
+    .map((entry) => entry.workspacePath))
   const exportTargets = selectMode
-    ? [...selectedPaths]
-    : selectedEntry ? [selectedEntry.workspacePath] : []
+    ? [...selectedPaths].filter((path) => exportablePaths.has(path))
+    : selectedEntry && exportablePaths.has(selectedEntry.workspacePath) ? [selectedEntry.workspacePath] : []
   const exportLabel = selectMode && selectedPaths.size > 0
     ? t('assets.exportSelected', { count: selectedPaths.size })
     : t('assets.export')

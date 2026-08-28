@@ -37,8 +37,9 @@ function groupPaths(entries: ProjectedAssetLibraryEntry[], search = '', sortMode
   ))
 }
 
-test('organizes visible library assets by capability with mesh expanded by default', () => {
+test('organizes visible library assets by capability with images and mesh expanded by default', () => {
   const entries = [
+    entry({ id: 'image', workspacePath: 'Workflows/Illustrations/hero.png', displayName: 'hero.png', capability: 'image', previewKind: 'image' }),
     entry({ id: 'workflow-mesh', workspacePath: 'Workflows/run/hero.glb', displayName: 'hero.glb', capability: 'mesh' }),
     entry({ id: 'rig', workspacePath: 'Workflows/rig/hero-rig.gltf', displayName: 'hero-rig.gltf', capability: 'rigged-mesh' }),
     entry({ id: 'hidden-cache', workspacePath: 'Workflows/run/cache/internal.glb', displayName: 'internal.glb' }),
@@ -46,10 +47,11 @@ test('organizes visible library assets by capability with mesh expanded by defau
   ]
 
   const groups = filterAssetLibraryEntryGroups(entries, '', 'type')
-  assert.deepEqual(groups.map((group) => group.capability), ['mesh', 'rigged-mesh'])
-  assert.deepEqual(groupPaths(entries), ['Workflows/run/hero.glb', 'Workflows/rig/hero-rig.gltf'])
+  assert.deepEqual(groups.map((group) => group.capability), ['image', 'mesh', 'rigged-mesh'])
+  assert.deepEqual(groupPaths(entries), ['Workflows/Illustrations/hero.png', 'Workflows/run/hero.glb', 'Workflows/rig/hero-rig.gltf'])
   assert.equal(DEFAULT_ASSET_LIBRARY_SORT_MODE, 'date')
   assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:mesh'), false)
+  assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:image'), false)
   assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:rigged-mesh'), true)
   assert.deepEqual(toggleAssetLibrarySectionKey([], 'capability:mesh'), ['capability:mesh'])
   assert.deepEqual(toggleAssetLibrarySectionKey(['capability:rigged-mesh'], 'capability:rigged-mesh'), [])
@@ -92,11 +94,13 @@ test('searches workspace assets while date sorting keeps capability groups stabl
   ])
 })
 
-test('opens only safe glb and gltf entries through existing Generate job and history state', () => {
+test('opens safe images, glb, and gltf entries through the shared viewer job state', () => {
   const glb = entry({ workspacePath: 'Workflows/run/hero.glb', displayName: 'hero.glb' })
+  const image = entry({ id: 'image', workspacePath: 'Workflows/Illustrations/hero.png', displayName: 'hero.png', capability: 'image', previewKind: 'image' })
   const ply = entry({ workspacePath: 'Workflows/scan.ply', displayName: 'scan.ply', openable: false, nonOpenableReason: 'Only .glb/.gltf workspace assets are openable in this release.' })
 
   assert.equal(isAssetLibraryEntryOpenable(glb), true)
+  assert.equal(isAssetLibraryEntryOpenable(image), true)
   assert.equal(isAssetLibraryEntryOpenable(ply), false)
   assert.equal(describeAssetLibraryOpenability(glb), 'Ready to open this asset directly in Generate.')
   assert.equal(describeAssetLibraryOpenability(ply), 'Only .glb/.gltf workspace assets are openable in this release.')
@@ -112,6 +116,8 @@ test('opens only safe glb and gltf entries through existing Generate job and his
   assert.equal(selection.job.status, 'done')
   assert.equal(selection.job.outputUrl, '/workspace/Workflows/run/hero.glb')
   assert.equal(selection.job.originalOutputUrl, '/workspace/Workflows/run/hero.glb')
+  const imageSelection = createAssetLibraryOpenJob(resolveAssetLibraryOpenTarget(image), 1718546400003)
+  assert.equal(imageSelection?.job.outputKind, 'image')
 })
 
 test('keeps library jobs pointed at the full server asset', () => {

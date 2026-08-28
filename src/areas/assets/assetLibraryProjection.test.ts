@@ -25,6 +25,25 @@ test('projects entries with deduped warnings and workspace URL open target', () 
     kind: 'self',
     url: '/workspace/Workflows/checkpoints/hero.glb',
     workspacePath: 'Workflows/checkpoints/hero.glb',
+    assetKind: 'mesh',
+  })
+})
+
+test('projects image assets to the image viewer target', () => {
+  const projected = projectAssetLibraryEntry({
+    ...glbEntry,
+    id: 'library:Workflows/Illustrations/hero.png',
+    workspacePath: 'Workflows/Illustrations/hero.png',
+    displayName: 'hero.png',
+    capability: 'image',
+    previewKind: 'image',
+  })
+
+  assert.deepEqual(resolveAssetLibraryOpenTarget(projected), {
+    kind: 'self',
+    url: '/workspace/Workflows/Illustrations/hero.png',
+    workspacePath: 'Workflows/Illustrations/hero.png',
+    assetKind: 'image',
   })
 })
 
@@ -49,6 +68,7 @@ test('projects sidecars with safe GLB source links as linked-source open targets
     workspacePath: 'Workflows/checkpoints/hero.landmarks.v1.json',
     sourceWorkspacePath: 'Workflows/checkpoints/hero.glb',
     url: '/workspace/Workflows/checkpoints/hero.glb',
+    assetKind: 'mesh',
   })
 })
 
@@ -75,7 +95,7 @@ test('degrades unsafe source and manifest paths and unsupported formats to unava
   })
   assert.deepEqual(resolveAssetLibraryOpenTarget(splat), {
     kind: 'unavailable',
-    reason: 'Only safe .glb/.gltf workspace assets are openable in this release.',
+    reason: 'Only safe images or .glb/.gltf workspace assets are openable in this release.',
   })
 })
 

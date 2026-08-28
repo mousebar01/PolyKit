@@ -4,9 +4,11 @@ export interface ProjectedAssetLibraryEntry extends AssetLibraryEntry {
   warnings: string[]
 }
 
+export type AssetLibraryViewerKind = 'image' | 'mesh'
+
 export type AssetLibraryOpenTarget =
-  | { kind: 'self', url: string, workspacePath: string }
-  | { kind: 'linked-source', url: string, workspacePath: string, sourceWorkspacePath: string }
+  | { kind: 'self', url: string, workspacePath: string, assetKind: AssetLibraryViewerKind }
+  | { kind: 'linked-source', url: string, workspacePath: string, sourceWorkspacePath: string, assetKind: 'mesh' }
   | { kind: 'unavailable', reason: string }
 
 function isSafeWorkspacePath(workspacePath: string): boolean {
@@ -21,6 +23,10 @@ function isSafeWorkspacePath(workspacePath: string): boolean {
 
 function isGlbOrGltf(workspacePath: string): boolean {
   return /\.(glb|gltf)$/i.test(workspacePath)
+}
+
+function isImage(workspacePath: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp)$/i.test(workspacePath)
 }
 
 export function projectAssetLibraryEntry(entry: AssetLibraryEntry): ProjectedAssetLibraryEntry {
@@ -48,13 +54,19 @@ export function resolveAssetLibraryOpenTarget(entry: ProjectedAssetLibraryEntry)
       url: `/workspace/${entry.source.workspacePath}`,
       workspacePath: entry.workspacePath,
       sourceWorkspacePath: entry.source.workspacePath,
+      assetKind: 'mesh',
     }
   }
   if (!entry.openable) {
     return { kind: 'unavailable', reason: entry.nonOpenableReason ?? 'Workspace asset is not openable.' }
   }
-  if (!isGlbOrGltf(entry.workspacePath)) {
-    return { kind: 'unavailable', reason: 'Only safe .glb/.gltf workspace assets are openable in this release.' }
+  if (!isGlbOrGltf(entry.workspacePath) && !isImage(entry.workspacePath)) {
+    return { kind: 'unavailable', reason: 'Only safe images or .glb/.gltf workspace assets are openable in this release.' }
   }
-  return { kind: 'self', url: `/workspace/${entry.workspacePath}`, workspacePath: entry.workspacePath }
+  return {
+    kind: 'self',
+    url: `/workspace/${entry.workspacePath}`,
+    workspacePath: entry.workspacePath,
+    assetKind: isImage(entry.workspacePath) ? 'image' : 'mesh',
+  }
 }

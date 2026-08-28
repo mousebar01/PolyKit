@@ -25,6 +25,7 @@ _SIDECAR_SUFFIXES = (".landmarks.v1.json", ".world.json", ".scene.json")
 _TEXT_EXTENSIONS = {"json", "txt", "md"}
 _MESH_EXTENSIONS = {"glb", "gltf", "obj", "stl", "ply", "splat"}
 _MOTION_EXTENSIONS = {"bvh", "npz"}
+_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 
 
 class LibraryRequest(BaseModel):
@@ -63,6 +64,8 @@ def _entry(workspace_path: str, path: Path) -> dict:
     elif extension in {"glb", "gltf"}:
         capability = "rigged-mesh" if has_skin_metadata(path) else "mesh"
         state, preview, openable, reason = "ready", "3d-model", True, None
+    elif extension in _IMAGE_EXTENSIONS:
+        capability, state, preview, openable, reason = "image", "ready", "image", True, None
     elif extension in _MESH_EXTENSIONS:
         capability, state, preview, openable, reason = "mesh", "ready", "binary", False, f".{extension} workspace assets are list-only in this release."
     elif extension in _TEXT_EXTENSIONS:
@@ -92,6 +95,12 @@ def _entry(workspace_path: str, path: Path) -> dict:
         if extension in {"glb", "gltf"}:
             from services.asset_previews import _PREVIEW_VERSION
             entry["preview"] = f"/workspace-library/preview?path={workspace_path}&v={_PREVIEW_VERSION}"
+    elif capability == "image":
+        # Generated images are already workspace-owned artifacts. Reuse the
+        # canonical workspace URL for both cards and the detail viewer rather
+        # than copying them into a second thumbnail store.
+        entry["thumbnail"] = f"/workspace/{workspace_path}"
+        entry["preview"] = f"/workspace/{workspace_path}"
     return entry
 
 
@@ -237,6 +246,8 @@ async def read_library(request: LibraryRequest):
         extension = path.suffix.lower().lstrip(".")
         if entry["previewKind"] == "3d-model":
             preview = {"kind": "3d-model", "viewerKind": extension}
+        elif entry["previewKind"] == "image":
+            preview = {"kind": "image", "imageUrl": f"/workspace/{workspace_path}"}
         elif entry["previewKind"] == "text":
             content = path.read_text(encoding="utf-8", errors="replace")
             preview = {"kind": "text", "content": content[:65536], "byteLength": path.stat().st_size, "truncated": len(content) > 65536}

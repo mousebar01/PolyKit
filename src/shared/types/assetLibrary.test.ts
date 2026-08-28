@@ -17,6 +17,7 @@ import type {
 
 test('declares capability-first asset taxonomy without extension categories', () => {
   assert.deepEqual(ASSET_CAPABILITIES, [
+    'image',
     'mesh',
     'rigged-mesh',
     'animation-motion',
@@ -25,7 +26,7 @@ test('declares capability-first asset taxonomy without extension categories', ()
     'scene-manifest',
   ])
   assert.deepEqual(ASSET_ENTRY_STATES, ['ready', 'unknown-metadata', 'unsupported', 'unsafe'])
-  assert.deepEqual(ASSET_LIBRARY_PREVIEW_KINDS, ['3d-model', 'text', 'binary', 'none'])
+  assert.deepEqual(ASSET_LIBRARY_PREVIEW_KINDS, ['3d-model', 'image', 'text', 'binary', 'none'])
   assert.deepEqual(ASSET_LIBRARY_MANIFEST_CAPABILITIES, ['generated-world', 'scene-manifest'])
   assert.equal((ASSET_CAPABILITIES as readonly string[]).includes('glb'), false)
   assert.equal((ASSET_CAPABILITIES as readonly string[]).includes('splat'), false)
@@ -49,6 +50,26 @@ test('AssetLibraryEntry keeps capability, provenance, warnings, and openability 
   assert.equal(list.entries[0]?.provenance?.workflowId, 'wf-1')
   assert.equal(list.entries[0]?.warnings[0], 'Rig metadata was inferred from a sidecar.')
   assert.equal(list.entries[0]?.openable, true)
+})
+
+test('image previews remain explicit and renderer-visible', () => {
+  const read = {
+    success: true,
+    entry: {
+      id: 'library:Workflows/Illustrations/hero.png',
+      workspacePath: 'Workflows/Illustrations/hero.png',
+      displayName: 'hero.png',
+      capability: 'image',
+      state: 'ready',
+      previewKind: 'image',
+      warnings: [],
+      openable: true,
+    },
+    preview: { kind: 'image', imageUrl: '/workspace/Workflows/Illustrations/hero.png' },
+  } satisfies AssetLibraryReadResult
+
+  assert.equal(read.entry.capability, 'image')
+  assert.equal(read.preview.kind, 'image')
 })
 
 test('structured results preserve renderer-visible error codes and read previews', () => {

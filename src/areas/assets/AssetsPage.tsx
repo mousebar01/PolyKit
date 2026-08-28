@@ -55,6 +55,23 @@ function AssetsLoading({ label }: { label: string }): JSX.Element {
   )
 }
 
+function resolveAssetUrl(apiUrl: string, outputUrl: string): string {
+  if (/^(?:https?:|blob:|data:)/i.test(outputUrl)) return outputUrl
+  return `${apiUrl}${outputUrl}`
+}
+
+function AssetImageViewer({ apiUrl, outputUrl, alt }: { apiUrl: string, outputUrl: string, alt: string }): JSX.Element {
+  return (
+    <div className="alpha-checker flex h-full w-full items-center justify-center overflow-auto p-8">
+      <img
+        src={resolveAssetUrl(apiUrl, outputUrl)}
+        alt={alt}
+        className="max-h-full max-w-full object-contain"
+      />
+    </div>
+  )
+}
+
 const MIN_WIDTH = 220
 const MAX_WIDTH = 440
 const DEFAULT_WIDTH = 280
@@ -346,7 +363,9 @@ export default function AssetsPage(): JSX.Element {
     return () => window.removeEventListener('keydown', handler)
   }, [undoMesh, redoMesh])
 
-  const hasModel = currentJob?.status === 'done' && !!currentJob.outputUrl
+  const hasOutput = currentJob?.status === 'done' && !!currentJob.outputUrl
+  const hasImage = hasOutput && (currentJob?.outputKind === 'image' || /\.(png|jpe?g|webp|gif|bmp)(?:[?#]|$)/i.test(currentJob.outputUrl ?? ''))
+  const hasModel = hasOutput && !hasImage
 
   useEffect(() => {
     if (!meshSelected) setGizmoMode(null)
@@ -524,7 +543,9 @@ export default function AssetsPage(): JSX.Element {
       setLibraryEntries((currentEntries) => currentEntries.map((entry) => entry.id === result.entry.id ? result.entry : entry))
       setLibrarySelectedEntryId(result.entry.id)
       setCurrentJob(selection.job)
-      pushMeshUrl(selection.historyUrl)
+      if ((target.kind === 'self' && target.assetKind === 'mesh') || target.kind === 'linked-source') {
+        pushMeshUrl(selection.historyUrl)
+      }
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -712,9 +733,13 @@ export default function AssetsPage(): JSX.Element {
         </div>
 
         <div className="relative flex-1 overflow-hidden bg-background">
-          <Suspense fallback={<AssetsLoading label="Loading 3D viewer…" />}>
-            <Viewer3D lightSettings={lightSettings} gizmoMode={gizmoMode} gizmoUndoRef={gizmoUndoRef} />
-          </Suspense>
+          {hasImage && currentJob?.outputUrl ? (
+            <AssetImageViewer apiUrl={apiUrl} outputUrl={currentJob.outputUrl} alt={currentJob.imageFile || 'Generated image'} />
+          ) : (
+            <Suspense fallback={<AssetsLoading label="Loading 3D viewer…" />}>
+              <Viewer3D lightSettings={lightSettings} gizmoMode={gizmoMode} gizmoUndoRef={gizmoUndoRef} />
+            </Suspense>
+          )}
           <GenerationHUD />
         </div>
       </div>

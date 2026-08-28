@@ -13,7 +13,7 @@ import {
   type Edge,
   type OnConnectStartParams,
 } from '@xyflow/react'
-import { FolderPlus } from 'lucide-react'
+import { FolderPlus, Image as ImageIcon } from 'lucide-react'
 import { useWorkflowsStore, NODE_TYPES_WITHOUT_TARGET, NODE_TYPES_WITHOUT_SOURCE, FOLDER_COLORS } from '@shared/stores/workflowsStore'
 import { useNodePacksStore } from '@shared/stores/nodePacksStore'
 import { useAppStore } from '@shared/stores/appStore'
@@ -510,6 +510,10 @@ interface RemoteWorkflowRun {
   meta?: Record<string, unknown>
 }
 
+function isImageOutputUrl(url: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp)(?:[?#]|$)/i.test(url)
+}
+
 function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Element {
   const { t } = useI18n()
   const currentJob = useAppStore((s) => s.currentJob)
@@ -569,6 +573,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
       status: 'done',
       progress: 100,
       outputUrl: url,
+      outputKind: latestRemoteOutput?.meta?.artifact_kind === 'image' || isImageOutputUrl(url) ? 'image' : 'mesh',
     })
     if (latestRemoteOutput?.meta?.artifact_kind !== 'image') {
       useAppStore.getState().pushMeshUrl(url)
@@ -595,6 +600,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
       status: 'done',
       progress: 100,
       outputUrl: url,
+      outputKind: remoteRuns.find((run) => run.output_url === url)?.meta?.artifact_kind === 'image' || isImageOutputUrl(url) ? 'image' : 'mesh',
     })
     navigate('assets')
   }
@@ -655,6 +661,9 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
           <div className="space-y-2.5">
             {outputs.map((url, index) => {
               const active = currentJob?.outputUrl === url
+              const isImage = (currentJob?.outputUrl === url && currentJob.outputKind === 'image')
+                || remoteRuns.find((run) => run.output_url === url)?.meta?.artifact_kind === 'image'
+                || isImageOutputUrl(url)
               return (
                 <button
                   key={url}
@@ -668,9 +677,11 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
                   <div className="flex items-start gap-2.5">
                     <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 border
                       ${active ? 'border-primary/30 bg-primary/15 text-primary' : 'border-divider bg-muted text-muted-foreground group-hover:text-foreground'}`}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>
-                      </svg>
+                      {isImage
+                        ? <ImageIcon className="h-[15px] w-[15px]" strokeWidth={1.5} />
+                        : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>
+                          </svg>}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
@@ -681,8 +692,8 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
                     </span>
                   </div>
                   <span className="mt-2.5 flex items-center justify-between border-t border-divider pt-2">
-                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{t('workflows.mesh3d')}</span>
-                    <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">{t('workflows.viewIn3d')}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{t(isImage ? 'workflows.image' : 'workflows.mesh3d')}</span>
+                    <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">{t(isImage ? 'workflows.viewImage' : 'workflows.viewIn3d')}</span>
                   </span>
                 </button>
               )
