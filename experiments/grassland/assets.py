@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import math
-
 try:
     import bpy  # type: ignore
 except Exception:  # pragma: no cover
     bpy = None
+
+_SOURCE_Z = -10000.0
 
 
 def _ensure_material(name: str, color: tuple[float, float, float, float], roughness: float = 0.8):
@@ -19,13 +19,15 @@ def _ensure_material(name: str, color: tuple[float, float, float, float], roughn
     return mat
 
 
-def _collection(name: str, *, hide: bool = True):
+def _collection(name: str):
     col = bpy.data.collections.get(name)
     if col is None:
         col = bpy.data.collections.new(name)
         bpy.context.scene.collection.children.link(col)
+    # Keep source collections evaluated. The objects themselves live far below
+    # the benchmark terrain, while Collection Info resets their transforms.
     col.hide_render = False
-    col.hide_viewport = hide
+    col.hide_viewport = False
     return col
 
 
@@ -33,6 +35,7 @@ def _link_only(obj, collection):
     for col in tuple(obj.users_collection):
         col.objects.unlink(obj)
     collection.objects.link(obj)
+    obj.location.z = _SOURCE_Z
 
 
 def _blade_mesh(name: str, *, height: float, width: float, bend: float):
@@ -48,8 +51,7 @@ def _blade_mesh(name: str, *, height: float, width: float, bend: float):
     faces = [(0, 1, 2, 3), (3, 2, 4)]
     mesh.from_pydata(verts, [], faces)
     mesh.update()
-    obj = bpy.data.objects.new(name, mesh)
-    return obj
+    return bpy.data.objects.new(name, mesh)
 
 
 def build_grass_assets(*, base_height: float = 1.0):
@@ -138,12 +140,10 @@ def build_shrub_assets():
         old = bpy.data.objects.get(name)
         if old:
             bpy.data.objects.remove(old, do_unlink=True)
-        # Low-poly crown is intentionally simple: environmental scale cue, not hero foliage.
         bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=radius)
         obj = bpy.context.object
         obj.name = name
         obj.scale = (1.25, 0.95, 0.72)
-        obj.location.z = radius * 0.58
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
         obj.data.materials.append(leaf_mat)
         _link_only(obj, col)
