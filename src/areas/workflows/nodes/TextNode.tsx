@@ -7,6 +7,8 @@ import type { WFNodeData } from '@shared/types/runtime.d'
 import BaseNode from './BaseNode'
 
 const OUTPUT_COLOR = '#fbbf24'
+const MIN_TEXTAREA_HEIGHT = 96
+const MAX_TEXTAREA_HEIGHT = 280
 
 export default function TextNode({ id, data, selected }: { id: string; data: WFNodeData; selected?: boolean }) {
   const { updateNodeData, setNodes } = useReactFlow()
@@ -27,11 +29,13 @@ export default function TextNode({ id, data, selected }: { id: string; data: WFN
 
   const text = (data.params.text as string | undefined) ?? ''
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
+    textarea.style.height = '0px'
+    const contentHeight = textarea.scrollHeight
+    textarea.style.height = `${Math.min(Math.max(contentHeight, MIN_TEXTAREA_HEIGHT), MAX_TEXTAREA_HEIGHT)}px`
+    textarea.style.overflowY = contentHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden'
   }, [text])
 
   return (
@@ -64,7 +68,7 @@ export default function TextNode({ id, data, selected }: { id: string; data: WFN
           placeholder="Enter text…"
           rows={1}
           aria-label="Text input"
-          className="nodrag min-h-0 resize-none overflow-hidden px-2.5 py-2 text-[11px] leading-relaxed"
+          className="nodrag nowheel min-h-0 resize-none overflow-y-auto px-2.5 py-2 text-[11px] leading-relaxed"
         />
       </div>
     </BaseNode>
