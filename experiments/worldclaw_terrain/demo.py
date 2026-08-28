@@ -12,6 +12,8 @@ from .regions import (
     SplineRegion,
     VolcanoRegion,
 )
+from .stylized import StylizedTerrain, StylizedVolcanoRegion
+from .stylized_materials import STYLIZED_VOLCANIC_SETTINGS
 from .terrain import Terrain
 
 
@@ -106,7 +108,7 @@ def build_volcano_demo(
     scatter_rocks: bool = False,
     rock_count: int = 140,
 ) -> Terrain:
-    """Build a demanding volcanic scene for material/geomorph validation."""
+    """Build the existing detail-heavy volcanic material/geomorph validation scene."""
     material = VolcanicMaterialSettings(
         emission_strength=8.5,
         bump_strength=0.46,
@@ -250,6 +252,172 @@ def build_volcano_demo(
     return terrain
 
 
+def build_stylized_volcano_demo(
+    *,
+    resolution: int = 257,
+    seed: int = 173,
+    scatter_rocks: bool = False,
+    rock_count: int = 80,
+) -> StylizedTerrain:
+    """Build a colorful, readable volcanic biome for third-person game testing.
+
+    This scene intentionally uses lower-frequency geometry and broader color
+    grouping than :func:`build_volcano_demo`. The goal is not geological
+    realism; it is a clean landmark, visible crater, readable lava routes, broad
+    playable shelves, and reusable gameplay masks.
+    """
+    terrain = StylizedTerrain(
+        size=1320.0,
+        resolution=resolution,
+        seed=seed,
+        name="WorldClawTerrain_StylizedVolcano",
+        style=STYLIZED_VOLCANIC_SETTINGS,
+        walkable_slope_start=0.34,
+        walkable_slope_end=0.66,
+    )
+
+    terrain.add_region(
+        BackgroundRegion(
+            id="warm_lowlands",
+            kind="plain",
+            base_height=10.0,
+            noise_amplitude=3.2,
+            noise_scale=245.0,
+            octaves=4,
+            color=(0.30, 0.23, 0.12, 1.0),
+            ash_strength=0.10,
+            rock_strength=0.16,
+        )
+    )
+    terrain.add_region(
+        CircleRegion(
+            id="outer_badlands",
+            kind="badlands",
+            center=(0.0, 95.0),
+            radius=545.0,
+            blend_width=155.0,
+            mask_bias=-0.12,
+            base_height=34.0,
+            noise_amplitude=9.0,
+            noise_scale=205.0,
+            ridge_strength=9.0,
+            ridge_scale=135.0,
+            octaves=4,
+            color=(0.34, 0.19, 0.12, 1.0),
+            ash_strength=0.34,
+            rock_strength=0.46,
+        )
+    )
+    terrain.add_region(
+        StylizedVolcanoRegion(
+            id="main_volcano",
+            center=(0.0, 145.0),
+            radius=435.0,
+            blend_width=88.0,
+            mask_bias=0.36,
+            base_height=42.0,
+            cone_height=238.0,
+            cone_power=1.27,
+            crater_radius=80.0,
+            crater_depth=102.0,
+            rim_height=31.0,
+            rim_width=25.0,
+            noise_amplitude=12.5,
+            noise_scale=165.0,
+            ridge_strength=36.0,
+            ridge_scale=92.0,
+            radial_noise_amplitude=13.0,
+            radial_noise_scale=145.0,
+            octaves=5,
+            lacunarity=2.0,
+            gain=0.50,
+            terrace_step=15.0,
+            terrace_strength=0.10,
+            color=(0.17, 0.115, 0.14, 1.0),
+            heat_strength=0.015,
+            crater_heat=0.72,
+            ash_strength=0.72,
+            rock_strength=0.94,
+        )
+    )
+
+    lava_color = (1.0, 0.12, 0.006, 1.0)
+    stylized_flows = (
+        (
+            "lava_south",
+            (
+                (10.0, 125.0),
+                (26.0, 52.0),
+                (8.0, -38.0),
+                (46.0, -145.0),
+                (92.0, -270.0),
+                (132.0, -410.0),
+                (175.0, -565.0),
+            ),
+            68.0,
+            1.00,
+        ),
+        (
+            "lava_southwest",
+            (
+                (-38.0, 124.0),
+                (-96.0, 70.0),
+                (-160.0, -12.0),
+                (-236.0, -110.0),
+                (-318.0, -230.0),
+                (-405.0, -382.0),
+            ),
+            52.0,
+            0.90,
+        ),
+        (
+            "lava_east",
+            (
+                (45.0, 140.0),
+                (112.0, 108.0),
+                (185.0, 60.0),
+                (270.0, 0.0),
+                (360.0, -74.0),
+                (470.0, -142.0),
+            ),
+            45.0,
+            0.82,
+        ),
+    )
+    for index, (region_id, points, width, heat) in enumerate(stylized_flows):
+        terrain.add_region(
+            LavaFlowRegion(
+                id=region_id,
+                points=points,
+                width=width,
+                blend_width=max(12.0, width * 0.26),
+                mask_bias=0.36 - index * 0.05,
+                flow_thickness=5.4 if index == 0 else 4.2,
+                incision_depth=4.2 if index == 0 else 3.4,
+                levee_height=4.2 if index == 0 else 3.3,
+                levee_position=0.73,
+                levee_width=0.14,
+                heat_strength=heat,
+                heat_falloff=0.62 + index * 0.05,
+                color=lava_color,
+                rock_strength=0.42,
+            )
+        )
+
+    stats = terrain.build()
+    terrain.setup_diagnostics()
+    if scatter_rocks:
+        rocks = terrain.scatter_rocks(
+            count=rock_count,
+            min_scale=2.0,
+            max_scale=7.5,
+            min_rock_mask=0.46,
+        )
+        print(f"WorldClaw stylized rock instances: {len(rocks)}")
+    _print_stats("WorldClaw stylized volcanic terrain", stats)
+    return terrain
+
+
 def _print_stats(label, stats) -> None:
     print(
         f"{label} built:",
@@ -282,6 +450,25 @@ def render_volcano_demo(
     scatter_rocks: bool = False,
 ) -> tuple[Terrain, dict[str, str]]:
     terrain = build_volcano_demo(
+        resolution=terrain_resolution,
+        seed=seed,
+        scatter_rocks=scatter_rocks,
+    )
+    paths = terrain.render_diagnostics(output_dir=output_dir, resolution=resolution)
+    for label, path in paths.items():
+        print(f"{label}: {path}")
+    return terrain, paths
+
+
+def render_stylized_volcano_demo(
+    output_dir: str | Path | None = None,
+    *,
+    resolution: int = 896,
+    terrain_resolution: int = 257,
+    seed: int = 173,
+    scatter_rocks: bool = False,
+) -> tuple[StylizedTerrain, dict[str, str]]:
+    terrain = build_stylized_volcano_demo(
         resolution=terrain_resolution,
         seed=seed,
         scatter_rocks=scatter_rocks,
