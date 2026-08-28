@@ -50,26 +50,30 @@ const SORT_LABEL_KEYS: Record<AssetLibrarySortMode, TranslationKey> = {
 }
 
 const EXPORT_FORMATS = ['glb', 'obj', 'stl', 'ply'] as const
-export type AssetExportFormat = typeof EXPORT_FORMATS[number]
+const ORIGINAL_EXPORT_FORMATS = ['original'] as const
+export type AssetExportFormat = typeof EXPORT_FORMATS[number] | typeof ORIGINAL_EXPORT_FORMATS[number]
 
 const EXPORT_FORMAT_I18N: Record<AssetExportFormat, TranslationKey> = {
   glb: 'assets.fmtGlb',
   obj: 'assets.fmtObj',
   stl: 'assets.fmtStl',
   ply: 'assets.fmtPly',
+  original: 'assets.fmtOriginal',
 }
 
 function ExportFormatItems({
   onExport,
   onClose,
+  formats = EXPORT_FORMATS,
 }: {
   onExport: (format: AssetExportFormat) => void
   onClose: () => void
+  formats?: readonly AssetExportFormat[]
 }): JSX.Element {
   const { t } = useI18n()
   return (
     <div className="flex flex-col gap-0.5">
-      {EXPORT_FORMATS.map((format) => (
+      {formats.map((format) => (
         <Button
           key={format}
           type="button"
@@ -78,8 +82,10 @@ function ExportFormatItems({
           className="h-8 w-full justify-start gap-2.5 px-2 text-xs"
           onClick={() => { onExport(format); onClose() }}
         >
-          <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">.{format}</span>
-          <span className="font-normal text-muted-foreground">{t(EXPORT_FORMAT_I18N[format])}</span>
+          <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
+            {format === 'original' ? t('assets.fmtOriginal') : `.${format}`}
+          </span>
+          {format !== 'original' && <span className="font-normal text-muted-foreground">{t(EXPORT_FORMAT_I18N[format])}</span>}
         </Button>
       ))}
     </div>
@@ -390,12 +396,13 @@ function AssetCard({
                   setActionsAt(null)
                   setExportMenuOpen(false)
                 }}
+                formats={entry.capability === 'image' ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS}
               />
             </>
           ) : (
             <AssetActionItems
               onExport={() => setExportMenuOpen(true)}
-              canExport={entry.capability === 'mesh' || entry.capability === 'rigged-mesh'}
+              canExport={entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh'}
               onRename={onRename}
               onDelete={onDelete}
               onClose={() => setActionsAt(null)}
@@ -476,11 +483,13 @@ export default function AssetLibrarySidebar({
 
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null
   const exportablePaths = new Set(entries
-    .filter((entry) => entry.capability === 'mesh' || entry.capability === 'rigged-mesh')
+    .filter((entry) => entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh')
     .map((entry) => entry.workspacePath))
   const exportTargets = selectMode
     ? [...selectedPaths].filter((path) => exportablePaths.has(path))
     : selectedEntry && exportablePaths.has(selectedEntry.workspacePath) ? [selectedEntry.workspacePath] : []
+  const exportTargetHasImage = exportTargets.some((path) => entries.find((entry) => entry.workspacePath === path)?.capability === 'image')
+  const exportFormats: readonly AssetExportFormat[] = exportTargetHasImage ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS
   const exportLabel = selectMode && selectedPaths.size > 0
     ? t('assets.exportSelected', { count: selectedPaths.size })
     : t('assets.export')
@@ -549,6 +558,7 @@ export default function AssetLibrarySidebar({
               <ExportFormatItems
                 onExport={(format) => onExport(exportTargets, format)}
                 onClose={() => setExportMenuOpen(false)}
+                formats={exportFormats}
               />
             </PopoverContent>
           </Popover>

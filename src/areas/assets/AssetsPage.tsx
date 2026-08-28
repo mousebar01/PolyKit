@@ -407,13 +407,30 @@ export default function AssetsPage(): JSX.Element {
   }, [currentJob?.id, currentJob?.outputUrl, currentJob?.status, libraryLoaded, libraryLoading])
 
   function handleExportAssets(workspacePaths: string[], format: AssetExportFormat) {
-    const safePaths = [...new Set(workspacePaths)]
+    const safePaths = [...new Set(workspacePaths.map((workspacePath) => workspacePath.replace(/\\/g, '/').trim()))]
       .filter((workspacePath) => {
-        const normalized = workspacePath.replace(/\\/g, '/').trim()
-        return /^Workflows\//.test(normalized)
-          && !normalized.split('/').includes('..')
-          && !/%2e|%2f|%5c/i.test(normalized)
+        return /^Workflows\//.test(workspacePath)
+          && !workspacePath.split('/').includes('..')
+          && !/%2e|%2f|%5c/i.test(workspacePath)
       })
+    if (format === 'original') {
+      void Promise.all(safePaths.map(async (workspacePath) => {
+        const urlPath = workspacePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+        const response = await fetch(`${apiUrl}/workspace/${urlPath}`)
+        if (!response.ok) throw new Error(`Could not download ${workspacePath} (HTTP ${response.status}).`)
+        const blobUrl = URL.createObjectURL(await response.blob())
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = workspacePath.split('/').pop() ?? 'asset'
+        link.rel = 'noopener'
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0)
+      })).catch((error) => {
+        showError(error instanceof Error ? error.message : String(error))
+      })
+      return
+    }
     safePaths.forEach((workspacePath) => {
       const sourceName = workspacePath.split('/').pop() ?? 'asset'
       const stem = sourceName.replace(/\.[^.]+$/, '') || 'asset'
