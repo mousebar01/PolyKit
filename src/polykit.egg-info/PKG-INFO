@@ -13,6 +13,8 @@ Requires-Dist: httpx>=0.27.0
 Requires-Dist: mcp>=1.0.0
 Requires-Dist: trimesh>=4.5.0
 Requires-Dist: Pillow>=10.0.0
+Requires-Dist: rembg>=2.0.69
+Requires-Dist: onnxruntime>=1.17.0
 Requires-Dist: pymeshlab<2025,>=2023.12; sys_platform == "linux" and platform_machine == "x86_64"
 Requires-Dist: pymeshlab>=2023.12; sys_platform != "linux" or platform_machine != "x86_64"
 Requires-Dist: huggingface_hub>=0.27.0

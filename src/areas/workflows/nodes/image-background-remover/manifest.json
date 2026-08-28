@@ -1,0 +1,47 @@
+{
+  "id": "image-background-remover",
+  "name": "Image Background Remover",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Removes the background from a source image and writes a transparent PNG.",
+  "requirements": ["Pillow", "rembg"],
+  "i18n": {
+    "zh-CN": {
+      "name": "图片抠图",
+      "description": "移除图片背景并输出透明 PNG。"
+    },
+    "en-US": {
+      "name": "Image Background Remover",
+      "description": "Removes the background from a source image and writes a transparent PNG."
+    }
+  },
+  "nodes": [
+    {
+      "id": "remove-background",
+      "name": "Remove Background",
+      "input": "image",
+      "output": "image",
+      "i18n": {
+        "zh-CN": { "name": "移除背景" },
+        "en-US": { "name": "Remove Background" }
+      },
+      "params_schema": [
+        {
+          "id": "model",
+          "label": "Segmentation Model",
+          "type": "select",
+          "default": "isnet-anime",
+          "options": [
+            { "value": "isnet-anime", "label": "IS-Net Anime" },
+            { "value": "birefnet-general", "label": "BiRefNet General" },
+            { "value": "bria-rmbg", "label": "BRIA RMBG" },
+            { "value": "u2net", "label": "U²-Net" }
+          ],
+          "tooltip": "IS-Net Anime is the default for stylized characters. The first run downloads the selected segmentation model."
+        }
+      ]
+    }
+  ]
+}

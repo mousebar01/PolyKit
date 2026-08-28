@@ -117,6 +117,61 @@ class ImageWorkflowTests(unittest.TestCase):
             with self.assertRaises(WorkflowError):
                 validate_prompt_links(request)
 
+    def test_image_preview_sink_publishes_a_workspace_image(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            old_paths = runtime_paths.snapshot()
+            runtime_paths.update(workspace_dir=root)
+            source = root / "source.png"
+            source.write_bytes(b"png")
+            patches = [
+                mock.patch("services.workflow_engine._run_process_node", return_value={"image": source}),
+                mock.patch("services.workflow_engine.process_node_pack", return_value=(root, {"entry": "processor.py"}, {"id": "remove-background", "output": "image"})),
+            ]
+            for patcher in patches:
+                patcher.start()
+            try:
+                request = WorkflowExecutionRequest(
+                    collection="Illustrations",
+                    prompt={
+                        "remove": WorkflowExecutionNode(
+                            class_type="image-background-remover/remove-background",
+                            inputs={"image": {"kind": "base64", "data": "eA=="}, "params": {}},
+                        ),
+                        "preview": WorkflowExecutionNode(
+                            class_type="polykit.preview",
+                            inputs={"image": ["remove", "image"]},
+                        ),
+                    },
+                )
+                job = SimpleNamespace(progress=0, step="", meta=None)
+                loop = asyncio.new_event_loop()
+                try:
+                    final = loop.run_until_complete(
+                        WorkflowEngine(cache_enabled=False).run(
+                            job_id="image-preview-job",
+                            request=request,
+                            job=job,
+                            persist=lambda: None,
+                            cancel_event=threading.Event(),
+                            is_cancelled=lambda: False,
+                        )
+                    )
+                finally:
+                    loop.close()
+                self.assertIsNotNone(final)
+                self.assertEqual(job.meta["artifact_kind"], "image")
+                self.assertTrue(final.is_relative_to(root / "Illustrations"))
+            finally:
+                for patcher in reversed(patches):
+                    patcher.stop()
+                runtime_paths.update(
+                    models_dir=old_paths.models,
+                    workspace_dir=old_paths.workspace,
+                    workflows_dir=old_paths.workflows,
+                    node_packs_dir=old_paths.node_packs,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

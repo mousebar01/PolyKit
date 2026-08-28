@@ -37,6 +37,7 @@ from services.image_artifacts import (
     contains_nonpersistent_image,
     first_image_path,
     publish_image_value,
+    unwrap_image_value,
     wrap_image_value,
     image_value_exists,
 )
@@ -335,7 +336,7 @@ class WorkflowEngine:
                 return resolve_reference(value, outputs) if is_reference(value) else value
 
             def _resolve_legacy(value: Any) -> Any:
-                return unwrap_mesh_value(_resolve(value))
+                return unwrap_image_value(unwrap_mesh_value(_resolve(value)))
 
             start = round(90 * idx / total)
             end = round(90 * (idx + 1) / total)
@@ -395,6 +396,14 @@ class WorkflowEngine:
                     persist()
                     if artifact_kind == "mesh":
                         artifact = _materialize_cached_preview(artifact, artifact_root / "preview")
+                    elif artifact_kind == "image":
+                        # Image previews are also useful workflow products. Keep
+                        # the image sink lightweight in the editor while making
+                        # its final result durable in the selected collection.
+                        try:
+                            artifact = publish_image_value(artifact, coll_dir)
+                        except OSError as exc:
+                            raise WorkflowError(f"Could not publish workflow image preview: {exc}") from exc
                 outputs[node_id] = {input_name: artifact}
                 sink_values[node_id] = artifact
                 job.meta = {**(getattr(job, "meta", None) or {}), "artifact_kind": artifact_kind}
@@ -507,11 +516,10 @@ class WorkflowEngine:
             selected = sink_values[next(reversed(sink_values))]
 
         final_artifact = first_mesh_path(selected) or first_image_path(selected)
-        if final_artifact is not None and output_sink_ids:
+        if final_artifact is not None:
             retained_preview = any(
-                node_id not in output_sink_ids and (
-                    contains_nonpersistent_mesh(value) or contains_nonpersistent_image(value)
-                )
+                node_id not in output_sink_ids
+                and (contains_nonpersistent_mesh(value) or contains_nonpersistent_image(value))
                 for node_id, value in sink_values.items()
             )
             selected_is_persistent = not (

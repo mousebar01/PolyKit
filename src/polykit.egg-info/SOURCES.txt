@@ -1,6 +1,7 @@
 LICENSE
 README.md
 pyproject.toml
+src/areas/workflows/nodes/image-background-remover/processor.py
 src/areas/workflows/nodes/mesh-remesher/processor.py
 src/areas/workflows/nodes/mesh-repair/processor.py
 src/areas/workflows/nodes/mesh-smoother/processor.py

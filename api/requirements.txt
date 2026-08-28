@@ -14,6 +14,8 @@ mcp>=1.0.0
 # Mesh processing (optimize + export endpoints)
 trimesh>=4.5.0
 Pillow>=10.0.0  # software fallback for static model thumbnails
+rembg>=2.0.69  # local transparent-image background removal workflow node
+onnxruntime>=1.17.0  # rembg's local CPU inference backend
 # Optional on x86_64 hosts: enables full-mesh Open3D thumbnail rendering
 # (Jetson/aarch64 uses the bounded software fallback because no compatible wheel is published).
 pymeshlab>=2023.12,<2025; sys_platform == "linux" and platform_machine == "x86_64"
