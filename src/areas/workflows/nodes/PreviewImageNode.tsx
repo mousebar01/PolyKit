@@ -1,7 +1,10 @@
-import { ImageIcon } from 'lucide-react'
-import { Handle, Position, useReactFlow } from '@xyflow/react'
+import { ImageIcon, Play } from 'lucide-react'
+import { Handle, NodeToolbar, Position, useReactFlow } from '@xyflow/react'
 
 import { useWorkflowRunStore } from '../workflowRunStore'
+import { useWorkflowNodeExecution } from '../workflowNodeExecutionContext'
+import { useI18n } from '@shared/i18n'
+import { Button } from '@shared/components/ui'
 import BaseNode from './BaseNode'
 
 const INPUT_COLOR = '#38bdf8'
@@ -13,6 +16,8 @@ const INPUT_COLOR = '#38bdf8'
  * Displays them in a 2×3 grid using CSS background-position cropping.
  */
 export default function PreviewImageNode({ id, selected }: { id: string; selected?: boolean }) {
+  const { t } = useI18n()
+  const { isRunning, runToHere } = useWorkflowNodeExecution()
   const nodeImageOutputs = useWorkflowRunStore((state) => state.nodeImageOutputs)
   const { getEdges } = useReactFlow()
 
@@ -20,6 +25,25 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
   const imageUrl = incomingEdge ? nodeImageOutputs[incomingEdge.source] : undefined
 
   return (
+    <>
+      <NodeToolbar
+        isVisible={Boolean(selected) && !isRunning}
+        position={Position.Top}
+        offset={6}
+        className="flex items-center rounded-md border border-border bg-card p-1"
+      >
+        <Button
+          type="button"
+          variant="default"
+          size="icon"
+          className="nodrag h-7 w-7"
+          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
+          title={t('workflows.runToHereHint')}
+          aria-label={t('workflows.runToHereHint')}
+        >
+          <Play className="size-3.5" fill="currentColor" />
+        </Button>
+      </NodeToolbar>
     <BaseNode
       id={id}
       selected={selected}
@@ -67,5 +91,6 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
         )}
       </div>
     </BaseNode>
+    </>
   )
 }

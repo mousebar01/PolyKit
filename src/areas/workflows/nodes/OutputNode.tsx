@@ -1,17 +1,21 @@
 import { useCallback } from 'react'
-import { ArrowRight, Box } from 'lucide-react'
-import { Handle, Position } from '@xyflow/react'
+import { ArrowRight, Box, Play } from 'lucide-react'
+import { Handle, NodeToolbar, Position } from '@xyflow/react'
 
 import { Button } from '@shared/components/ui'
 import { useAppStore } from '@shared/stores/appStore'
 import { useNavStore } from '@shared/stores/navStore'
+import { useI18n } from '@shared/i18n'
 import type { WFNodeData } from '@shared/types/runtime.d'
 import BaseNode from './BaseNode'
+import { useWorkflowNodeExecution } from '../workflowNodeExecutionContext'
 
 const INPUT_COLOR = '#5d94d9'
 
 export default function OutputNode({ id, data, selected }: { id: string; data: WFNodeData; selected?: boolean }) {
+  const { t } = useI18n()
   const { navigate } = useNavStore()
+  const { isRunning, runToHere } = useWorkflowNodeExecution()
   const setCurrentJob = useAppStore((state) => state.setCurrentJob)
   const outputUrl = data.params.outputUrl as string | undefined
 
@@ -22,6 +26,25 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
   }, [outputUrl, setCurrentJob, navigate])
 
   return (
+    <>
+      <NodeToolbar
+        isVisible={Boolean(selected) && data.enabled !== false && !isRunning}
+        position={Position.Top}
+        offset={6}
+        className="flex items-center rounded-md border border-border bg-card p-1"
+      >
+        <Button
+          type="button"
+          variant="default"
+          size="icon"
+          className="nodrag h-7 w-7"
+          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
+          title={t('workflows.runToHereHint')}
+          aria-label={t('workflows.runToHereHint')}
+        >
+          <Play className="size-3.5" fill="currentColor" />
+        </Button>
+      </NodeToolbar>
     <BaseNode
       id={id}
       selected={selected}
@@ -61,5 +84,6 @@ export default function OutputNode({ id, data, selected }: { id: string; data: W
         )}
       </div>
     </BaseNode>
+    </>
   )
 }
