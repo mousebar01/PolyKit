@@ -25,11 +25,11 @@
     "kind": "huggingface",
     "repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
     "location": "anima",
-    "check": "model_index.json",
+    "check": "modular_model_index.json",
     "note": "Official Diffusers conversion of Anima Base v1.0. Accept the model license and configure a Hugging Face token if the Hub requests access."
   },
   "hf_repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
-  "download_check": "model_index.json",
+  "download_check": "modular_model_index.json",
   "nodes": [
     {
       "id": "generate",
@@ -40,7 +40,7 @@
       "input": "text",
       "output": "image",
       "hf_repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
-      "download_check": "model_index.json",
+      "download_check": "modular_model_index.json",
       "params_schema": [
         {
           "id": "steps",
