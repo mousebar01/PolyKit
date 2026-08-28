@@ -82,6 +82,12 @@ export default function NodePacksPage(): JSX.Element {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterId>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Keep the object that was used to open the drawer. The catalogue can be
+  // refreshed independently (for example while the API is restarting), and a
+  // transient empty response must not make an already-open drawer disappear.
+  // The current catalogue still wins whenever it contains the selected pack,
+  // so repaired/synced metadata is reflected immediately.
+  const [selectedPack, setSelectedPack] = useState<AnyNodePack | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [showGHForm, setShowGHForm] = useState(false)
@@ -308,7 +314,10 @@ export default function NodePacksPage(): JSX.Element {
       return
     }
     closeUninstallModal()
-    setSelectedId((id) => (id === nodePackId ? null : id))
+    if (selectedId === nodePackId) {
+      setSelectedPack(null)
+      setSelectedId(null)
+    }
     refreshInstalledIds(useNodePacksStore.getState().modelNodePacks)
   }
 
@@ -344,7 +353,10 @@ export default function NodePacksPage(): JSX.Element {
     id === 'all' || id === filter || (counts[id] > 0 && counts[id] < counts.all)
   ))
   const showGroupHeadings = processList.length > 0 && modelList.length > 0
-  const selectedExt = selectedId ? allNodePacks.find((item) => item.id === selectedId) ?? null : null
+  const selectedExt = selectedId
+    ? allNodePacks.find((item) => item.id === selectedId)
+      ?? (selectedPack?.id === selectedId ? selectedPack : null)
+    : null
 
   const uninstallExtTarget = uninstallTarget ? allNodePacks.find((item) => item.id === uninstallTarget) ?? null : null
   const uninstallDisplayName = uninstallExtTarget
@@ -389,7 +401,10 @@ export default function NodePacksPage(): JSX.Element {
     onInstallAll: handleInstallAll,
     onPauseDownload: handlePauseDownload,
     onCancelDownload: handleCancelDownload,
-    onOpen: (ext: AnyNodePack) => setSelectedId(ext.id),
+    onOpen: (ext: AnyNodePack) => {
+      setSelectedPack(ext)
+      setSelectedId(ext.id)
+    },
   }
 
   if (!initialLoadReady) {
@@ -634,7 +649,10 @@ export default function NodePacksPage(): JSX.Element {
           onRepaired={() => reloadNodePacks()}
           onSynced={() => reloadNodePacks()}
           webMode={isWeb}
-          onClose={() => setSelectedId(null)}
+          onClose={() => {
+            setSelectedId(null)
+            setSelectedPack(null)
+          }}
         />
       )}
 

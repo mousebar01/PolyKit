@@ -539,9 +539,10 @@ const webRuntime = {
     },
   },
   nodePacks: {
-    list: async () => {
-      try { return await json<unknown[]>('/node-packs/list') } catch { return [] }
-    },
+    // Let the store observe a temporary API failure and retain its cached
+    // catalogue. Returning [] here makes a network blip indistinguishable
+    // from a real empty installation and unmounts an open node-pack drawer.
+    list: async () => json<unknown[]>('/node-packs/list'),
     installFromGitHub: async (_url: string) => ({ success: false, error: 'Node pack installation is not available from the Web client yet.' }),
     installFromLocal: async () => ({ success: false, cancelled: true }),
     uninstall: async (_nodePackId: string) => ({ success: false, error: 'Node pack removal is not available from the Web client yet.' }),
