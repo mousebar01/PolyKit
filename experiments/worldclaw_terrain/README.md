@@ -1,105 +1,150 @@
 # WorldClaw Terrain Prototype
 
-This experiment is intentionally Blender-first. It validates the terrain capability before any PolyKit runtime, workflow, or MCP integration is designed.
+Blender-first terrain capability experiment inspired by WorldClaw. This folder is intentionally independent of PolyKit runtime integration: the goal is to validate terrain representation, geomorphic operators, procedural materials, rendering, and later MCP control directly in Blender 5.2+.
 
-## What is implemented
+## What v2 adds
 
-- Semantic regions represented by signed-distance fields.
-- Normalized soft region masks using a stable softmax.
-- Per-region height functions with base elevation, FBM detail, and ridged mountain structure.
-- Polyline river regions with a controllable channel cut.
-- A regular Blender terrain mesh generated directly with `bpy`.
-- One `mask_<region-id>` float attribute per semantic region on the terrain mesh.
-- A simple material whose vertex colors are blended from the same semantic weights.
-- Three deterministic diagnostic cameras: perspective, top-down, and low-angle.
-- EEVEE diagnostic rendering to PNG.
+The first version proved semantic soft masks plus regional height blending. v2 keeps that representation and adds:
 
-The first reference world is 1024 m square and contains northern mountains, central grassland, a north-to-south river, and a southern plain.
+- replacement regions and additive geomorphic overlays;
+- `VolcanoRegion` with cone, noisy rim, and caldera depression;
+- `LavaFlowRegion` with additive flow thickness, incision, cooled levees, and a center-weighted heat profile;
+- derived POINT attributes: `height01`, `slope01`, `lava_heat`, `ash_mask`, and `rock_mask`;
+- procedural volcanic material driven by those attributes;
+- basalt/ash color variation, Voronoi cracks, micro-noise bump, variable roughness, and lava emission;
+- compositor glow for diagnostic renders when supported by the Blender build;
+- optional lightweight linked-mesh rock scatter;
+- four deterministic diagnostic cameras: perspective, top, low, detail.
 
-## Blender 5.2 validation
+The same semantic information therefore drives geometry, materials, and scatter rather than becoming a one-off vertex color.
 
-Clone or copy the PolyKit repository to the Windows machine that runs Blender. In Blender's Python Console, add the repository root to `sys.path` and build the demo:
+## Blender 5.2 quick test
+
+From Blender's Python Console, add the PolyKit repository root to `sys.path`:
 
 ```python
 import sys
 sys.path.insert(0, r"C:\path\to\PolyKit")
-
-from experiments.worldclaw_terrain.demo import build_demo
-terrain = build_demo()
 ```
 
-The viewport should now contain:
+Build the volcanic stress-test at a quick resolution first:
 
-- `WorldClawTerrain`
-- `WorldClawTerrain_Sun`
-- three `WorldClawTerrain_Camera_*` cameras
+```python
+from experiments.worldclaw_terrain.demo import build_volcano_demo
 
-The terrain object's Mesh Data > Attributes should include:
+terrain = build_volcano_demo(resolution=129)
+```
+
+Then inspect `WorldClawTerrain_DeathMountain` in Mesh Data > Attributes. It should contain:
 
 ```text
-mask_south_plain
-mask_central_grassland
-mask_north_mountains
-mask_north_south_river
+mask_volcanic_plain
+mask_main_volcano
+mask_lava_west
+mask_lava_south
+mask_lava_east
+height01
+slope01
+lava_heat
+ash_mask
+rock_mask
 TerrainColor
 ```
 
-Render the fixed diagnostic views:
+Render four diagnostic views:
 
 ```python
-paths = terrain.render_diagnostics()
+paths = terrain.render_diagnostics(
+    r"D:\worldclaw-volcano-v2",
+    resolution=896,
+)
 print(paths)
 ```
 
-When no output directory is supplied, renders are written under the system temporary directory in `polykit_worldclaw_terrain`.
-
-To choose an explicit Windows directory:
+If 129 is stable, rebuild at 257:
 
 ```python
-paths = terrain.render_diagnostics(r"D:\worldclaw-renders", resolution=768)
+terrain = build_volcano_demo(resolution=257)
 ```
 
-## Iterative editing
+## Optional rock scatter
 
-The prototype is deliberately mutable so an agent can later issue the same edits through Blender's official MCP Python execution tool.
-
-For example:
+The scatter implementation intentionally uses ordinary linked Blender objects for easy inspection. It is a prototype, not the production million-instance solution.
 
 ```python
-mountain = terrain.get_region("north_mountains")
-mountain.ridge_strength = 125.0
-mountain.noise_amplitude = 38.0
+rocks = terrain.scatter_rocks(
+    count=180,
+    min_rock_mask=0.42,
+    max_lava_heat=0.18,
+)
+print(len(rocks))
+```
+
+Or enable it while building:
+
+```python
+terrain = build_volcano_demo(
+    resolution=257,
+    scatter_rocks=True,
+    rock_count=160,
+)
+```
+
+## Useful live edits
+
+The prototype is intentionally mutable so an MCP-driven agent can eventually perform the same edits.
+
+Change the crater:
+
+```python
+volcano = terrain.get_region("main_volcano")
+volcano.crater_depth = 120.0
+volcano.rim_height = 52.0
+volcano.rim_width = 24.0
 terrain.rebuild()
-terrain.render_diagnostics()
 ```
 
-Widen the transition between a semantic region and its neighbors:
+Make the west flow hotter and more raised:
 
 ```python
-mountain.blend_width = 110.0
+lava = terrain.get_region("lava_west")
+lava.heat_strength = 1.0
+lava.flow_thickness = 12.0
+lava.levee_height = 8.0
 terrain.rebuild()
 ```
 
-Deepen or widen the river:
+Tune the material without changing geometry:
 
 ```python
-river = terrain.get_region("north_south_river")
-river.channel_depth = 20.0
-river.width = 125.0
+terrain.volcanic_material.emission_strength = 10.0
+terrain.volcanic_material.bump_strength = 0.55
+terrain.volcanic_material.crack_scale = 25.0
 terrain.rebuild()
 ```
 
-## Faster smoke test
+## Surface-field meaning
 
-Use a lower terrain resolution while tuning parameters:
+- `height01`: normalized terrain height.
+- `slope01`: local slope normalized against roughly 62 degrees.
+- `lava_heat`: semantic thermal field from hot regions/flow centerlines.
+- `ash_mask`: ash affinity reduced by heat and steep slopes, with broad deterministic modulation.
+- `rock_mask`: semantic rock affinity reinforced on steeper exposed surfaces.
 
-```python
-from experiments.worldclaw_terrain.demo import build_demo
-terrain = build_demo(resolution=129)
+These are intentionally explicit mesh attributes. They are the inspectable intermediate representation that later material, scatter, Blender MCP, and agent feedback loops can share.
+
+## Files
+
+```text
+noise.py       deterministic dependency-free CPU noise
+regions.py     semantic regions + volcano/lava geomorphic operators
+surface.py     height/slope/heat/ash/rock field derivation
+materials.py   generic and volcanic Blender shader graphs
+scatter.py     lightweight linked rock instances
+terrain.py     mesh build, attributes, material, lighting, cameras, renders
+demo.py        general terrain and volcanic stress-test scenes
 ```
 
-The intended progression is `129 -> 257 -> 513` only after the terrain composition is visually stable.
+## Current limits
 
-## Scope
-
-This experiment does **not** yet implement Geometry Nodes scattering, image-generated semantic layouts, PolyKit artifacts/workflows, an MCP server, or a Blender network bridge. The official Blender MCP can later execute this module in Blender; the terrain math and scene construction are kept here so the agent changes parameters instead of rewriting low-level mesh code on every iteration.
+This is still a capability prototype. It does not yet implement hydraulic erosion, texture baking, vegetation ecology, production LOD/chunking, large-scale Geometry Nodes scattering, or PolyKit/MCP runtime integration. Those should follow only after the generated terrain/material quality is good enough in direct Blender tests.
