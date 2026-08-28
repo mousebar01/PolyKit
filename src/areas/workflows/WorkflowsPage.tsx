@@ -2126,7 +2126,16 @@ export default function WorkflowsPage(): JSX.Element {
                   style={workflowColor(wf) ? { background: workflowColor(wf), boxShadow: `0 0 4px ${workflowColor(wf)}80` } : undefined}
                 />
               )}
-              <span className="truncate max-w-[120px]">{wf.name || t('workflows.untitled')}</span>
+              <span
+                className="max-w-[120px] cursor-text truncate"
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  setRenameTarget({ id: wf.id, value: wf.name })
+                }}
+                title={t('workflows.doubleClickToRename')}
+              >
+                {wf.name || t('workflows.untitled')}
+              </span>
               <button
                 onClick={(e) => { e.stopPropagation(); handleCloseTab(wf.id) }}
                 title={t('workflows.closeTab')}
