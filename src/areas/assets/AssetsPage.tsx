@@ -414,6 +414,26 @@ export default function AssetsPage(): JSX.Element {
           && !/%2e|%2f|%5c/i.test(workspacePath)
       })
     if (format === 'original') {
+      if (safePaths.length > 1) {
+        void fetch(`${apiUrl}/workspace-library/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspacePaths: safePaths }),
+        }).then(async (response) => {
+          if (!response.ok) throw new Error(`Could not export selected assets (HTTP ${response.status}).`)
+          const blobUrl = URL.createObjectURL(await response.blob())
+          const link = document.createElement('a')
+          link.href = blobUrl
+          link.download = 'polykit-assets.zip'
+          link.rel = 'noopener'
+          link.click()
+          link.remove()
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0)
+        }).catch((error) => {
+          showError(error instanceof Error ? error.message : String(error))
+        })
+        return
+      }
       void Promise.all(safePaths.map(async (workspacePath) => {
         const urlPath = workspacePath.split('/').map((segment) => encodeURIComponent(segment)).join('/')
         const response = await fetch(`${apiUrl}/workspace/${urlPath}`)

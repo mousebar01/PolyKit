@@ -1,9 +1,11 @@
 import asyncio
+import io
 import json
 import struct
 import os
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -104,6 +106,32 @@ class WebBoundaryTests(unittest.TestCase):
                 "kind": "image",
                 "imageUrl": "/workspace/Workflows/hero.png",
             })
+
+    def test_workspace_library_exports_mixed_assets_as_original_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_paths.update(workspace_dir=root)
+            workflows = root / "Workflows"
+            workflows.mkdir()
+            (workflows / "hero.png").write_bytes(b"png")
+            (workflows / "hero.glb").write_bytes(b"glb")
+
+            response = workspace_library.export_assets(
+                workspace_library.LibraryExportRequest(
+                    workspacePaths=["Workflows/hero.png", "Workflows/hero.glb"]
+                )
+            )
+            self.assertEqual(response.media_type, "application/zip")
+            self.assertIn("polykit-assets.zip", response.headers["content-disposition"])
+
+            async def read_body() -> bytes:
+                chunks = [chunk async for chunk in response.body_iterator]
+                return b"".join(chunks)
+
+            with zipfile.ZipFile(io.BytesIO(asyncio.run(read_body()))) as bundle:
+                self.assertEqual(set(bundle.namelist()), {"hero.png", "hero.glb"})
+                self.assertEqual(bundle.read("hero.png"), b"png")
+                self.assertEqual(bundle.read("hero.glb"), b"glb")
 
     def test_workspace_library_classifies_rigged_glb_and_keeps_previews(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

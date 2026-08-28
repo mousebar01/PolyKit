@@ -65,10 +65,12 @@ function ExportFormatItems({
   onExport,
   onClose,
   formats = EXPORT_FORMATS,
+  bundle = false,
 }: {
   onExport: (format: AssetExportFormat) => void
   onClose: () => void
   formats?: readonly AssetExportFormat[]
+  bundle?: boolean
 }): JSX.Element {
   const { t } = useI18n()
   return (
@@ -83,7 +85,7 @@ function ExportFormatItems({
           onClick={() => { onExport(format); onClose() }}
         >
           <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
-            {format === 'original' ? t('assets.fmtOriginal') : `.${format}`}
+            {format === 'original' ? t(bundle ? 'assets.fmtOriginalBundle' : 'assets.fmtOriginal') : `.${format}`}
           </span>
           {format !== 'original' && <span className="font-normal text-muted-foreground">{t(EXPORT_FORMAT_I18N[format])}</span>}
         </Button>
@@ -559,6 +561,7 @@ export default function AssetLibrarySidebar({
                 onExport={(format) => onExport(exportTargets, format)}
                 onClose={() => setExportMenuOpen(false)}
                 formats={exportFormats}
+                bundle={exportTargets.length > 1}
               />
             </PopoverContent>
           </Popover>

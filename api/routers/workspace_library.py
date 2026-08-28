@@ -4,12 +4,15 @@ The Web client exposes a safe list/read/open contract for files already owned
 by the server.
 """
 from datetime import datetime
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 
 import time
 import uuid
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from services.asset_names import output_name
@@ -34,6 +37,10 @@ class LibraryRequest(BaseModel):
 
 
 class LibraryDeleteRequest(BaseModel):
+    workspacePaths: list[str] = Field(min_length=1, max_length=500)
+
+
+class LibraryExportRequest(BaseModel):
     workspacePaths: list[str] = Field(min_length=1, max_length=500)
 
 
@@ -102,6 +109,39 @@ def _entry(workspace_path: str, path: Path) -> dict:
         entry["thumbnail"] = f"/workspace/{workspace_path}"
         entry["preview"] = f"/workspace/{workspace_path}"
     return entry
+
+
+@router.post("/export")
+def export_assets(request: LibraryExportRequest):
+    """Bundle selected workspace assets without changing their file formats."""
+    files: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for raw_path in request.workspacePaths:
+        try:
+            workspace_path, file_path = _safe_path(raw_path)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if workspace_path in seen:
+            continue
+        if not file_path.is_file():
+            raise HTTPException(404, f"Workspace asset was not found: {workspace_path}")
+        seen.add(workspace_path)
+        files.append((workspace_path, file_path))
+
+    def stream_zip():
+        with tempfile.TemporaryFile() as archive:
+            with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_STORED) as bundle:
+                for workspace_path, file_path in files:
+                    bundle.write(file_path, arcname=workspace_path.removeprefix("Workflows/"))
+            archive.seek(0)
+            while chunk := archive.read(1024 * 1024):
+                yield chunk
+
+    return StreamingResponse(
+        stream_zip(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="polykit-assets.zip"'},
+    )
 
 
 def _migrate_legacy_exports() -> None:
