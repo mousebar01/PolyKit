@@ -65,11 +65,23 @@ RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓�
    上训练 LoRA，再把 LoRA 用在 8-step 的 Turbo 上。这样可以把社区后训练集中
    到一个动漫、低多边形或我们的世界资产风格，而不是依赖通用模型的 prompt
    猜测。[官方仓库](https://github.com/krea-ai/krea-2) 和
-   [ComfyUI 本地支持](https://blog.comfy.org/p/krea-2-open-source-models-are-now)
+   [Hugging Face Diffusers 管线](https://huggingface.co/krea/Krea-2-Turbo)
    都已提供这条路径。它的权重不是 Apache 2.0，而是 Krea 2 Community License；
    目前社区商业使用有收入门槛和内容安全义务，正式产品前要读
    [完整许可](https://www.krea.ai/krea-2-licensing)。
-3. **质量上限候选：HunyuanImage-2.1**：
+3. **动漫/赛璐璐优先：Anima Turbo**：
+   `Anima-Base/Aesthetic LoRA → Anima-Turbo → BiRefNet-HR → Trellis2`。
+   [官方模型卡](https://huggingface.co/circlestone-labs/Anima)明确把 Anima 定位为
+   2B 的 anime/illustration 模型，并提供 Base、Aesthetic、Turbo 三条检查点；
+   Turbo 用 CFG 1、8–12 步，Base/Aesthetic 通常用 30–50 步、CFG 4–5。它的
+   `er_sde` 采样器倾向平色、锐利轮廓，和我们的 `cel_shaded` / 二次元道具方向
+   更贴近；24 GB 的 4090 跑 2B 推理有明显余量，先以 1024 左右、batch=1 做基线。
+   [Diffusers 已提供 Anima 的原生模块化管线](https://huggingface.co/docs/diffusers/en/api/pipelines/anima)，
+   因此可以直接做成 PolyKit 的本地 image node，不需要 ComfyUI。
+   但 Anima 权重使用 CircleStone Labs Non-Commercial License；模型卡允许把输出
+   用于商业概念图/资产，却禁止把模型嵌入收费产品功能或作为收费 API。若 PolyKit
+   最终要商业化，这条许可是硬约束，不能只看效果。
+4. **质量上限候选：HunyuanImage-2.1**：
    `HunyuanImage-2.1 FP8 + refiner → BiRefNet-HR → RGBA PNG → Trellis2`。
    [官方仓库](https://github.com/Tencent-Hunyuan/HunyuanImage-2.1)报告它是 17B、
    原生 2K 的文生图模型，并在自有 SSAE/GSB 评估中与 GPT-Image 接近；这不是
@@ -100,11 +112,10 @@ RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓�
 FluxLayerDiffuse 和 [OmniAlpha](https://github.com/Longin-Yu/OmniAlpha) 保留为
 研究/对照项：它们能探索原生 RGBA，但不是当前最稳的风格化资产生产默认。
 
-目前 `/home/sy/llm/comfyui-wan` 还是旧版 ComfyUI，且没有安装 FLUX.2、Krea 2、
-HunyuanImage、BiRefNet 或 Lucida 权重；系统中仍没有一条已注册、可被 Agent
-直接提交的透明文生图工作流。
-建议新增独立的本地图像 ComfyUI 服务，不要直接升级正在承载 Wan 视频工作流的
-容器；这样可以单独跟进新版本节点和模型，不影响现有视频链路。
+目前 `/home/sy/llm/comfyui-wan` 是承载 Wan 视频的旧版 ComfyUI；它不作为 Krea/Anima
+的依赖，也不应为了图片模型升级。系统中仍没有一条已注册、可被 Agent 直接提交的
+本地文生图工作流。图片模型应以原生 Diffusers/模型节点接入 PolyKit，由现有
+FastAPI workflow-run 统一排队和持久化，不再引入第二个图像运行时。
 
 主链和实验链都应作为 Agent 的一个资产阶段：Agent 提交 `style_profile`、prompt、
 negative prompt、seed 和 `alpha_policy`，FastAPI 通过 `/workflow-runs/*` 执行并持久化 `image-rgba`
