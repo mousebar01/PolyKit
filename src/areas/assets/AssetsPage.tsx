@@ -1,15 +1,18 @@
 import { lazy, Suspense, useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent } from 'react'
 import {
   LoaderCircle,
   Maximize2,
   Move,
   Redo2,
   RotateCw,
+  Scan,
   Sparkles,
   Sun,
   Triangle,
   Undo2,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 
 import {
@@ -60,14 +63,196 @@ function resolveAssetUrl(apiUrl: string, outputUrl: string): string {
   return `${apiUrl}${outputUrl}`
 }
 
+const MIN_IMAGE_ZOOM = 0.25
+const MAX_IMAGE_ZOOM = 8
+const IMAGE_ZOOM_FACTOR = 1.2
+
+interface ImagePoint {
+  x: number
+  y: number
+}
+
+function clampImageZoom(value: number): number {
+  return Math.min(MAX_IMAGE_ZOOM, Math.max(MIN_IMAGE_ZOOM, Number(value.toFixed(2))))
+}
+
 function AssetImageViewer({ apiUrl, outputUrl, alt }: { apiUrl: string, outputUrl: string, alt: string }): JSX.Element {
+  const { t } = useI18n()
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ pointerId: number, start: ImagePoint, offset: ImagePoint } | null>(null)
+  const zoomRef = useRef(1)
+  const offsetRef = useRef<ImagePoint>({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [offset, setOffset] = useState<ImagePoint>({ x: 0, y: 0 })
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    zoomRef.current = 1
+    offsetRef.current = { x: 0, y: 0 }
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+    dragRef.current = null
+    setDragging(false)
+  }, [outputUrl])
+
+  const fitImage = useCallback(() => {
+    zoomRef.current = 1
+    offsetRef.current = { x: 0, y: 0 }
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  }, [])
+
+  const zoomTo = useCallback((requestedZoom: number, anchor: ImagePoint = { x: 0, y: 0 }) => {
+    const currentZoom = zoomRef.current
+    const nextZoom = clampImageZoom(requestedZoom)
+    if (nextZoom === currentZoom) return
+
+    const currentOffset = offsetRef.current
+    const nextOffset = {
+      x: anchor.x - (anchor.x - currentOffset.x) * (nextZoom / currentZoom),
+      y: anchor.y - (anchor.y - currentOffset.y) * (nextZoom / currentZoom),
+    }
+    zoomRef.current = nextZoom
+    offsetRef.current = nextOffset
+    setZoom(nextZoom)
+    setOffset(nextOffset)
+  }, [])
+
+  const zoomBy = useCallback((factor: number) => {
+    zoomTo(zoomRef.current * factor)
+  }, [zoomTo])
+
+  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const anchor = {
+      x: event.clientX - rect.left - rect.width / 2,
+      y: event.clientY - rect.top - rect.height / 2,
+    }
+    zoomTo(zoomRef.current * (event.deltaY < 0 ? IMAGE_ZOOM_FACTOR : 1 / IMAGE_ZOOM_FACTOR), anchor)
+  }, [zoomTo])
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || zoomRef.current <= 1) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      start: { x: event.clientX, y: event.clientY },
+      offset: offsetRef.current,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDragging(true)
+  }, [])
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const nextOffset = {
+      x: drag.offset.x + event.clientX - drag.start.x,
+      y: drag.offset.y + event.clientY - drag.start.y,
+    }
+    offsetRef.current = nextOffset
+    setOffset(nextOffset)
+  }, [])
+
+  const stopDragging = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    dragRef.current = null
+    setDragging(false)
+  }, [])
+
+  const handleDoubleClick = useCallback(() => {
+    if (zoomRef.current === 1) zoomBy(2)
+    else fitImage()
+  }, [fitImage, zoomBy])
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault()
+      zoomBy(IMAGE_ZOOM_FACTOR)
+    } else if (event.key === '-') {
+      event.preventDefault()
+      zoomBy(1 / IMAGE_ZOOM_FACTOR)
+    } else if (event.key === '0') {
+      event.preventDefault()
+      fitImage()
+    }
+  }, [fitImage, zoomBy])
+
   return (
-    <div className="alpha-checker flex h-full w-full items-center justify-center overflow-auto p-8">
+    <div
+      ref={viewportRef}
+      className={`alpha-checker relative flex h-full w-full items-center justify-center overflow-hidden p-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${dragging ? 'cursor-grabbing' : zoom > 1 ? 'cursor-grab' : 'cursor-default'}`}
+      role="region"
+      aria-label={alt}
+      tabIndex={0}
+      onWheel={handleWheel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={stopDragging}
+      onPointerCancel={stopDragging}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+    >
       <img
         src={resolveAssetUrl(apiUrl, outputUrl)}
         alt={alt}
-        className="max-h-full max-w-full object-contain"
+        draggable={false}
+        className={`block max-h-full max-w-full select-none object-contain ${dragging ? '' : 'transition-transform duration-150'}`}
+        style={{
+          transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})`,
+          transformOrigin: 'center center',
+        }}
       />
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+        <div
+          className="pointer-events-auto flex items-center gap-1 rounded-lg border border-divider bg-card/95 p-1 backdrop-blur-sm"
+          onPointerDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => zoomBy(1 / IMAGE_ZOOM_FACTOR)}
+            disabled={zoom <= MIN_IMAGE_ZOOM}
+            title={t('assets.zoomOut')}
+            aria-label={t('assets.zoomOut')}
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <span className="min-w-12 px-1 text-center text-[11px] tabular-nums text-muted-foreground" aria-live="polite">
+            {Math.round(zoom * 100)}%
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => zoomBy(IMAGE_ZOOM_FACTOR)}
+            disabled={zoom >= MAX_IMAGE_ZOOM}
+            title={t('assets.zoomIn')}
+            aria-label={t('assets.zoomIn')}
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <div className="mx-1 h-5 w-px bg-divider" aria-hidden="true" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={fitImage}
+            disabled={zoom === 1 && offset.x === 0 && offset.y === 0}
+            title={t('assets.fitImage')}
+            aria-label={t('assets.fitImage')}
+          >
+            <Scan className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
