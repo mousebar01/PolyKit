@@ -118,6 +118,7 @@ function parseJsonConfig(text: string): unknown {
 
 function sourceSpecs(cwd: string): SourceSpec[] {
   const home = homedir();
+  const configuredProjectSource = process.env.POLYKIT_MCP_CONFIG?.trim();
   return [
     { id: "shared-global", label: "Standard MCP", path: path.join(home, ".config/mcp/mcp.json"), scope: "global", editable: false },
     { id: "agents-global", label: ".agents MCP", path: path.join(home, ".agents/mcp.json"), scope: "global", editable: false },
@@ -125,6 +126,9 @@ function sourceSpecs(cwd: string): SourceSpec[] {
     { id: "pi-global", label: "Pi global", path: path.join(getAgentDir(), "mcp.json"), scope: "global", editable: true },
     { id: "shared-project", label: "Project MCP", path: path.join(cwd, ".mcp.json"), scope: "project", editable: false },
     { id: "pi-project", label: "Pi project", path: path.join(cwd, ".pi/mcp.json"), scope: "project", editable: true },
+    ...(configuredProjectSource
+      ? [{ id: "polykit-project", label: "PolyKit built-in MCP", path: configuredProjectSource, scope: "global" as const, editable: false }]
+      : []),
   ];
 }
 

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "polykit": {
+      "command": "uv",
+      "args": ["run", "python", "api/mcp_server.py"],
+      "cwd": "."
+    }
+  }
+}

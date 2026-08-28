@@ -1,4 +1,5 @@
 import type { Instance, WorldSpec } from './runtime/types'
+import type { WorldAgentPlan } from './worldPlan'
 
 export interface WorldMeshArtifact {
   kind: 'mesh'
@@ -24,6 +25,7 @@ export interface WorldDocument {
   spec: WorldSpec
   instances: Instance[]
   artifacts: Record<string, WorldAssetArtifact>
+  agent_plan?: WorldAgentPlan
 }
 
 export interface WorldSaveResponse {

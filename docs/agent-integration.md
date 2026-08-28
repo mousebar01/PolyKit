@@ -50,6 +50,14 @@ Agent 的设置只保留运行时真正需要的产品级选项，并归入 Poly
 3. **Blender 桥**：增加 `api/services/blender_bridge.py`、`api/routers/blender.py` 和 `integrations/blender/polykit_bridge/`。Blender 插件用队列和 `bpy.app.timers` 在主线程执行结构化命令，首批只开放导入、校验、变换、材质、预览和导出；不提供任意 Python 执行。
 4. **工作流连接**：Agent 生成或修改的 GLB 通过 `/workspace/...` 和 workspace library 返回，资产能力标记为 `mesh` / `rigged-mesh`，不在浏览器里传递绝对路径。
 
+## Worlds 编排
+
+Worlds 使用同一条 Agent 边界，不再另起一个云端 Director。Agent 通过
+`api/mcp_server.py` 暴露的 `polykit_world_*` 工具保存意图/区域/资产计划，
+按 WorldClaw 论文的 intent → plan → terrain → placement/assets → refine 阶段
+推进，并调用现有 `/workflow-runs/*` 完成本地生成。Three.js 只读取世界文档和
+workspace 资产做预览；阶段契约和工具顺序见 [`docs/world-agent.md`](world-agent.md)。
+
 ## 安全和资源约束
 
 - Agent 默认不开放 `bash`、`edit`、`write` 等通用编码工具，只开放 PolyKit 和 Blender 白名单工具；开发者模式才允许扩展权限。

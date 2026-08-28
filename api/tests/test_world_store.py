@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from routers.workspace_worlds import put_world, read_world
 from services.runtime_paths import runtime_paths
+from services.world_agent import attach_world_artifact, update_world_stage
 from services.world_store import (
     MAX_WORLD_BYTES,
     WorldStoreError,
@@ -80,6 +81,49 @@ class WorldStoreTests(unittest.TestCase):
         with self.assertRaises(WorldTooLargeError):
             save_world("too-large", body)
         self.assertFalse((self.workspace / "Workflows" / "too-large.world.json").exists())
+
+    def test_agent_helpers_preserve_paper_stages_and_attach_workspace_mesh(self) -> None:
+        world = self._world()
+        planned = update_world_stage(
+            world,
+            stage_id="plan",
+            status="done",
+            prompt="A volcanic island with a ruined observatory",
+            note="Regions and hero prototypes are explicit.",
+        )
+        self.assertEqual(planned["agent_plan"]["source"], "worldclaw-paper")
+        self.assertEqual(
+            next(stage for stage in planned["agent_plan"]["stages"] if stage["id"] == "plan")["status"],
+            "done",
+        )
+
+        attached = attach_world_artifact(
+            planned,
+            proto_id="observatory",
+            workspace_path="Workflows/observatory.glb",
+            workflow_id="image-to-trellis",
+            run_id="run-123",
+            concept_image="Workflows/observatory.png",
+        )
+        self.assertEqual(
+            attached["artifacts"]["observatory"]["mesh"],
+            {
+                "kind": "mesh",
+                "workspace_path": "Workflows/observatory.glb",
+                "workflow_id": "image-to-trellis",
+                "run_id": "run-123",
+            },
+        )
+
+    def test_agent_helpers_reject_unknown_stage_and_absolute_artifact(self) -> None:
+        with self.assertRaises(WorldStoreError):
+            update_world_stage(self._world(), stage_id="render", status="done")
+        with self.assertRaises(WorldStoreError):
+            attach_world_artifact(
+                self._world(),
+                proto_id="hero",
+                workspace_path="/tmp/hero.glb",
+            )
 
 
 class WorkspaceWorldRouteTests(unittest.IsolatedAsyncioTestCase):

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Globe2, Layers3, LoaderCircle, RefreshCw, Save, Sparkles, Workflow } from 'lucide-react'
+import { Bot, Globe2, Layers3, LoaderCircle, RefreshCw, Save, Sparkles, Workflow } from 'lucide-react'
 
 import { Badge } from '@shared/components/ui/badge'
 import { Button } from '@shared/components/ui/button'
@@ -55,6 +55,10 @@ export default function WorldsPage(): JSX.Element {
           <p className="mt-1 truncate text-xs text-muted-foreground">{document.spec.logline}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => navigate('agent')}>
+            <Bot className="mr-1.5 size-4" aria-hidden="true" />
+            {t('worlds.openAgent')}
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => navigate('workflows')}>
             <Workflow className="mr-1.5 size-4" aria-hidden="true" />
             {t('worlds.openWorkflows')}

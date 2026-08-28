@@ -75,6 +75,8 @@ behind authentication and TLS termination.
 | GET | `/workflow-definitions` | List saved editable workflow graphs |
 | PUT | `/workflow-definitions/{workflow_id}` | Create or replace one editable workflow graph |
 | DELETE | `/workflow-definitions/{workflow_id}` | Delete one editable workflow graph |
+| GET | `/workspace-library/worlds/{world_id}` | Read one server-owned world plan/manifest |
+| PUT | `/workspace-library/worlds/{world_id}` | Create or replace one world plan/manifest |
 
 `/generate/*` remains mounted only as an explicit compatibility surface for
 older CLI callers. New product code must use `/workflow-runs/*`.
@@ -98,6 +100,11 @@ The Web workflow editor compiles an editable graph into a server execution
 prompt. `POST /workflow-runs/execute` validates an acyclic graph of known node
 types and `[node_id, output_name]` references, then executes the DAG through
 `services.workflow_engine.WorkflowEngine`.
+
+The external MCP adapter in `api/mcp_server.py` also exposes `polykit_world_*`
+tools. They let an Agent author and resume a WorldClaw-inspired plan, submit
+local image-to-3D work, and attach completed workspace artifacts without
+introducing a second runtime or a hosted generation dependency.
 
 Server-owned model/process nodes share the same `RunCoordinator`, single-GPU slot,
 cancellation signals, persistence, and workspace lifecycle. If a graph cannot

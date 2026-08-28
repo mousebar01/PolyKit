@@ -4,6 +4,7 @@ import { buildTerrain, type BuiltTerrain } from './runtime/terrain'
 import { solvePlacements } from './runtime/placement'
 import type { Instance, WorldSpec } from './runtime/types'
 import type { WorldAssetArtifact, WorldDocument } from './types'
+import { createWorldAgentPlan } from './worldPlan'
 
 const DEMO_ID = 'emberfall-reach'
 
@@ -45,6 +46,7 @@ export function createWorldDocument(spec: WorldSpec = DEMO_SPEC, id = DEMO_ID): 
     spec,
     instances,
     artifacts,
+    agent_plan: createWorldAgentPlan(),
   }
 }
 
@@ -105,4 +107,3 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
   clearError: () => set({ error: null }),
 }))
-

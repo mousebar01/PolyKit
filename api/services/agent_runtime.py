@@ -74,6 +74,11 @@ class AgentRuntime:
             "POLYKIT_AGENT_INTERNAL_TOKEN": token,
             "POLYKIT_AGENT_PORT": "0",
             "POLYKIT_WORKSPACE_DIR": str(runtime_paths.workspace),
+            # The embedded Agent sessions run inside the server-owned workspace,
+            # while the project-owned MCP declaration lives beside this repo.
+            # Passing the path explicitly lets the Agent discover local Worlds
+            # tools without writing a hidden .mcp.json into the user's workspace.
+            "POLYKIT_MCP_CONFIG": str(root / ".mcp.json"),
             "PI_CODING_AGENT_DIR": str(agent_dir),
             "PI_CODING_AGENT_SESSION_DIR": str(session_root),
         })

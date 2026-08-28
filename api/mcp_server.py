@@ -9,19 +9,23 @@ Requires PolyKit's FastAPI backend to be running on http://localhost:8765.
 """
 
 import asyncio
+import json
 import mimetypes
+from collections.abc import Mapping
 
 import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+
+from services.world_agent import attach_world_artifact, update_world_stage
+from services.world_store import WorldStoreError, validate_world_id
 
 API_BASE = "http://localhost:8765"
 
-server = Server("polykit")
+server: Server | None = None
 
 
-@server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
@@ -137,10 +141,121 @@ async def list_tools() -> list[Tool]:
             description="Get the current PolyKit settings (models directory, workspace directory).",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="polykit_world_get",
+            description=(
+                "Read a server-owned world document. Use this before changing a world so the "
+                "Agent preserves the existing spec, artifacts, and WorldClaw stage plan."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"world_id": {"type": "string", "description": "World id."}},
+                "required": ["world_id"],
+            },
+        ),
+        Tool(
+            name="polykit_world_save",
+            description=(
+                "Save an Agent-authored world plan or manifest to the local PolyKit workspace. "
+                "The Agent owns intent, regions, terrain rules, assets, spatial relations, and "
+                "stage decisions; PolyKit only validates and persists the JSON document."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "World id."},
+                    "document": {
+                        "type": "object",
+                        "description": (
+                            "JSON world document. Put the paper-derived plan under agent_plan "
+                            "and keep artifact paths workspace-relative."
+                        ),
+                    },
+                },
+                "required": ["world_id", "document"],
+            },
+        ),
+        Tool(
+            name="polykit_world_update_stage",
+            description=(
+                "Record progress for one WorldClaw-inspired stage without executing it. Stages "
+                "are intent, plan, terrain, placement, assets, materials, and refine. Use this "
+                "to make the Agent's coarse-to-fine orchestration visible and resumable."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "World id."},
+                    "stage_id": {
+                        "type": "string",
+                        "enum": ["intent", "plan", "terrain", "placement", "assets", "materials", "refine"],
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["pending", "running", "done", "blocked"],
+                    },
+                    "note": {"type": "string", "description": "Short progress or decision note."},
+                    "prompt": {"type": "string", "description": "Original world prompt, if known."},
+                },
+                "required": ["world_id", "stage_id", "status"],
+            },
+        ),
+        Tool(
+            name="polykit_world_list_workflows",
+            description=(
+                "List editable local workflow definitions that the Agent can choose for terrain, "
+                "asset, material, or refinement stages."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="polykit_world_generate_asset",
+            description=(
+                "Run a local image-to-3D workflow for one planned world prototype. This is the "
+                "paper's regional asset stage: the image and model stay on the local PolyKit "
+                "server, and the returned run id can be polled before attaching the mesh."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "World id for orchestration context."},
+                    "proto_id": {"type": "string", "description": "Prototype id from the world plan."},
+                    "image_path": {"type": "string", "description": "Absolute local concept image path."},
+                    "model_id": {"type": "string", "description": "Optional local model id."},
+                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
+                    "collection": {"type": "string", "description": "Workspace collection; default: Worlds."},
+                    "remesh": {
+                        "type": "string",
+                        "enum": ["quad", "triangle", "none"],
+                        "description": "Remesh strategy; default: quad.",
+                    },
+                },
+                "required": ["world_id", "proto_id", "image_path"],
+            },
+        ),
+        Tool(
+            name="polykit_world_attach_asset",
+            description=(
+                "Attach a completed local mesh to a planned world prototype. The mesh path must "
+                "be workspace-relative (for example Workflows/Worlds/observatory.glb); this "
+                "updates only the world manifest and never copies binary data."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "World id."},
+                    "proto_id": {"type": "string", "description": "Prototype id from the world plan."},
+                    "workspace_path": {"type": "string", "description": "Workspace-relative mesh path."},
+                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
+                    "run_id": {"type": "string", "description": "Optional local workflow run id."},
+                    "concept_image": {"type": "string", "description": "Optional workspace-relative concept image."},
+                },
+                "required": ["world_id", "proto_id", "workspace_path"],
+            },
+        ),
     ]
 
 
-@server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
@@ -206,6 +321,9 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             parts.append(f"Step: {status['step']}")
         if status.get("output_url"):
             parts.append(f"Output: {status['output_url']}")
+        candidate = status.get("scene_candidate")
+        if isinstance(candidate, Mapping) and candidate.get("workspace_path"):
+            parts.append(f"Workspace path: {candidate['workspace_path']}")
         if status.get("error"):
             parts.append(f"Error: {status['error']}")
         return " | ".join(parts)
@@ -245,7 +363,174 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         data = response.json()
         return f"Models directory: {data.get('models_dir')}\nWorkspace directory: {data.get('workspace_dir')}"
 
+    if name == "polykit_world_get":
+        world_id = _safe_world_id(args.get("world_id"))
+        response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
+        response.raise_for_status()
+        return _json_text(response.json())
+
+    if name == "polykit_world_save":
+        world_id = _safe_world_id(args.get("world_id"))
+        document = args.get("document")
+        if not isinstance(document, Mapping):
+            raise WorldStoreError("document must be a JSON object")
+        payload = dict(document)
+        if not any(payload.get(key) for key in ("world_id", "worldId", "id")):
+            payload["world_id"] = world_id
+        response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=payload)
+        response.raise_for_status()
+        return f"World '{world_id}' saved: {_json_text(response.json())}"
+
+    if name == "polykit_world_update_stage":
+        world_id = _safe_world_id(args.get("world_id"))
+        stage_id = _required_text(args.get("stage_id"), "stage_id")
+        world = await _get_world_or_shell(client, world_id)
+        updated = update_world_stage(
+            world,
+            stage_id=stage_id,
+            status=args.get("status", ""),
+            note=args.get("note"),
+            prompt=args.get("prompt"),
+        )
+        if not any(updated.get(key) for key in ("world_id", "worldId", "id")):
+            updated["world_id"] = world_id
+        response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=updated)
+        response.raise_for_status()
+        stage = next(
+            item
+            for item in updated["agent_plan"]["stages"]
+            if item["id"] == stage_id
+        )
+        return f"World '{world_id}' stage updated: {_json_text(stage)}"
+
+    if name == "polykit_world_list_workflows":
+        response = await client.get(f"{API_BASE}/workflow-definitions")
+        response.raise_for_status()
+        workflows = response.json()
+        if not workflows:
+            return "No editable local workflows are saved yet."
+        lines = []
+        for workflow in workflows:
+            if not isinstance(workflow, Mapping):
+                continue
+            workflow_id = workflow.get("id", "?")
+            name_value = workflow.get("name", workflow_id)
+            node_count = (
+                len(workflow.get("nodes", []))
+                if isinstance(workflow.get("nodes"), list)
+                else "?"
+            )
+            lines.append(f"- {workflow_id}: {name_value} ({node_count} nodes)")
+        return "\n".join(lines) if lines else "No editable local workflows are saved yet."
+
+    if name == "polykit_world_generate_asset":
+        world_id = _safe_world_id(args.get("world_id"))
+        proto_id = _required_text(args.get("proto_id"), "proto_id")
+        image_path = _required_text(args.get("image_path"), "image_path")
+        with open(image_path, "rb") as image_file:
+            image_bytes = image_file.read()
+        mime = mimetypes.guess_type(image_path)[0] or "image/png"
+        filename = image_path.replace("\\", "/").split("/")[-1]
+        form_data = {
+            "remesh": args.get("remesh", "quad"),
+            "collection": args.get("collection", "Worlds"),
+            "node_id": proto_id,
+            "world_id": world_id,
+            "proto_id": proto_id,
+        }
+        if args.get("model_id"):
+            form_data["model_id"] = args["model_id"]
+        if args.get("workflow_id"):
+            form_data["workflow_id"] = args["workflow_id"]
+        response = await client.post(
+            f"{API_BASE}/workflow-runs/from-image",
+            files={"image": (filename, image_bytes, mime)},
+            data=form_data,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        run_id = response.json()["run_id"]
+        return (
+            f"World asset generation started for '{world_id}/{proto_id}'. Run ID: {run_id}\n"
+            "Poll with polykit_get_generation_status; when done, attach "
+            "scene_candidate.workspace_path using polykit_world_attach_asset."
+        )
+
+    if name == "polykit_world_attach_asset":
+        world_id = _safe_world_id(args.get("world_id"))
+        world_response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
+        world_response.raise_for_status()
+        updated = attach_world_artifact(
+            world_response.json(),
+            proto_id=args.get("proto_id", ""),
+            workspace_path=args.get("workspace_path", ""),
+            workflow_id=args.get("workflow_id"),
+            run_id=args.get("run_id"),
+            concept_image=args.get("concept_image"),
+        )
+        response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=updated)
+        response.raise_for_status()
+        return f"Attached asset to '{world_id}/{args['proto_id']}': {_json_text(response.json())}"
+
     return f"Unknown tool: {name}"
+
+
+def _required_text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WorldStoreError(f"{label} is required")
+    return value.strip()
+
+
+def _safe_world_id(value: object) -> str:
+    return validate_world_id(_required_text(value, "world_id"))
+
+
+def _json_text(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+async def _get_world_or_shell(client: httpx.AsyncClient, world_id: str) -> dict:
+    response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
+    if response.status_code == 404:
+        return {"world_id": world_id, "spec": {}, "artifacts": {}}
+    response.raise_for_status()
+    value = response.json()
+    if not isinstance(value, dict):
+        raise WorldStoreError("Saved world document must be a JSON object")
+    return value
+
+
+async def _on_list_tools(_context: object, _params: object) -> ListToolsResult:
+    return ListToolsResult(tools=await list_tools())
+
+
+async def _on_call_tool(_context: object, params: object) -> CallToolResult:
+    name = getattr(params, "name", "")
+    arguments = getattr(params, "arguments", None) or {}
+    content = await call_tool(name, arguments)
+    return CallToolResult(content=content)
+
+
+def _build_server() -> Server:
+    """Create a server for MCP 2.x, with a small MCP 1.x fallback."""
+
+    try:
+        return Server("polykit", on_list_tools=_on_list_tools, on_call_tool=_on_call_tool)
+    except TypeError:
+        # MCP 1.x registered low-level handlers with decorators instead of
+        # constructor callbacks.  Keep the adapter usable for older installs
+        # while the lockfile continues to use the current protocol package.
+        legacy = Server("polykit")
+        list_tools_decorator = getattr(legacy, "list_tools", None)
+        call_tool_decorator = getattr(legacy, "call_tool", None)
+        if not callable(list_tools_decorator) or not callable(call_tool_decorator):
+            raise
+        list_tools_decorator()(list_tools)
+        call_tool_decorator()(call_tool)
+        return legacy
+
+
+server = _build_server()
 
 
 async def main():

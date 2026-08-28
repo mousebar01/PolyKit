@@ -131,6 +131,8 @@ async def create_run_from_image(
     params: str = Form("{}"),
     workflow_id: str = Form(""),
     node_id: str = Form(""),
+    world_id: str = Form(""),
+    proto_id: str = Form(""),
 ):
     """Canonical single-image generation entry point."""
     if not image.content_type or not image.content_type.startswith("image/"):
@@ -167,6 +169,8 @@ async def create_run_from_image(
         for key, value in {
             "workflow_id": workflow_id.strip(),
             "node_id": node_id.strip(),
+            "world_id": world_id.strip(),
+            "proto_id": proto_id.strip(),
             "image_name": (image.filename or "").strip(),
         }.items()
         if value
