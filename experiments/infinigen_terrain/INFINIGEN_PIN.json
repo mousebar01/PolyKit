@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/princeton-vl/infinigen.git",
+  "commit": "3f58bb886bb1bda681d41240344fe3126ac0e9bd",
+  "license": "BSD-3-Clause",
+  "purpose": "External terrain generator used only by the worldclaw-infinigen-terrain experiment branch"
+}
