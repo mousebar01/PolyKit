@@ -1,9 +1,9 @@
 {
   "templateId": "anima-trellis2-text-to-3d",
   "nodePackId": "anima",
-  "requires": ["anima", "trellis2"],
-  "name": "Text to 3D (Anima + Trellis.2)",
-  "description": "Generate an illustration from a text prompt with Anima, then turn it into a 3D mesh with Trellis.2.",
+  "requires": ["anima", "image-background-remover", "trellis2"],
+  "name": "Text to 3D (Anima + Cutout + Trellis.2)",
+  "description": "Generate a stylized illustration with Anima, remove its background, then turn the transparent image into a 3D mesh with Trellis.2.",
   "nodes": [
     {
       "id": "text-input",
@@ -25,9 +25,19 @@
       }
     },
     {
-      "id": "generate-mesh",
+      "id": "remove-background",
       "type": "nodePackNode",
       "position": { "x": 720, "y": 180 },
+      "data": {
+        "nodePackId": "image-background-remover/remove-background",
+        "enabled": true,
+        "params": { "model": "isnet-anime" }
+      }
+    },
+    {
+      "id": "generate-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 1050, "y": 180 },
       "data": {
         "nodePackId": "trellis2/generate",
         "enabled": true,
@@ -37,7 +47,7 @@
     {
       "id": "scene-output",
       "type": "outputNode",
-      "position": { "x": 1050, "y": 180 },
+      "position": { "x": 1380, "y": 180 },
       "data": {
         "enabled": true,
         "params": {}
@@ -52,8 +62,14 @@
       "targetHandle": "input-0"
     },
     {
-      "id": "image-to-mesh",
+      "id": "image-to-cutout",
       "source": "generate-image",
+      "target": "remove-background",
+      "targetHandle": "input-0"
+    },
+    {
+      "id": "cutout-to-mesh",
+      "source": "remove-background",
       "target": "generate-mesh",
       "targetHandle": "input-0"
     },

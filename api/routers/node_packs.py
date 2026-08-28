@@ -38,8 +38,9 @@ def _source_node_payload(node: dict, source: dict) -> dict:
 
 def _source_pack_payload(pack_id: str, source: dict, *, official: bool) -> dict:
     nodes = source.get("nodes") if isinstance(source.get("nodes"), list) else []
-    return {
-        "type": "model",
+    pack_type = str(source.get("type") or "model")
+    payload = {
+        "type": pack_type,
         "id": pack_id,
         "name": source.get("name") or pack_id,
         "version": source.get("version", ""),
@@ -59,6 +60,9 @@ def _source_pack_payload(pack_id: str, source: dict, *, official: bool) -> dict:
             if isinstance(node, dict) and node.get("id")
         ],
     }
+    if pack_type == "process":
+        payload["entry"] = source.get("entry", "")
+    return payload
 
 
 @router.get("/list")
@@ -68,7 +72,8 @@ async def list_node_packs():
     source_cache: dict[str, tuple[Path, dict]] = {}
 
     for pack_dir, source in iter_installed_packs():
-        if source.get("type", "model") != "model" or not source.get("id"):
+        source_type = str(source.get("type") or "model")
+        if source_type not in {"model", "process"} or not source.get("id"):
             continue
         pack_id = str(source.get("id") or pack_dir.name)
         source_cache[pack_id] = (pack_dir, source)

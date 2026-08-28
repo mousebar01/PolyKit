@@ -33,6 +33,10 @@ const PACKS = [
     id: 'anima/generate', nodePackId: 'anima', nodePackName: 'Anima', nodePackAuthor: 'CircleStone Labs', nodeId: 'generate', name: 'Generate Illustration', description: '',
     input: 'text', output: 'image', params: [], builtin: true, type: 'model',
   },
+  {
+    id: 'image-background-remover/remove-background', nodePackId: 'image-background-remover', nodePackName: 'Image Background Remover', nodePackAuthor: 'PolyKit', nodeId: 'remove-background', name: 'Remove Background', description: '',
+    input: 'image', output: 'image', params: [{ id: 'model', label: 'Segmentation Model', type: 'select', default: 'isnet-anime' }], builtin: true, type: 'process',
+  },
 ]
 const node = (id, type, params = {}, nodePackId) =>
   ({ id, type, position: { x: 0, y: 0 }, data: { enabled: true, ...(nodePackId ? { nodePackId } : {}), params } })
@@ -41,6 +45,7 @@ const edge = (s, t, th) => ({ id: `${s}->${t}`, source: s, target: t, ...(th ? {
 const img = (id = 'img') => node(id, 'imageNode')
 const model = (id = 'gen') => node(id, 'nodePackNode', {}, 'trellis2/generate')
 const animaModel = (id = 'anima') => node(id, 'nodePackNode', {}, 'anima/generate')
+const cutoutModel = (id = 'cutout') => node(id, 'nodePackNode', {}, 'image-background-remover/remove-background')
 const out = (id = 'out', enabled = true) => node(id, 'outputNode', {})
 const preview = (id = 'preview') => node(id, 'previewNode', {})
 
@@ -186,14 +191,15 @@ test('text → Anima → image preview compiles with an image sink input', async
   assert.deepEqual(res.ok && res.payload.prompt.preview.inputs.image, ['anima', 'image'])
 })
 
-test('text → Anima → Trellis.2 → mesh output compiles as one pipeline', async () => {
+test('text → Anima → cutout → Trellis.2 → mesh output compiles as one pipeline', async () => {
   const text = node('text', 'textNode', { text: 'single stylized anime character, full body, plain background' })
   const anima = animaModel()
+  const cutout = cutoutModel()
   const trellis = model('trellis')
   const res = await compileServerWorkflow(
     wf(
-      [text, anima, trellis, out()],
-      [edge('text', 'anima', 'input-0'), edge('anima', 'trellis', 'input-0'), edge('trellis', 'out')],
+      [text, anima, cutout, trellis, out()],
+      [edge('text', 'anima', 'input-0'), edge('anima', 'cutout', 'input-0'), edge('cutout', 'trellis', 'input-0'), edge('trellis', 'out')],
     ),
     PACKS,
   )
@@ -201,6 +207,7 @@ test('text → Anima → Trellis.2 → mesh output compiles as one pipeline', as
   assert.equal(res.ok, true)
   assert.ok(res.ok && res.payload.output_node_id === 'out')
   assert.deepEqual(res.ok && res.payload.prompt.anima.inputs.text, ['text', 'text'])
-  assert.deepEqual(res.ok && res.payload.prompt.trellis.inputs.image, ['anima', 'image'])
+  assert.deepEqual(res.ok && res.payload.prompt.cutout.inputs.image, ['anima', 'image'])
+  assert.deepEqual(res.ok && res.payload.prompt.trellis.inputs.image, ['cutout', 'image'])
   assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['trellis', 'mesh'])
 })
