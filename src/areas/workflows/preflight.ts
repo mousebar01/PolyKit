@@ -20,7 +20,7 @@ export function nodeLabel(node: WFNode, allNodePacks: WorkflowNodePack[]): strin
   if (node.type === 'textNode') return 'Text'
   if (node.type === 'meshNode') return 'Load 3D Mesh'
   if (node.type === 'outputNode') return 'Output'
-  if (node.type === 'previewNode') return 'Preview Views'
+  if (node.type === 'previewNode') return 'Preview'
   if (node.type === 'noteNode') return 'Note'
   if (node.type === 'nodePackNode') {
     return getWorkflowNodePack(node.data.nodePackId ?? '', allNodePacks)?.name ?? 'Node pack'

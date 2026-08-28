@@ -9,12 +9,7 @@ import BaseNode from './BaseNode'
 
 const INPUT_COLOR = '#38bdf8'
 
-/**
- * Preview node for multi-view image outputs (e.g. MV-Adapter Generate Views).
- *
- * Expects a vertical strip PNG where N views are stacked top→bottom.
- * Displays them in a 2×3 grid using CSS background-position cropping.
- */
+/** Preview node for the image artifact produced by an upstream workflow node. */
 export default function PreviewImageNode({ id, selected }: { id: string; selected?: boolean }) {
   const { t } = useI18n()
   const { isRunning, runToHere } = useWorkflowNodeExecution()
@@ -28,7 +23,7 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
     <BaseNode
       id={id}
       selected={selected}
-      title="Preview Views"
+      title="Preview"
       minWidth={200}
       icon={<ImageIcon className="h-3 w-3 text-sky-400" />}
       actions={(
@@ -61,27 +56,17 @@ export default function PreviewImageNode({ id, selected }: { id: string; selecte
     >
       <div className="px-2 pb-2 pt-1">
         {imageUrl ? (
-          <div
-            className="nodrag grid gap-0.5 overflow-hidden rounded-md"
-            style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}
-          >
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <div
-                key={index}
-                style={{
-                  aspectRatio: '1',
-                  backgroundImage: `url(${imageUrl})`,
-                  backgroundSize: '100% 600%',
-                  backgroundPosition: `0 ${index * 20}%`,
-                  backgroundRepeat: 'no-repeat',
-                  borderRadius: '2px',
-                }}
-              />
-            ))}
+          <div className="nodrag overflow-hidden rounded-md bg-muted/20">
+            <img
+              src={imageUrl}
+              alt=""
+              draggable={false}
+              className="block max-h-64 w-full object-contain"
+            />
           </div>
         ) : (
           <p className="py-2 text-center text-[10px] italic text-muted-foreground">
-            Connect a multi-view image to preview.
+            Connect an image to preview.
           </p>
         )}
       </div>
