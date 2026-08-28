@@ -59,14 +59,26 @@ RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓�
    [Mobile Game Isometric Building XL](https://civitai.com/models/1857872/mobile-game-isometric-building-xl)
    开始；前者偏通用低多边形，后者偏移动游戏建筑。它们的许可证和训练数据
    需要在引入产品前单独核对，不能因为样张好看就直接作为默认依赖。
-2. **备选：绘本/插画/赛璐璐风格**：
-   `Qwen-Image + Alvdansen Illustration LoRA → BiRefNet-HR → RGBA PNG → Trellis2`。
-   [官方 ComfyUI 插画工作流](https://comfy.org/workflows/template_qwen_image_illustration_lora-e41b80eb587d/)
+2. **质量上限候选：HunyuanImage-2.1**：
+   `HunyuanImage-2.1 FP8 + refiner → BiRefNet-HR → RGBA PNG → Trellis2`。
+   [官方仓库](https://github.com/Tencent-Hunyuan/HunyuanImage-2.1)报告它是 17B、
+   原生 2K 的文生图模型，并在自有 SSAE/GSB 评估中与 GPT-Image 接近；这不是
+   对 GPT Image 2 的同基准证明。FP8+CPU offload 的官方最低配置是 24 GB，正好
+   卡在我们的 4090 D 边缘。它使用 Tencent Hunyuan Community License，排除
+   EU/UK/韩国，必须先确认项目部署地域和分发方式。
+3. **备选：绘本/插画/赛璐璐风格**：
+   `Qwen-Image-2512 + Alvdansen Illustration LoRA → BiRefNet-HR → RGBA PNG → Trellis2`。
+   [Qwen 官方仓库](https://github.com/QwenLM/Qwen-Image)采用 Apache 2.0，具备
+   较强的提示词理解、编辑和多种艺术风格能力；[官方 ComfyUI 插画工作流](https://comfy.org/workflows/template_qwen_image_illustration_lora-e41b80eb587d/)
    覆盖 cel shading、bande dessinée、risograph、storybook watercolor 等非写实
    风格；[LoRA 页面](https://huggingface.co/alvdansen/illustration-1.0-qwen-image)
    也明确以插画一致性为目标。它的基座更重，当前本机没有权重，所以先作为第二
-   个 A/B 测试候选。
-3. **通用/写实备选，不作为默认**：
+   个插画风格的 A/B 测试候选。
+4. **轻量候选：Z-Image / Z-Image-Turbo**：
+   [官方仓库](https://github.com/Tongyi-MAI/Z-Image)是 Apache 2.0 的 6B 模型；
+   Base 更适合风格探索，Turbo 只有 8 次函数评估，适合批量生成。它的默认展示
+   偏写实，风格化程度仍需依赖 prompt/LoRA，因此作为速度对照而不是质量上限。
+5. **通用/写实备选，不作为默认**：
    `FLUX.2 Klein 4B → BiRefNet-HR/Lucida → RGBA PNG → Trellis2`。
    [官方工作流](https://docs.comfy.org/tutorials/flux/flux-2-klein) 的局部质量和
    提示词遵循度很好，但默认观感更接近写实/通用生成；除非后续有合适的风格
