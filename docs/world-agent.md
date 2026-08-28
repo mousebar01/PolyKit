@@ -28,7 +28,12 @@ PolyKit 的 World 不是另一个云端生成器。Agent 是世界导演，负�
 本地节点包尚未提供材质节点时，Agent 可以将它标记为 `blocked`，而不是偷偷
 回退到云端服务。
 
-## 本地透明概念图（当前盘点）
+## 风格化本地概念图与透明链路（当前盘点）
+
+我们的目标不是照片级写实，而是可以连续生成、方便 Trellis2 重建的风格化
+游戏资产：低多边形、等距/三分之四视角、单物体、轮廓干净、材质简化。这里的
+“效果好”优先看轮廓、构图、风格一致性和重建稳定性，不看皮肤/镜头/光照等
+摄影指标。
 
 当前机器上已经有 SDXL 基础模型和 RealVisXL 权重，位于
 `/home/sy/llm/comfyui-wan/data/models/checkpoints/`；现有
@@ -36,35 +41,64 @@ PolyKit 的 World 不是另一个云端生成器。Agent 是世界导演，负�
 但它的输出是 RGB PNG，不是带 alpha 的概念图。PolyKit 的内置 node pack 目前
 也没有 `text-to-image` 或 `text-to-image-transparent` 节点。
 
-重新按社区主流方案盘点后，结论是：不要把旧的 SDXL LayerDiffuse 当主链路。
-LayerDiffuse 的 ComfyUI 实现仍然主要覆盖 SDXL/SD1.5；而现在更稳妥的本地
-资产路线是使用较新的高质量 T2I，再接专门的 alpha matte：
+重新按社区主流方案盘点后，结论是：透明不是生成质量的核心，应该和风格生成
+分开。先用合适的风格模型生成干净的单物体图，再用专门的 alpha matte 得到
+RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓和画面质量。
 
-1. **主方案**：`FLUX.2 Klein 4B → BiRefNet-HR/Lucida → RGBA PNG → Trellis2`
-   。[FLUX.2 Klein 4B 的 ComfyUI 工作流](https://docs.comfy.org/tutorials/flux/flux-2-klein)
-   约需 13 GB 显存，适合我们的 RTX 4090 D；[BiRefNet](https://github.com/ZhengPeng7/BiRefNet)
-   是 MIT 许可的高分辨率抠图模型，[Lucida](https://github.com/egeorcun/lucida)
-   是针对玻璃、发丝、发光效果和插画边缘的 BiRefNet 微调版本。默认先用
-   BiRefNet-HR，遇到透明材质/特效再由 Agent 选择 Lucida。
-2. **直接 RGBA 的实验方案**：`Qwen-Image-Edit-2509 + OmniAlpha → RGBA PNG`
-   。[OmniAlpha](https://github.com/Longin-Yu/OmniAlpha) 原生处理 RGBA，但仓库
-   目前采用者很少，依赖 20B 级 Qwen 基座和额外 AlphaVAE/LoRA，暂不适合当
-   PolyKit 默认工作流。
-3. **不选作主方案**：[Qwen-Image-Layered](https://github.com/QwenLM/Qwen-Image-Layered)、
-   [LayerDiffuse](https://github.com/huchenlei/ComfyUI-layerdiffuse)、FluxLayerDiffuse。
-   Qwen 官方明确说明 text-to-multi-RGBA 性能有限，LayerDiffuse 主要覆盖
-   SDXL/SD1.5，FluxLayerDiffuse 采用者很少；可以保留做对照测试，不作为资产
-   生产默认值。
+按风格选择工作流：
+
+1. **默认：低多边形/等距游戏资产**：
+   `SDXL 风格化 checkpoint + style LoRA → BiRefNet-HR → RGBA PNG → Trellis2`。
+   SDXL 不是因为写实质量最高，而是因为风格化 checkpoint/LoRA 的生态最成熟，
+   更容易锁定 `low-poly`、`flat-shaded`、`isometric`、`hand-painted` 这类
+   视觉规则并保持一组资产一致。当前本机的 RealVisXL 是写实模型，不能直接当
+   默认；需要另装一个风格化 SDXL checkpoint 或 LoRA。
+   第一批只做 A/B 的社区候选可以从
+   [Low Poly Art Style XL LoRA](https://civitai.com/models/578356/low-poly-art-style-xl-lora)
+   和
+   [Mobile Game Isometric Building XL](https://civitai.com/models/1857872/mobile-game-isometric-building-xl)
+   开始；前者偏通用低多边形，后者偏移动游戏建筑。它们的许可证和训练数据
+   需要在引入产品前单独核对，不能因为样张好看就直接作为默认依赖。
+2. **备选：绘本/插画/赛璐璐风格**：
+   `Qwen-Image + Alvdansen Illustration LoRA → BiRefNet-HR → RGBA PNG → Trellis2`。
+   [官方 ComfyUI 插画工作流](https://comfy.org/workflows/template_qwen_image_illustration_lora-e41b80eb587d/)
+   覆盖 cel shading、bande dessinée、risograph、storybook watercolor 等非写实
+   风格；[LoRA 页面](https://huggingface.co/alvdansen/illustration-1.0-qwen-image)
+   也明确以插画一致性为目标。它的基座更重，当前本机没有权重，所以先作为第二
+   个 A/B 测试候选。
+3. **通用/写实备选，不作为默认**：
+   `FLUX.2 Klein 4B → BiRefNet-HR/Lucida → RGBA PNG → Trellis2`。
+   [官方工作流](https://docs.comfy.org/tutorials/flux/flux-2-klein) 的局部质量和
+   提示词遵循度很好，但默认观感更接近写实/通用生成；除非后续有合适的风格
+   LoRA 或参考图，不把它用于我们的主资产风格。
+
+透明边缘采用 [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)；玻璃、发光
+特效、插画细边缘再由 Agent 选择 [Lucida](https://github.com/egeorcun/lucida)。
+`Qwen-Image-Layered`、[LayerDiffuse](https://github.com/huchenlei/ComfyUI-layerdiffuse)、
+FluxLayerDiffuse 和 [OmniAlpha](https://github.com/Longin-Yu/OmniAlpha) 保留为
+研究/对照项：它们能探索原生 RGBA，但不是当前最稳的风格化资产生产默认。
 
 目前 `/home/sy/llm/comfyui-wan` 还是旧版 ComfyUI，且没有安装 FLUX.2、BiRefNet
 或 Lucida 权重；系统中仍没有一条已注册、可被 Agent 直接提交的透明文生图工作流。
 建议新增独立的本地图像 ComfyUI 服务，不要直接升级正在承载 Wan 视频工作流的
 容器；这样可以单独跟进新版本节点和模型，不影响现有视频链路。
 
-主链和实验链都应作为 Agent 的一个资产阶段：Agent 只提交 prompt、风格、seed 和
-`alpha_policy`，FastAPI 通过 `/workflow-runs/*` 执行并持久化 `image-rgba`
+主链和实验链都应作为 Agent 的一个资产阶段：Agent 提交 `style_profile`、prompt、
+negative prompt、seed 和 `alpha_policy`，FastAPI 通过 `/workflow-runs/*` 执行并持久化 `image-rgba`
 工作区产物，完成后再把同一份相对路径交给 `trellis2/generate`。浏览器端的
 Three.js 只负责预览和编排结果，不负责启动模型或抠图。
+
+`style_profile` 先约定三个值：`lowpoly_flat`（默认）、`cel_shaded`、
+`storybook_painterly`。提示词模板至少锁定：`single object`、`full object in
+frame`、`centered`、`orthographic/isometric 3/4 view`、`clean silhouette`；
+negative prompt 排除 `photorealistic`、`cinematic photography`、`multiple
+objects`、`cropped`、`text` 和 `watermark`。
+
+在下载新权重前不要凭感觉选模型。先对 keep、cottage、monolith、pine、boulder、
+crystal 六类现有原型各生成固定 seed 的小样本，按下面的顺序评估：轮廓 30%、
+风格一致性 25%、单物体构图 20%、alpha 边缘 15%、Trellis2 重建成功率 10%。
+只有通过这组 A/B 测试的工作流，才登记为 `polykit_world_generate_asset` 的
+默认资产工作流。
 
 ## MCP 工具
 
