@@ -1,0 +1,67 @@
+{
+  "templateId": "anima-trellis2-text-to-3d",
+  "nodePackId": "anima",
+  "requires": ["anima", "trellis2"],
+  "name": "Text to 3D (Anima + Trellis.2)",
+  "description": "Generate an illustration from a text prompt with Anima, then turn it into a 3D mesh with Trellis.2.",
+  "nodes": [
+    {
+      "id": "text-input",
+      "type": "textNode",
+      "position": { "x": 80, "y": 180 },
+      "data": {
+        "enabled": true,
+        "params": { "text": "" }
+      }
+    },
+    {
+      "id": "generate-image",
+      "type": "nodePackNode",
+      "position": { "x": 390, "y": 180 },
+      "data": {
+        "nodePackId": "anima/generate",
+        "enabled": true,
+        "params": {}
+      }
+    },
+    {
+      "id": "generate-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 720, "y": 180 },
+      "data": {
+        "nodePackId": "trellis2/generate",
+        "enabled": true,
+        "params": {}
+      }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 1050, "y": 180 },
+      "data": {
+        "enabled": true,
+        "params": {}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "text-to-image",
+      "source": "text-input",
+      "target": "generate-image",
+      "targetHandle": "input-0"
+    },
+    {
+      "id": "image-to-mesh",
+      "source": "generate-image",
+      "target": "generate-mesh",
+      "targetHandle": "input-0"
+    },
+    {
+      "id": "mesh-to-scene",
+      "source": "generate-mesh",
+      "sourceHandle": "output",
+      "target": "scene-output"
+    }
+  ]
+}

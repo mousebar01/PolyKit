@@ -40,6 +40,7 @@ const wf = (nodes, edges = []) => ({ id: 'wf', name: 'wf', description: '', node
 const edge = (s, t, th) => ({ id: `${s}->${t}`, source: s, target: t, ...(th ? { targetHandle: th } : {}) })
 const img = (id = 'img') => node(id, 'imageNode')
 const model = (id = 'gen') => node(id, 'nodePackNode', {}, 'trellis2/generate')
+const animaModel = (id = 'anima') => node(id, 'nodePackNode', {}, 'anima/generate')
 const out = (id = 'out', enabled = true) => node(id, 'outputNode', {})
 const preview = (id = 'preview') => node(id, 'previewNode', {})
 
@@ -183,4 +184,23 @@ test('text → Anima → image preview compiles with an image sink input', async
   assert.equal(res.ok, true)
   assert.ok(res.ok && res.payload.prompt.preview)
   assert.deepEqual(res.ok && res.payload.prompt.preview.inputs.image, ['anima', 'image'])
+})
+
+test('text → Anima → Trellis.2 → mesh output compiles as one pipeline', async () => {
+  const text = node('text', 'textNode', { text: 'single stylized anime character, full body, plain background' })
+  const anima = animaModel()
+  const trellis = model('trellis')
+  const res = await compileServerWorkflow(
+    wf(
+      [text, anima, trellis, out()],
+      [edge('text', 'anima', 'input-0'), edge('anima', 'trellis', 'input-0'), edge('trellis', 'out')],
+    ),
+    PACKS,
+  )
+
+  assert.equal(res.ok, true)
+  assert.ok(res.ok && res.payload.output_node_id === 'out')
+  assert.deepEqual(res.ok && res.payload.prompt.anima.inputs.text, ['text', 'text'])
+  assert.deepEqual(res.ok && res.payload.prompt.trellis.inputs.image, ['anima', 'image'])
+  assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['trellis', 'mesh'])
 })

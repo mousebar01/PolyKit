@@ -166,6 +166,7 @@ Built-in templates currently include:
 |----------|-------|-------|
 | `trellis2-geometry-mesh` | image → generate → output | Fastest path, no texture |
 | `trellis2-textured-mesh` | image → generate → refine → output | Adds PBR texture |
+| `anima-trellis2-text-to-3d` | text → Anima → Trellis.2 → output | Stylized text-to-3D starting point |
 
 Each template declares `requires: ["<pack-id>"]`. The editor lists templates separately and shows an install hint when a required pack is missing.
 
