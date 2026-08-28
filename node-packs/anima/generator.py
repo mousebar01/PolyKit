@@ -37,7 +37,15 @@ class AnimaGenerator(BaseGenerator):
             from diffusers import ModularPipeline
 
             pipe = ModularPipeline.from_pretrained(model_path)
-            pipe.load_components(dtype=dtype)
+            # The modular index records the Hub repo as each component's
+            # source.  We deliberately keep all weights in PolyKit's shared
+            # model directory, so override that source with the local root
+            # when materialising components (otherwise the pipeline object is
+            # created but ``text_encoder`` and friends remain ``None``).
+            pipe.load_components(
+                pretrained_model_name_or_path=model_path,
+                dtype=dtype,
+            )
         except (ImportError, AttributeError):
             # Older Diffusers releases expose the converted model through the
             # regular pipeline entry point. Keep this fallback explicit so the
