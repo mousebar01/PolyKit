@@ -100,6 +100,25 @@ crystal 六类现有原型各生成固定 seed 的小样本，按下面的顺序
 只有通过这组 A/B 测试的工作流，才登记为 `polykit_world_generate_asset` 的
 默认资产工作流。
 
+## MiniMax H3 Easy 参考结论
+
+这个 [B 站视频](https://www.bilibili.com/video/BV1mxuJ6bErr/) 展示的
+[ComfyUI-MiniMaxH3-Easy](https://github.com/nkxx188/ComfyUI-MiniMaxH3-Easy)
+是 **视频**节点：支持文生视频、图生视频、首尾帧和参考生视频，并不是透明
+文生图模型。视频本身主要演示节点和工作流接线，没有足够的资产样片，不能据此
+判断我们关心的低多边形概念图画质。
+
+值得借鉴的是它的编排接口，而不是直接复用模型：
+
+- 用一个可多线连接的 `Media` 输入承载图片、视频、音频，并用 `@` 引用具体素材；
+- 用 `Media Bridge` 把画布上的虚拟连线转换成适合 API/无头执行的显式输入；
+- 保留外部 prompt 输入和可选的提示词优化，不把模型决策藏在节点内部。
+
+这三点可以映射到 PolyKit 的 Agent→FastAPI→ComfyUI 链路，尤其适合未来的
+`reference_video` 或世界预览动画阶段；但它不改变当前资产主链：风格化 T2I、
+alpha matte、Trellis2。H3 也不提供透明 PNG 输出，因此不加入
+`polykit_world_generate_asset` 的默认候选。
+
 ## MCP 工具
 
 项目根目录的 `.mcp.json` 已声明本地 `polykit` MCP server。内置 Agent sidecar
