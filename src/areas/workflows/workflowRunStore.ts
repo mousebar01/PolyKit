@@ -1,10 +1,10 @@
 import { create } from 'zustand'
-import axios from 'axios'
 
 import { useAppStore } from '@shared/stores/appStore'
 import type { Workflow } from '@shared/types/runtime.d'
 import type { WorkflowNodePack } from './mockNodePacks'
 import { compileServerWorkflow } from './executionPayload'
+import { createWorkflowRunsClient } from '@shared/services/workflowRuns'
 
 export interface WorkflowRunState {
   status: 'idle' | 'running' | 'done' | 'error'
@@ -27,6 +27,7 @@ const IDLE: WorkflowRunState = {
 
 const _cancel = { current: false }
 const _activeRunId = { current: null as string | null }
+const _pollAbortController = { current: null as AbortController | null }
 
 interface WorkflowRunStore {
   runState: WorkflowRunState
@@ -46,6 +47,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
   nodeImageOutputs: {},
 
   async run(workflow, allNodePacks, overrideImageData?) {
+    _pollAbortController.current?.abort()
     _cancel.current = false
     _activeRunId.current = null
 
@@ -85,7 +87,8 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
       }
       if (_cancel.current) return
 
-      const client = axios.create({ baseURL: apiUrl })
+      const client = createWorkflowRunsClient(apiUrl)
+      // Canonical server-owned execution endpoint: POST /workflow-runs/execute.
       set((state) => ({
         runState: {
           ...state.runState,
@@ -94,67 +97,67 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
         },
       }))
 
-      const { data } = await client.post<{ run_id: string }>('/workflow-runs/execute', compiled.payload)
+      const data = await client.submit(compiled.payload)
       _activeRunId.current = data.run_id
+      const abortController = new AbortController()
+      _pollAbortController.current = abortController
 
-      while (!_cancel.current) {
-        await new Promise((resolve) => setTimeout(resolve, 1200))
-        if (_cancel.current || !_activeRunId.current) return
-
-        const { data: status } = await client.get<{
-          status: string
-          progress?: number
-          step?: string
-          output_url?: string
-          error?: string
-        }>(`/workflow-runs/${_activeRunId.current}`)
-
-        if (status.status === 'done') {
-          const outputUrl = status.output_url
-          _activeRunId.current = null
-          set({
-            activeNodeId: null,
+      const status = await client.poll(data.run_id, {
+        signal: abortController.signal,
+        onUpdate: (nextStatus) => {
+          if (_cancel.current || isTerminal(nextStatus.status)) return
+          set((state) => ({
             runState: {
-              status: 'done',
-              blockIndex: 1,
-              blockTotal: 1,
-              blockProgress: 100,
-              blockStep: 'Workflow complete',
-              outputUrl,
+              ...state.runState,
+              blockProgress: nextStatus.progress ?? state.runState.blockProgress,
+              blockStep: nextStatus.step ?? 'Executing workflow…',
             },
+          }))
+          useAppStore.getState().updateCurrentJob({
+            status: 'generating',
+            progress: nextStatus.progress,
+            step: nextStatus.step,
           })
-          if (outputUrl) useAppStore.getState().pushMeshUrl(outputUrl)
-          useAppStore.getState().updateCurrentJob({ status: 'done', progress: 100, outputUrl })
-          return
-        }
+        },
+      })
 
-        if (status.status === 'cancelled') {
-          _activeRunId.current = null
-          set({ runState: IDLE, activeNodeId: null, activeWorkflowId: null })
-          useAppStore.getState().setCurrentJob(null)
-          return
-        }
+      if (_cancel.current) return
+      _activeRunId.current = null
+      _pollAbortController.current = null
 
-        if (status.status === 'error' || status.status === 'interrupted') {
-          throw new Error(status.error ?? 'Workflow execution failed')
-        }
-
-        set((state) => ({
+      if (status.status === 'done') {
+        const outputUrl = status.output_url
+        set({
+          activeNodeId: null,
           runState: {
-            ...state.runState,
-            blockProgress: status.progress ?? state.runState.blockProgress,
-            blockStep: status.step ?? 'Executing workflow…',
+            status: 'done',
+            blockIndex: 1,
+            blockTotal: 1,
+            blockProgress: 100,
+            blockStep: 'Workflow complete',
+            outputUrl,
           },
-        }))
-        useAppStore.getState().updateCurrentJob({
-          status: 'generating',
-          progress: status.progress,
-          step: status.step,
         })
+        if (outputUrl) useAppStore.getState().pushMeshUrl(outputUrl)
+        useAppStore.getState().updateCurrentJob({ status: 'done', progress: 100, outputUrl })
+        return
       }
+
+      if (status.status === 'cancelled') {
+        set({ runState: IDLE, activeNodeId: null, activeWorkflowId: null })
+        useAppStore.getState().setCurrentJob(null)
+        return
+      }
+
+      if (status.status === 'error' || status.status === 'interrupted') {
+        throw new Error(status.error ?? 'Workflow execution failed')
+      }
+
+      throw new Error(`Workflow returned an unknown terminal status: ${status.status}`)
     } catch (error) {
       if (_cancel.current) return
       _activeRunId.current = null
+      _pollAbortController.current = null
       const message = error instanceof Error ? error.message : String(error)
       set((state) => ({
         activeNodeId: null,
@@ -166,11 +169,13 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
 
   cancel() {
     _cancel.current = true
+    _pollAbortController.current?.abort()
+    _pollAbortController.current = null
     const runId = _activeRunId.current
     _activeRunId.current = null
     if (runId) {
-      const client = axios.create({ baseURL: useAppStore.getState().apiUrl })
-      void client.post(`/workflow-runs/${runId}/cancel`).catch(() => {})
+      const client = createWorkflowRunsClient(useAppStore.getState().apiUrl)
+      void client.cancel(runId).catch(() => {})
     }
     set({ runState: IDLE, activeNodeId: null, activeWorkflowId: null, nodeImageOutputs: {} })
     useAppStore.getState().setCurrentJob(null)
@@ -178,7 +183,13 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
 
   reset() {
     _cancel.current = false
+    _pollAbortController.current?.abort()
+    _pollAbortController.current = null
     _activeRunId.current = null
     set({ runState: IDLE, activeNodeId: null, activeWorkflowId: null, nodeImageOutputs: {} })
   },
 }))
+
+function isTerminal(status: string): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled' || status === 'interrupted'
+}

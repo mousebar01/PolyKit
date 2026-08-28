@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type Page = 'assets' | 'workflows' | 'nodePacks' | 'agent' | 'settings'
+export type Page = 'assets' | 'worlds' | 'workflows' | 'nodePacks' | 'agent' | 'settings'
 export type SettingsSection = 'application' | 'agent' | 'storage' | 'integrations' | 'network' | 'about'
 
 interface NavState {

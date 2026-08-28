@@ -18,7 +18,7 @@
     "test": "npm run test:py && npm run test:cli && npm run test:node",
     "test:py": "node scripts/run-pytests.mjs",
     "test:cli": "node scripts/run-cli-tests.mjs",
-    "test:node": "node --test --experimental-strip-types --experimental-loader ./scripts/node-ts-extensionless-loader.mjs src/shared/i18n.test.ts src/shared/stores/workflowsStore.test.ts src/shared/types/assetLibrary.test.ts src/areas/assets/assetLibraryProjection.test.ts src/areas/assets/assetLibraryService.test.ts src/areas/assets/assetLibraryUi.test.ts && node --test src/**/*.test.mjs",
+    "test:node": "node --test --experimental-strip-types --experimental-loader ./scripts/node-ts-extensionless-loader.mjs src/shared/i18n.test.ts src/shared/stores/workflowsStore.test.ts src/shared/types/assetLibrary.test.ts src/areas/assets/assetLibraryProjection.test.ts src/areas/assets/assetLibraryService.test.ts src/areas/assets/assetLibraryUi.test.ts src/areas/worlds/runtime/runtime.test.ts && node --test src/**/*.test.mjs",
     "lint": "eslint ."
   },
   "dependencies": {

@@ -14,9 +14,15 @@ export interface WorkflowExecutionRequest {
   collection: string
 }
 
-interface CompileOptions {
+export interface CompileOptions {
   selectedImagePath?: string
   selectedImageData?: string
+  /**
+   * Optional per-node bindings used by headless/web callers. A binding is a
+   * path already present in the server workspace; it deliberately takes
+   * precedence over a node preview or the globally selected image.
+   */
+  imageNodeWorkspacePaths?: Record<string, string>
 }
 
 const IMAGE_NODE = 'polykit.image'
@@ -65,6 +71,15 @@ function wireNodePackInputs(
 function nodeParams(node: WFNode, nodePack: WorkflowNodePack): Record<string, unknown> {
   const defaults = Object.fromEntries((nodePack.params ?? []).map((param) => [param.id, param.default]))
   return { ...defaults, ...(node.data.params ?? {}) }
+}
+
+/** Return true only for a safe path relative to the server workspace. */
+export function isWorkspaceRelativePath(path: string | undefined): path is string {
+  if (!path) return false
+  const normalized = path.trim().replaceAll('\\', '/')
+  if (!normalized || normalized.startsWith('/') || normalized.startsWith('web-file://')) return false
+  if (/^[A-Za-z]:\//.test(normalized)) return false
+  return !normalized.split('/').some((segment) => segment === '..')
 }
 
 async function readBase64(path: string | undefined, data: string | undefined): Promise<string | undefined> {
@@ -126,10 +141,23 @@ export async function compileServerWorkflow(
   for (const node of workflow.nodes) {
     if (node.type !== 'imageNode') continue
     const filePath = node.data.params?.filePath as string | undefined
-    const isWorkspacePath = !!filePath
-      && !filePath.startsWith('web-file://')
-      && !filePath.startsWith('/')
-      && !/^[A-Za-z]:[\\/]/.test(filePath)
+    const hasExplicitWorkspaceBinding = Object.prototype.hasOwnProperty.call(
+      options.imageNodeWorkspacePaths ?? {},
+      node.id,
+    )
+    const explicitWorkspacePath = options.imageNodeWorkspacePaths?.[node.id]
+    if (hasExplicitWorkspaceBinding) {
+      if (!isWorkspaceRelativePath(explicitWorkspacePath)) {
+        return {
+          ok: false,
+          error: `The Image node "${node.id}" must be bound to a workspace-relative path.`,
+        }
+      }
+      imageSourceByNode.set(node.id, { kind: 'workspace_path', path: explicitWorkspacePath })
+      continue
+    }
+
+    const isWorkspacePath = isWorkspaceRelativePath(filePath)
     if (isWorkspacePath) {
       imageSourceByNode.set(node.id, { kind: 'workspace_path', path: filePath })
       continue
@@ -184,10 +212,7 @@ export async function compileServerWorkflow(
       prompt[node.id] = { class_type: TEXT_NODE, inputs: { text } }
     } else if (node.type === 'meshNode') {
       const filePath = node.data.params?.filePath as string | undefined
-      const isWorkspacePath = !!filePath
-        && !filePath.startsWith('web-file://')
-        && !filePath.startsWith('/')
-        && !/^[A-Za-z]:[\\/]/.test(filePath)
+      const isWorkspacePath = isWorkspaceRelativePath(filePath)
       let meshPayload: { kind: 'workspace_path'; path: string } | null = null
       if (isWorkspacePath) {
         meshPayload = { kind: 'workspace_path', path: filePath }

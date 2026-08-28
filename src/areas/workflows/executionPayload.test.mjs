@@ -126,6 +126,22 @@ test('image node with a workspace path compiles to a workspace_path reference', 
   assert.deepEqual(res.ok && res.payload.prompt['img'].inputs.image, { kind: 'workspace_path', path: 'Workflows/hero.png' })
 })
 
+test('an explicit image-node workspace binding wins over its base64 preview', async () => {
+  const imgNode = {
+    id: 'img', type: 'imageNode', position: { x: 0, y: 0 },
+    data: { enabled: true, params: { filePath: 'web-file://temporary/hero.png', preview: `data:image/png;base64,${PNG}` } },
+  }
+  const res = await compileServerWorkflow(
+    wf([imgNode, model(), out()], [edge('img', 'gen', 'input-0'), edge('gen', 'out')]),
+    PACKS,
+    { imageNodeWorkspacePaths: { img: 'Workflows/hero.png' } },
+  )
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.ok && res.payload.prompt['img'].inputs.image, {
+    kind: 'workspace_path', path: 'Workflows/hero.png',
+  })
+})
+
 test('image node with a browser temp path falls back to persisted preview base64', async () => {
   // web-file:// temp path is gone (reload) but the persisted preview data-URL exists.
   const imgNode = {

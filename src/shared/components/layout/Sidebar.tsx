@@ -1,4 +1,4 @@
-import { Bot, Box, Package, Settings, Workflow, type LucideIcon } from 'lucide-react'
+import { Bot, Box, Globe2, Package, Settings, Workflow, type LucideIcon } from 'lucide-react'
 
 import { Button } from '@shared/components/ui/button'
 import { useNavStore, type Page } from '@shared/stores/navStore'
@@ -7,6 +7,7 @@ import { cn } from '@shared/lib/utils'
 
 const NAV_ITEMS: { id: Page; label: TranslationKey; icon: LucideIcon }[] = [
   { id: 'assets', label: 'nav.assets', icon: Box },
+  { id: 'worlds', label: 'nav.worlds', icon: Globe2 },
   { id: 'workflows', label: 'nav.workflows', icon: Workflow },
   { id: 'nodePacks', label: 'nav.nodePacks', icon: Package },
   { id: 'agent', label: 'nav.agent', icon: Bot },

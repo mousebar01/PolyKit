@@ -4,7 +4,13 @@ import { useAppStore, type Language } from './stores/appStore'
 // English is the source locale. TranslationKey is derived from this object so
 // adding application UI copy always starts from one stable source string.
 export const EN_US = {
-  'nav.assets': 'Assets', 'nav.workflows': 'Workflows', 'nav.nodePacks': 'Node Packs', 'nav.agent': 'Chat', 'nav.settings': 'Settings',
+  'nav.assets': 'Assets', 'nav.worlds': 'Worlds', 'nav.workflows': 'Workflows', 'nav.nodePacks': 'Node Packs', 'nav.agent': 'Chat', 'nav.settings': 'Settings',
+  'worlds.title': 'Worlds', 'worlds.localRuntime': 'Local runtime', 'worlds.openWorkflows': 'Open workflows', 'worlds.save': 'Save world', 'worlds.saving': 'Saving…',
+  'worlds.seed': 'Seed', 'worlds.instances': 'instances', 'worlds.controls': 'Drag to orbit · scroll to zoom', 'worlds.snapshot': 'World snapshot',
+  'worlds.snapshotDescription': 'Deterministic terrain and placement from one seed.', 'worlds.mapSize': 'Map size', 'worlds.regions': 'Regions',
+  'worlds.heroSlots': 'Hero slots', 'worlds.prototypes': 'Prototypes', 'worlds.prototypeHint': 'Click a prototype to highlight its instances.',
+  'worlds.openSaved': 'Open saved world', 'worlds.openSavedDescription': 'Workspace-relative `.world.json` document.', 'worlds.worldId': 'World ID',
+  'worlds.connectServer': 'Connect the PolyKit server to save or load worlds.', 'worlds.load': 'Load world',
   'settings.title': 'Settings', 'settings.application': 'Application', 'settings.storage': 'Storage',
   'settings.integrations': 'Integrations', 'settings.agent': 'Agent',
   'settings.agentSubtitle': 'Embedded Agent runtime for asset and Blender work.',
@@ -221,7 +227,13 @@ export type TranslationKey = keyof typeof EN_US
 // Technical identifiers such as GLB, UV, RAM, Matcap, model names and parameter
 // values intentionally remain unchanged when that is the industry-facing term.
 export const ZH_CN = {
-  'nav.assets': '资产', 'nav.workflows': '工作流', 'nav.nodePacks': '节点包', 'nav.agent': '对话', 'nav.settings': '设置',
+  'nav.assets': '资产', 'nav.worlds': '世界', 'nav.workflows': '工作流', 'nav.nodePacks': '节点包', 'nav.agent': '对话', 'nav.settings': '设置',
+  'worlds.title': '世界', 'worlds.localRuntime': '本地运行时', 'worlds.openWorkflows': '打开工作流', 'worlds.save': '保存世界', 'worlds.saving': '保存中…',
+  'worlds.seed': '种子', 'worlds.instances': '个实例', 'worlds.controls': '拖动旋转 · 滚轮缩放', 'worlds.snapshot': '世界快照',
+  'worlds.snapshotDescription': '由同一个种子确定性生成地形和布局。', 'worlds.mapSize': '地图尺寸', 'worlds.regions': '区域',
+  'worlds.heroSlots': '主资产槽位', 'worlds.prototypes': '原型', 'worlds.prototypeHint': '点击原型高亮它的实例。',
+  'worlds.openSaved': '打开已保存世界', 'worlds.openSavedDescription': '工作区相对路径的 `.world.json` 文档。', 'worlds.worldId': '世界 ID',
+  'worlds.connectServer': '连接 PolyKit 服务端后才能保存或加载世界。', 'worlds.load': '加载世界',
   'settings.title': '设置', 'settings.application': '应用', 'settings.storage': '存储',
   'settings.integrations': '集成', 'settings.agent': '智能助手',
   'settings.agentSubtitle': '用于资产与 Blender 操作的内置智能助手。',
