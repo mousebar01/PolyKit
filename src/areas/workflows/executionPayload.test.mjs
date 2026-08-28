@@ -29,6 +29,10 @@ const PACKS = [
     nodePackAuthor: '', nodeId: 'generate', name: 'Generate Mesh', description: '',
     input: 'image', output: 'mesh', params: [], builtin: false, type: 'model',
   },
+  {
+    id: 'anima/generate', nodePackId: 'anima', nodePackName: 'Anima', nodePackAuthor: 'CircleStone Labs', nodeId: 'generate', name: 'Generate Illustration', description: '',
+    input: 'text', output: 'image', params: [], builtin: true, type: 'model',
+  },
 ]
 const node = (id, type, params = {}, nodePackId) =>
   ({ id, type, position: { x: 0, y: 0 }, data: { enabled: true, ...(nodePackId ? { nodePackId } : {}), params } })
@@ -37,6 +41,7 @@ const edge = (s, t, th) => ({ id: `${s}->${t}`, source: s, target: t, ...(th ? {
 const img = (id = 'img') => node(id, 'imageNode')
 const model = (id = 'gen') => node(id, 'nodePackNode', {}, 'trellis2/generate')
 const out = (id = 'out', enabled = true) => node(id, 'outputNode', {})
+const preview = (id = 'preview') => node(id, 'previewNode', {})
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
@@ -156,4 +161,16 @@ test('image node with a browser temp path falls back to persisted preview base64
   assert.ok(res.ok && res.payload.prompt['img'].inputs.image)
   assert.equal(res.ok && res.payload.prompt['img'].inputs.image.kind, 'base64')
   assert.equal(res.ok && res.payload.prompt['img'].inputs.image.data, PNG)
+})
+
+test('text → Anima → image preview compiles with an image sink input', async () => {
+  const text = node('text', 'textNode', { text: 'single low-poly observatory, cel shading' })
+  const anima = node('anima', 'nodePackNode', {}, 'anima/generate')
+  const res = await compileServerWorkflow(
+    wf([text, anima, preview()], [edge('text', 'anima', 'input-0'), edge('anima', 'preview')]),
+    PACKS,
+  )
+  assert.equal(res.ok, true)
+  assert.ok(res.ok && res.payload.prompt.preview)
+  assert.deepEqual(res.ok && res.payload.prompt.preview.inputs.image, ['anima', 'image'])
 })

@@ -1,0 +1,106 @@
+{
+  "id": "anima",
+  "name": "Anima (official Diffusers)",
+  "type": "model",
+  "source": "https://huggingface.co/circlestone-labs/Anima-Base-v1.0-Diffusers",
+  "version": "1.0.0",
+  "author": "CircleStone Labs",
+  "generator_class": "AnimaGenerator",
+  "vram_gb": 8,
+  "env": "isolated",
+  "trusted": true,
+  "builtin": true,
+  "tags": ["text-to-image", "anime", "illustration", "diffusers"],
+  "description": "Official Anima 2B Diffusers workflow for non-photorealistic anime and illustration images. Weights are downloaded separately through the Models page.",
+  "model_location": "anima",
+  "requirements": [
+    "diffusers>=0.36.0,<1",
+    "transformers>=4.57.0,<6",
+    "accelerate>=1.9.0",
+    "safetensors>=0.5.0",
+    "huggingface_hub>=0.34.0",
+    "Pillow>=10.0.0"
+  ],
+  "download": {
+    "kind": "huggingface",
+    "repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
+    "location": "anima",
+    "check": "model_index.json",
+    "note": "Official Diffusers conversion of Anima Base v1.0. Accept the model license and configure a Hugging Face token if the Hub requests access."
+  },
+  "hf_repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
+  "download_check": "model_index.json",
+  "nodes": [
+    {
+      "id": "generate",
+      "name": "Generate Illustration",
+      "i18n": {
+        "zh-CN": { "name": "生成插画" }
+      },
+      "input": "text",
+      "output": "image",
+      "hf_repo": "circlestone-labs/Anima-Base-v1.0-Diffusers",
+      "download_check": "model_index.json",
+      "params_schema": [
+        {
+          "id": "steps",
+          "label": "Steps",
+          "type": "int",
+          "default": 32,
+          "min": 1,
+          "max": 60,
+          "tooltip": "Anima Base quality steps. 30–50 is the official recommended range."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance",
+          "type": "float",
+          "default": 4.5,
+          "min": 1,
+          "max": 8,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance. Anima Base is usually strongest around CFG 4–5."
+        },
+        {
+          "id": "width",
+          "label": "Width",
+          "type": "int",
+          "default": 1024,
+          "min": 512,
+          "max": 1536,
+          "step": 64
+        },
+        {
+          "id": "height",
+          "label": "Height",
+          "type": "int",
+          "default": 1024,
+          "min": 512,
+          "max": 1536,
+          "step": 64
+        },
+        {
+          "id": "negative_prompt",
+          "label": "Negative prompt",
+          "type": "string",
+          "default": "lowres, bad anatomy, bad hands, text, watermark, logo, jpeg artifacts"
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Use a fixed seed for reproducible results; -1 is random."
+        },
+        {
+          "id": "filename_stem",
+          "label": "Filename stem",
+          "type": "string",
+          "default": "anima"
+        }
+      ]
+    }
+  ]
+}

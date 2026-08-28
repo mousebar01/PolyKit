@@ -68,6 +68,39 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="polykit_generate_image",
+            description=(
+                "Generate an illustration from text through a local PolyKit workflow. "
+                "Defaults to the official Anima Diffusers node; returns a run ID."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Anime/illustration prompt; Danbooru tags or natural language are both accepted.",
+                    },
+                    "model_id": {
+                        "type": "string",
+                        "description": "Text-to-image node id; default: anima/generate.",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Optional model parameters such as steps, guidance_scale, seed, width, and height.",
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": "Workspace collection; default: Illustrations.",
+                    },
+                    "workflow_id": {
+                        "type": "string",
+                        "description": "Optional workflow provenance id.",
+                    },
+                },
+                "required": ["prompt"],
+            },
+        ),
+        Tool(
             name="polykit_get_generation_status",
             description="Poll a PolyKit server run. Call repeatedly until status is 'done', 'cancelled', or 'error'.",
             inputSchema={
@@ -309,6 +342,38 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return (
             f"Generation started. Run ID: {run_id}\n"
             f"Use polykit_get_generation_status with this ID to track progress."
+        )
+
+    if name == "polykit_generate_image":
+        prompt = _required_text(args.get("prompt"), "prompt")
+        model_id = _required_text(args.get("model_id") or "anima/generate", "model_id")
+        params = args.get("params")
+        if not isinstance(params, Mapping):
+            params = {}
+        workflow_id = str(args.get("workflow_id") or "").strip() or None
+        payload = {
+            "schema_version": 1,
+            "workflow_id": workflow_id,
+            "prompt": {
+                "text": {"class_type": "polykit.text", "inputs": {"text": prompt}},
+                "image": {
+                    "class_type": model_id,
+                    "inputs": {"text": ["text", "text"], "params": dict(params)},
+                },
+                "output": {
+                    "class_type": "polykit.image_output",
+                    "inputs": {"image": ["image", "image"]},
+                },
+            },
+            "output_node_id": "output",
+            "collection": str(args.get("collection") or "Illustrations"),
+        }
+        response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
+        response.raise_for_status()
+        run_id = response.json()["run_id"]
+        return (
+            f"Illustration generation started with {model_id}. Run ID: {run_id}\n"
+            "Use polykit_get_generation_status with this ID to track progress."
         )
 
     if name == "polykit_get_generation_status":

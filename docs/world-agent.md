@@ -97,12 +97,13 @@ RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓�
      Image VAE 分开管理，并提供磁盘/CPU offload。它适合作为 4090 显存管理和 LoRA
      接口的参考，但不把整个 DiffSynth 框架作为 PolyKit 依赖。
 
-   映射到 PolyKit 后的最小 DAG 是：
+   映射到 PolyKit 后，首个已实现的最小 DAG 是：
 
-   `polykit.text → prompt/style template → anima/image → alpha matte → trellis2/generate → polykit.output`
+   `polykit.text → anima/generate → polykit.image_output`
 
-   其中 `anima/image` 只负责生成 RGB 概念图，alpha matte 是独立处理节点；这样
-   Agent 可以替换风格、seed、分辨率或 LoRA，而不把抠图逻辑塞进模型节点。
+   `anima/generate` 只负责官方 Diffusers 文生图并输出 PNG；它不假装原生透明。
+   后续若接入经过评测的 alpha-matte 节点，可以把它插在 image output 之前，再将
+   RGBA 图像交给 `trellis2/generate`。
 4. **质量上限候选：HunyuanImage-2.1**：
    `HunyuanImage-2.1 FP8 + refiner → BiRefNet-HR → RGBA PNG → Trellis2`。
    [官方仓库](https://github.com/Tencent-Hunyuan/HunyuanImage-2.1)报告它是 17B、
@@ -135,13 +136,13 @@ FluxLayerDiffuse 和 [OmniAlpha](https://github.com/Longin-Yu/OmniAlpha) 保留�
 研究/对照项：它们能探索原生 RGBA，但不是当前最稳的风格化资产生产默认。
 
 目前 `/home/sy/llm/comfyui-wan` 是承载 Wan 视频的旧版 ComfyUI；它不作为 Krea/Anima
-的依赖，也不应为了图片模型升级。系统中仍没有一条已注册、可被 Agent 直接提交的
-本地文生图工作流。图片模型应以原生 Diffusers/模型节点接入 PolyKit，由现有
-FastAPI workflow-run 统一排队和持久化，不再引入第二个图像运行时。
+的依赖，也不应为了图片模型升级。Anima 已注册为 `anima/generate` 本地模型节点，
+由原生 Diffusers 子进程和现有 FastAPI workflow-run 统一排队、缓存与持久化，不引入
+第二个图像运行时。Agent 可直接调用 `polykit_generate_image` 提交同一套 DAG。
 
 主链和实验链都应作为 Agent 的一个资产阶段：Agent 提交 `style_profile`、prompt、
-negative prompt、seed 和 `alpha_policy`，FastAPI 通过 `/workflow-runs/*` 执行并持久化 `image-rgba`
-工作区产物，完成后再把同一份相对路径交给 `trellis2/generate`。浏览器端的
+negative prompt、seed 和可选的 `alpha_policy`，FastAPI 通过 `/workflow-runs/*` 执行并持久化
+PNG 工作区产物，完成后再把同一份相对路径交给 `trellis2/generate`。浏览器端的
 Three.js 只负责预览和编排结果，不负责启动模型或抠图。
 
 `style_profile` 先约定三个值：`lowpoly_flat`（默认）、`cel_shaded`、
@@ -190,16 +191,27 @@ crystal 六类现有原型各生成固定 seed 的小样本，按下面的顺序
 - `polykit_world_get` / `polykit_world_save`：读取和保存世界计划。
 - `polykit_world_update_stage`：记录上述阶段的 `pending/running/done/blocked`。
 - `polykit_world_list_workflows`：查看可用的本地可编辑工作流。
+- `polykit_generate_image`：提交本地 text-to-image 工作流（默认官方 Anima），输出 PNG。
 - `polykit_world_generate_asset`：为某个原型提交本地 image-to-3D 任务。
 - `polykit_get_generation_status`：轮询服务端任务，直到拿到 `scene_candidate.workspace_path`。
 - `polykit_world_attach_asset`：把完成的 workspace 相对路径写回原型，不复制二进制文件。
+
+`polykit_generate_image` 内部提交的 DAG 等价于：
+
+```json
+{
+  "text": {"class_type": "polykit.text", "inputs": {"text": "..."}},
+  "image": {"class_type": "anima/generate", "inputs": {"text": ["text", "text"], "params": {"seed": 7}}},
+  "output": {"class_type": "polykit.image_output", "inputs": {"image": ["image", "image"]}}
+}
+```
 
 一个最小的 Agent 编排顺序是：
 
 1. `polykit_world_get`；没有文档时先用 `polykit_world_save` 写入 `intent` 和 `plan`。
 2. 将 `intent`、`plan` 标记为 `done`，把 `terrain` / `placement` / `assets` 标记为 `running`。
-3. 用 `polykit_world_list_workflows` 选择已经存在的本地工作流；需要概念图资产时调用
-   `polykit_world_generate_asset`。
+3. 用 `polykit_world_list_workflows` 选择已经存在的本地工作流；需要生成风格化概念图时调用
+   `polykit_generate_image`，需要把概念图重建为网格时再调用 `polykit_world_generate_asset`。
 4. 轮询任务，完成后将输出的 `scene_candidate.workspace_path` 传给
    `polykit_world_attach_asset`，再更新 `assets` 和 `refine`。
 

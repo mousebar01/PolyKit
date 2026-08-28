@@ -193,7 +193,9 @@ export async function compileServerWorkflow(
     if (!incomingSource(workflow, sink.id)) {
       return {
         ok: false,
-        error: `The "${sinkName(sink.type)}" node isn't connected to a mesh. Connect a model or process node to it.`,
+        error: sink.type === 'outputNode'
+          ? `The "${sinkName(sink.type)}" node isn't connected to a mesh. Connect a model or process node to it.`
+          : `The "${sinkName(sink.type)}" node isn't connected to an output. Connect a model or process node to it.`,
       }
     }
   }
@@ -236,17 +238,25 @@ export async function compileServerWorkflow(
       }
     } else if (node.type === 'outputNode' || node.type === 'previewNode') {
       if (!enabled(node)) continue
-      const meshSource = incomingSource(workflow, node.id)
-      if (!meshSource) {
-        return { ok: false, error: `The "${sinkName(node.type)}" node has no incoming mesh connection.` }
+      const sourceId = incomingSource(workflow, node.id)
+      if (!sourceId) {
+        return { ok: false, error: `The "${sinkName(node.type)}" node has no incoming connection.` }
       }
-      const source = workflow.nodes.find((candidate) => candidate.id === meshSource)
+      const source = workflow.nodes.find((candidate) => candidate.id === sourceId)
       if (!source) {
         return { ok: false, error: `The "${sinkName(node.type)}" node references a missing upstream node.` }
       }
+      const sourceOutput = outputNameOf(source, allNodePacks)
+      if (node.type === 'outputNode' && sourceOutput !== 'mesh') {
+        return { ok: false, error: 'Output needs a mesh. Use Preview for image results.' }
+      }
+      if (node.type === 'previewNode' && sourceOutput !== 'mesh' && sourceOutput !== 'image') {
+        return { ok: false, error: 'Preview needs an image or mesh result.' }
+      }
+      const sinkInput = node.type === 'previewNode' && sourceOutput === 'image' ? 'image' : 'mesh'
       prompt[node.id] = {
         class_type: node.type === 'outputNode' ? OUTPUT_NODE : PREVIEW_NODE,
-        inputs: { mesh: [meshSource, outputNameOf(source, allNodePacks)] },
+        inputs: { [sinkInput]: [sourceId, sourceOutput] },
       }
       if (node.type === 'outputNode') outputNodeId = node.id
     }

@@ -21,10 +21,11 @@ def _path_from_model_result(
     result: object,
     model_id: str,
     output_dir: Path,
+    output_kind: str = "mesh",
 ) -> Path:
     candidate: object = result
     if isinstance(result, Mapping):
-        for key in ("primary_mesh", "mesh", "filePath", "path", "output_path"):
+        for key in ("primary_mesh", "mesh", "image", "filePath", "path", "output_path"):
             value = result.get(key)
             if value is not None:
                 candidate = value
@@ -36,7 +37,7 @@ def _path_from_model_result(
         path = Path(candidate)
     else:
         raise WorkflowError(
-            f"Model node '{model_id}' did not return a mesh path "
+            f"Model node '{model_id}' did not return an {output_kind} path "
             f"(got {type(result).__name__})"
         )
 
@@ -44,7 +45,7 @@ def _path_from_model_result(
         path = output_dir / path
     if not path.is_file():
         raise WorkflowError(
-            f"Model node '{model_id}' returned a missing mesh file: {path}"
+            f"Model node '{model_id}' returned a missing {output_kind} file: {path}"
         )
     return path
 

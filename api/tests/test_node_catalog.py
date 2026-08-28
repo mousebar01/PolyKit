@@ -31,11 +31,12 @@ class BuiltinNodeTests(unittest.TestCase):
         by_type = {d.class_type: d for d in definitions}
         self.assertEqual(
             set(by_type),
-            {"polykit.image", "polykit.text", "polykit.mesh", "polykit.output", "polykit.preview"},
+            {"polykit.image", "polykit.text", "polykit.mesh", "polykit.output", "polykit.preview", "polykit.image_output"},
         )
         self.assertEqual(by_type["polykit.image"].outputs, ["image"])
         self.assertEqual(by_type["polykit.mesh"].outputs, ["mesh"])
         self.assertEqual(by_type["polykit.output"].inputs, ["mesh"])
+        self.assertEqual(by_type["polykit.image_output"].inputs, ["image"])
         self.assertTrue(all(d.category == "builtin" for d in definitions))
 
 

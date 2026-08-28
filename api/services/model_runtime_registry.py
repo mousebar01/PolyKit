@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -21,6 +22,20 @@ from services.runtime_paths import runtime_paths
 
 EXECUTOR = os.environ.get("POLYKIT_EXECUTOR", "cuda").strip().lower() or "cuda"
 _DEFAULT_IDLE_UNLOAD_SECONDS = 5 * 60
+
+
+def _model_location(manifest: dict, model_id: str) -> str:
+    """Resolve a manifest's shared weight directory without allowing traversal."""
+    raw = str(manifest.get("model_location") or model_id).strip()
+    parts = Path(raw).parts
+    if (
+        not raw
+        or Path(raw).is_absolute()
+        or not parts
+        or any(part in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts)
+    ):
+        return model_id
+    return raw
 
 
 def _idle_unload_seconds() -> float:
@@ -178,6 +193,8 @@ class ModelRuntimeRegistry:
         for model_id, entry in node_packs.items():
             cls, manifest, pack_dir = entry
             try:
+                model_location = _model_location(manifest, model_id)
+                model_root = paths.models / model_location
                 if cls is None:
                     if not _venv_python(pack_dir).exists():
                         raise RuntimeError(
@@ -185,10 +202,10 @@ class ModelRuntimeRegistry:
                             "Click 'Repair' on the Models page to run setup.py."
                         )
                     gen = ModelPackSubprocess(pack_dir, manifest)
-                    gen.model_dir = paths.models / model_id
+                    gen.model_dir = model_root
                     gen.outputs_dir = paths.workspace
                 else:
-                    gen = cls(paths.models / model_id, paths.workspace)
+                    gen = cls(model_root, paths.workspace)
                     gen.hf_repo = manifest.get("hf_repo", "")
                     gen.hf_skip_prefixes = manifest.get("hf_skip_prefixes", [])
                     gen.download_check = manifest.get("download_check", "")
@@ -406,7 +423,9 @@ class ModelRuntimeRegistry:
 
             if models_dir is not None:
                 for model_id, gen in self._generators.items():
-                    gen.model_dir = paths.models / model_id
+                    manifest = self._manifests.get(model_id, {})
+                    model_location = _model_location(manifest, model_id)
+                    gen.model_dir = paths.models / model_location
 
             if workspace_dir is not None:
                 for gen in self._generators.values():

@@ -51,7 +51,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         run_coordinator.persist(job)
 
         engine = WorkflowEngine()
-        final_mesh = await engine.run(
+        final_artifact = await engine.run(
             job_id=job_id,
             request=request,
             job=job,
@@ -62,19 +62,20 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
 
         if run_coordinator.is_cancelled(job_id):
             return
-        if final_mesh is None or not final_mesh.exists():
-            raise WorkflowError("Workflow completed without a mesh output")
+        if final_artifact is None or not final_artifact.exists():
+            raise WorkflowError("Workflow completed without an output artifact")
 
         job.status = "done"
         job.progress = 100
         job.step = "Workflow complete"
-        job.output_url = workspace_url(final_mesh, collection)
+        job.output_url = workspace_url(final_artifact, collection)
         run_coordinator.mark_completed(job)
-        thumbnail_target = final_mesh
-        try:
-            thumbnail_workspace_path = final_mesh.relative_to(runtime_paths.workspace).as_posix()
-        except ValueError:
-            thumbnail_target = None
+        if (job.meta or {}).get("artifact_kind", "mesh") == "mesh":
+            thumbnail_target = final_artifact
+            try:
+                thumbnail_workspace_path = final_artifact.relative_to(runtime_paths.workspace).as_posix()
+            except ValueError:
+                thumbnail_target = None
 
     except (WorkflowError, ProcessExecutionError) as exc:
         if run_coordinator.is_cancelled(job_id):
@@ -204,9 +205,9 @@ async def execute_workflow(
         if request.output_node_id is not None:
             output_node = request.prompt.get(request.output_node_id)
             if output_node is None or output_node.class_type not in SINK_NODES:
-                raise ValueError("output_node_id must point to polykit.output or polykit.preview")
+                raise ValueError("output_node_id must point to an output or preview sink")
         if not any(request.prompt[node_id].class_type in SINK_NODES for node_id in order):
-            raise ValueError("Workflow must include a polykit.output or polykit.preview node")
+            raise ValueError("Workflow must include an output or preview sink")
         validate_prompt_links(request)
     except (KeyError, ValueError, OSError) as exc:
         raise HTTPException(400, str(exc)) from exc

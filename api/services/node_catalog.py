@@ -43,6 +43,11 @@ BUILTIN_NODES: Dict[str, Dict[str, Any]] = {
         "description": "Terminal sink that collects a mesh for preview.",
         "inputs": ["mesh"],
     },
+    "polykit.image_output": {
+        "name": "Image Output",
+        "description": "Terminal sink that publishes a generated image into the workspace.",
+        "inputs": ["image"],
+    },
 }
 
 CATEGORY_BUILTIN = "builtin"

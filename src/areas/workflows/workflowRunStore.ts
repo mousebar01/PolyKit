@@ -127,6 +127,13 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
 
       if (status.status === 'done') {
         const outputUrl = status.output_url
+        const artifactKind = status.meta?.artifact_kind
+        const imagePreviewSources = artifactKind === 'image'
+          ? workflow.nodes
+            .filter((node) => node.type === 'previewNode')
+            .map((node) => workflow.edges.find((edge) => edge.target === node.id)?.source)
+            .filter((source): source is string => Boolean(source))
+          : []
         set({
           activeNodeId: null,
           runState: {
@@ -137,8 +144,11 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set) => ({
             blockStep: 'Workflow complete',
             outputUrl,
           },
+          nodeImageOutputs: outputUrl
+            ? Object.fromEntries(imagePreviewSources.map((source) => [source, outputUrl]))
+            : {},
         })
-        if (outputUrl) useAppStore.getState().pushMeshUrl(outputUrl)
+        if (outputUrl && artifactKind !== 'image') useAppStore.getState().pushMeshUrl(outputUrl)
         useAppStore.getState().updateCurrentJob({ status: 'done', progress: 100, outputUrl })
         return
       }

@@ -570,8 +570,10 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
       progress: 100,
       outputUrl: url,
     })
-    useAppStore.getState().pushMeshUrl(url)
-  }, [currentJob?.outputUrl, currentJob?.status, latestRemoteOutput?.output_url, latestRemoteOutput?.run_id, setCurrentJob])
+    if (latestRemoteOutput?.meta?.artifact_kind !== 'image') {
+      useAppStore.getState().pushMeshUrl(url)
+    }
+  }, [currentJob?.outputUrl, currentJob?.status, latestRemoteOutput?.meta?.artifact_kind, latestRemoteOutput?.output_url, latestRemoteOutput?.run_id, setCurrentJob])
 
   const outputs = useMemo(() => {
     const candidates = [

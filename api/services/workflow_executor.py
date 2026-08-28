@@ -31,8 +31,9 @@ TEXT_NODE = "polykit.text"
 MESH_NODE = "polykit.mesh"
 OUTPUT_NODE = "polykit.output"
 PREVIEW_NODE = "polykit.preview"
+IMAGE_OUTPUT_NODE = "polykit.image_output"
 SOURCE_NODES = {IMAGE_NODE, TEXT_NODE, MESH_NODE}
-SINK_NODES = {OUTPUT_NODE, PREVIEW_NODE}
+SINK_NODES = {OUTPUT_NODE, PREVIEW_NODE, IMAGE_OUTPUT_NODE}
 BUILTIN_NODES = SOURCE_NODES | SINK_NODES
 
 
@@ -206,8 +207,17 @@ class NodeOutputCache:
         value = self._store.get(sig)
         if value is None:
             return None
-        mesh = value.get("mesh")
-        if isinstance(mesh, Path) and not mesh.exists():
+        def _files_exist(candidate: Any) -> bool:
+            if isinstance(candidate, Path):
+                return candidate.is_file()
+            if isinstance(candidate, (list, tuple)):
+                return all(_files_exist(item) for item in candidate)
+            # MeshArtifact/ImageArtifact expose exists() without making the
+            # cache depend on either artifact module.
+            exists = getattr(candidate, "exists", None)
+            return bool(exists()) if callable(exists) else True
+
+        if not all(_files_exist(item) for item in value.values()):
             self._store.pop(sig, None)
             return None
         return value
@@ -225,6 +235,20 @@ def _is_deterministic(params: Dict[str, Any]) -> bool:
 
 
 def _decode_image_payload(value: object) -> bytes:
+    if isinstance(value, Path):
+        if not value.is_file():
+            raise WorkflowError(f"Image file not found: {value}")
+        data = value.read_bytes()
+        if not data:
+            raise WorkflowError("Image input is empty")
+        return data
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        data = bytes(value)
+        if not data:
+            raise WorkflowError("Image input is empty")
+        return data
+    if hasattr(value, "path") and isinstance(getattr(value, "path"), Path):
+        return _decode_image_payload(getattr(value, "path"))
     if not isinstance(value, dict):
         raise WorkflowError("Image input must be an object")
 
@@ -342,6 +366,7 @@ async def _run_model_node(
     phase_cb,
 ) -> Dict[str, Any]:
     image_value = node.inputs.get("image")
+    text_value = node.inputs.get("text")
     if image_value is not None:
         resolved = resolve(image_value)
         if isinstance(resolved, list):
@@ -354,8 +379,9 @@ async def _run_model_node(
                 out = await _run_model_node(
                     loop, item_node, resolve, output_dir, cancel_event, phase_cb
                 )
-                outputs.append(out.get("mesh"))
-            return {"mesh": outputs}
+                outputs.append(out.get("image") or out.get("mesh"))
+            output_key = "image" if manifest_output_kind(node.class_type) == "image" else "mesh"
+            return {output_key: outputs}
 
     model_id = node.class_type
     try:
@@ -366,9 +392,53 @@ async def _run_model_node(
 
     params_value = resolve(node.inputs.get("params", {}))
     params = dict(params_value) if isinstance(params_value, dict) else {}
-    params.setdefault("remesh", "none")
-    params.setdefault("enable_texture", False)
-    params.setdefault("texture_resolution", 1024)
+    output_kind = manifest_output_kind(model_id)
+    if output_kind != "image":
+        params.setdefault("remesh", "none")
+        params.setdefault("enable_texture", False)
+        params.setdefault("texture_resolution", 1024)
+
+    if text_value is not None:
+        resolved_text = resolve(text_value)
+        if isinstance(resolved_text, list):
+            outputs = []
+            for item in resolved_text:
+                item_node = WorkflowExecutionNode(
+                    class_type=node.class_type,
+                    inputs={**node.inputs, "text": item},
+                )
+                out = await _run_model_node(
+                    loop, item_node, resolve, output_dir, cancel_event, phase_cb
+                )
+                outputs.append(out.get("image") or out.get("mesh"))
+            return {"image" if output_kind == "image" else "mesh": outputs}
+        if output_kind != "image":
+            raise WorkflowError(f"Model node '{model_id}' does not accept text input")
+        params["prompt"] = str(resolved_text or "")
+        model_runtime_registry.switch_model(model_id, allow_during_generation=True)
+        await _load_model(loop, phase_cb, cancel_event)
+        output_path = await loop.run_in_executor(
+            None,
+            lambda: execute_model(
+                model_id,
+                None,
+                params,
+                output_dir,
+                phase_cb,
+                cancel_event,
+            ),
+        )
+        if not isinstance(output_path, Path):
+            raise WorkflowError(f"Model node '{model_id}' did not return an image path")
+        try:
+            stem = str(params.get("filename_stem") or manifest.get("name") or model_id)
+            renamed = output_path.with_name(output_name(stem, tag="image", ext=output_path.suffix))
+            if renamed != output_path and not renamed.exists():
+                output_path.rename(renamed)
+                output_path = renamed
+        except OSError:
+            pass
+        return {"image": output_path}
 
     image_bytes: bytes | None = None
     if image_value is not None:
@@ -400,7 +470,7 @@ async def _run_model_node(
         ),
     )
     if not isinstance(output_path, Path):
-        raise WorkflowError(f"Model node '{model_id}' did not return a mesh path")
+        raise WorkflowError(f"Model node '{model_id}' did not return a {output_kind} path")
 
     try:
         raw_image = node.inputs.get("image")
@@ -416,7 +486,16 @@ async def _run_model_node(
     except OSError:
         pass
 
-    return {"mesh": output_path}
+    return {output_kind: output_path}
+
+
+def manifest_output_kind(model_id: str) -> str:
+    """Return a model's declared artifact kind, defaulting to the legacy mesh."""
+    try:
+        value = model_runtime_registry.get_manifest(model_id).get("output", "mesh")
+    except (KeyError, ValueError):
+        value = "mesh"
+    return str(value or "mesh")
 
 
 async def _run_process_node(
@@ -493,8 +572,8 @@ async def _run_process_node(
 
     result = await loop.run_in_executor(None, _run)
     out_kind = node_manifest.get("output", "mesh")
-    if out_kind == "mesh" and result.get("filePath"):
-        return {"mesh": Path(str(result["filePath"]))}
+    if out_kind in {"mesh", "image"} and result.get("filePath"):
+        return {out_kind: Path(str(result["filePath"]))}
     if out_kind == "text" and result.get("text") is not None:
         return {"text": str(result["text"])}
     raise WorkflowError(f"Process node '{class_type}' produced no {out_kind} output")

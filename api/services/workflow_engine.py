@@ -1,8 +1,9 @@
 """Artifact-aware canonical workflow engine.
 
-Existing model/process node APIs still consume filesystem paths, but the DAG
-carries ``MeshArtifact`` values and only ``polykit.output`` publishes them into
-a user collection. Run-specific storage and cancellation live in an explicit
+Existing model/process node APIs still consume filesystem paths, while the DAG
+carries typed file-backed mesh or image artifacts. Meshes publish through
+``polykit.output`` and images through ``polykit.image_output`` (or an image
+preview sink). Run-specific storage and cancellation live in an explicit
 ExecutionContext. Deterministic node outputs are cached across runs in the
 current server process using a bounded workspace-backed cache.
 """
@@ -31,11 +32,20 @@ from services.mesh_artifacts import (
     unwrap_mesh_value,
     wrap_mesh_value,
 )
+from services.image_artifacts import (
+    ImageArtifact,
+    contains_nonpersistent_image,
+    first_image_path,
+    publish_image_value,
+    wrap_image_value,
+    image_value_exists,
+)
 from services.model_node_executor import run_model_node
 from services.node_catalog import process_node_pack
 from services.runtime_paths import runtime_paths
 from services.workflow_executor import (
     IMAGE_NODE,
+    IMAGE_OUTPUT_NODE,
     MESH_NODE,
     OUTPUT_NODE,
     SINK_NODES,
@@ -175,6 +185,16 @@ class ArtifactNodeOutputCache(NodeOutputCache):
                 persistent=True,
                 origin="cache",
             )
+        if isinstance(value, ImageArtifact):
+            source = value.path
+            if not source.is_file():
+                return value
+            index = counter[0]
+            counter[0] += 1
+            suffix = source.suffix or ".bin"
+            destination = cache_dir / f"image-{index}{suffix}"
+            shutil.copy2(source, destination)
+            return ImageArtifact(path=destination, persistent=True, origin="cache")
         if isinstance(value, Path) and value.is_file():
             index = counter[0]
             counter[0] += 1
@@ -213,9 +233,22 @@ class ArtifactNodeOutputCache(NodeOutputCache):
         value = self._store.get(sig)
         if value is None:
             return None
-        if not mesh_value_exists(value.get("mesh")):
-            self._store.pop(sig, None)
-            return None
+        def _artifact_exists(artifact_value: Any) -> bool:
+            if isinstance(artifact_value, MeshArtifact):
+                return mesh_value_exists(artifact_value)
+            if isinstance(artifact_value, ImageArtifact):
+                return image_value_exists(artifact_value)
+            if isinstance(artifact_value, Path):
+                return artifact_value.is_file()
+            if isinstance(artifact_value, (list, tuple)):
+                return all(_artifact_exists(item) for item in artifact_value)
+            return True
+
+        for artifact_value in value.values():
+            exists = _artifact_exists(artifact_value)
+            if not exists:
+                self._store.pop(sig, None)
+                return None
         cache_dir = self._root() / sig
         if cache_dir.is_dir():
             try:
@@ -232,6 +265,8 @@ class ArtifactNodeOutputCache(NodeOutputCache):
         stable = dict(value)
         if "mesh" in stable:
             stable["mesh"] = self._materialize_mesh(stable["mesh"], cache_dir, [0])
+        if "image" in stable:
+            stable["image"] = self._materialize_mesh(stable["image"], cache_dir, [0])
         self._store[sig] = stable
 
     def clear(self) -> None:
@@ -250,7 +285,7 @@ def clear_workflow_cache() -> None:
 
 
 class WorkflowEngine:
-    """Execute a workflow while keeping intermediate mesh files private to the run."""
+    """Execute a workflow while keeping intermediate artifact files run-private."""
 
     def __init__(self, node_cache: Optional[NodeOutputCache] = None, cache_enabled: bool = True) -> None:
         self.node_cache = node_cache if node_cache is not None else _SHARED_NODE_CACHE
@@ -285,7 +320,7 @@ class WorkflowEngine:
         outputs: Dict[str, Dict[str, Any]] = {}
         ref_sigs: Dict[str, str] = {}
         cacheable: Dict[str, bool] = {}
-        sink_meshes: Dict[str, Any] = {}
+        sink_values: Dict[str, Any] = {}
         output_sink_ids: list[str] = []
 
         for idx, node_id in enumerate(order):
@@ -332,22 +367,37 @@ class WorkflowEngine:
                 continue
 
             if node.class_type in SINK_NODES:
-                mesh = _resolve(node.inputs.get("mesh"))
+                artifact_kind = (
+                    "image"
+                    if node.class_type == IMAGE_OUTPUT_NODE or "image" in node.inputs
+                    else "mesh"
+                )
+                input_name = "image" if artifact_kind == "image" else "mesh"
+                artifact = _resolve(node.inputs.get(input_name))
                 job.progress = max(job.progress, end)
                 if node.class_type == OUTPUT_NODE:
                     job.step = f"Publishing output ({idx + 1}/{total})"
                     persist()
                     try:
-                        mesh = publish_mesh_value(mesh, coll_dir)
+                        artifact = publish_mesh_value(artifact, coll_dir)
                     except OSError as exc:
                         raise WorkflowError(f"Could not publish workflow output: {exc}") from exc
                     output_sink_ids.append(node_id)
+                elif node.class_type == IMAGE_OUTPUT_NODE:
+                    job.step = f"Publishing image ({idx + 1}/{total})"
+                    persist()
+                    try:
+                        artifact = publish_image_value(artifact, coll_dir)
+                    except OSError as exc:
+                        raise WorkflowError(f"Could not publish workflow image: {exc}") from exc
                 else:
                     job.step = f"Preparing preview ({idx + 1}/{total})"
                     persist()
-                    mesh = _materialize_cached_preview(mesh, artifact_root / "preview")
-                outputs[node_id] = {"mesh": mesh}
-                sink_meshes[node_id] = mesh
+                    if artifact_kind == "mesh":
+                        artifact = _materialize_cached_preview(artifact, artifact_root / "preview")
+                outputs[node_id] = {input_name: artifact}
+                sink_values[node_id] = artifact
+                job.meta = {**(getattr(job, "meta", None) or {}), "artifact_kind": artifact_kind}
                 continue
 
             cacheable_now = self.cache_enabled and _is_deterministic(
@@ -395,6 +445,12 @@ class WorkflowEngine:
                         persistent=False,
                         origin="process",
                     )
+                if "image" in legacy_out:
+                    outputs[node_id]["image"] = wrap_image_value(
+                        legacy_out["image"],
+                        persistent=False,
+                        origin="process",
+                    )
             else:
                 manifest = model_runtime_registry.get_manifest(node.class_type)
                 name = (manifest or {}).get("name") or node.class_type
@@ -423,6 +479,12 @@ class WorkflowEngine:
                         persistent=False,
                         origin="model",
                     )
+                if "image" in legacy_out:
+                    outputs[node_id]["image"] = wrap_image_value(
+                        legacy_out["image"],
+                        persistent=False,
+                        origin="model",
+                    )
 
             if cacheable_now and sig is not None:
                 self.node_cache.set(sig, outputs[node_id])
@@ -437,21 +499,25 @@ class WorkflowEngine:
             persist()
 
         selected: Any = None
-        if request.output_node_id and request.output_node_id in sink_meshes:
-            selected = sink_meshes[request.output_node_id]
+        if request.output_node_id and request.output_node_id in sink_values:
+            selected = sink_values[request.output_node_id]
         elif output_sink_ids:
-            selected = sink_meshes[output_sink_ids[-1]]
-        elif sink_meshes:
-            selected = sink_meshes[next(reversed(sink_meshes))]
+            selected = sink_values[output_sink_ids[-1]]
+        elif sink_values:
+            selected = sink_values[next(reversed(sink_values))]
 
-        final_mesh = first_mesh_path(selected)
-        if final_mesh is not None and output_sink_ids:
+        final_artifact = first_mesh_path(selected) or first_image_path(selected)
+        if final_artifact is not None and output_sink_ids:
             retained_preview = any(
-                node_id not in output_sink_ids and contains_nonpersistent_mesh(mesh)
-                for node_id, mesh in sink_meshes.items()
+                node_id not in output_sink_ids and (
+                    contains_nonpersistent_mesh(value) or contains_nonpersistent_image(value)
+                )
+                for node_id, value in sink_values.items()
             )
-            selected_is_persistent = not contains_nonpersistent_mesh(selected)
+            selected_is_persistent = not (
+                contains_nonpersistent_mesh(selected) or contains_nonpersistent_image(selected)
+            )
             if selected_is_persistent and not retained_preview:
                 cleanup_artifact_root(artifact_root)
 
-        return final_mesh
+        return final_artifact
