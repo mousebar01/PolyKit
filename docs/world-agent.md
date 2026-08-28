@@ -81,6 +81,28 @@ RGBA，最后交给 Trellis2。这样不会为了“原生透明”牺牲轮廓�
    但 Anima 权重使用 CircleStone Labs Non-Commercial License；模型卡允许把输出
    用于商业概念图/资产，却禁止把模型嵌入收费产品功能或作为收费 API。若 PolyKit
    最终要商业化，这条许可是硬约束，不能只看效果。
+
+   ### Anima 的可移植参考工作流
+
+   目前最适合 PolyKit 的不是复制 ComfyUI JSON，而是参考下面两条原生 Python
+   实现：
+
+   - [Diffusers 官方 Anima 管线](https://huggingface.co/docs/diffusers/en/api/pipelines/anima)：
+     `ModularPipeline.from_pretrained → load_components(dtype) → pipe(prompt)`；
+     同一套模块同时定义了 `text2image` 和 `img2img`，输出是 PIL image。公开的
+     `circlestone-labs/Anima-Base-v1.0-Diffusers` 是 Base v1.0 的 Diffusers 转换，
+     因此首个 PolyKit 节点应先以 Base/Aesthetic 为准，不假设 Turbo 已有同格式权重。
+   - [DiffSynth-Studio Anima 示例](https://github.com/modelscope/DiffSynth-Studio/tree/main/examples/anima)：
+     `AnimaImagePipeline + ModelConfig` 将 DiT、Qwen3-0.6B、T5 tokenizer、Qwen
+     Image VAE 分开管理，并提供磁盘/CPU offload。它适合作为 4090 显存管理和 LoRA
+     接口的参考，但不把整个 DiffSynth 框架作为 PolyKit 依赖。
+
+   映射到 PolyKit 后的最小 DAG 是：
+
+   `polykit.text → prompt/style template → anima/image → alpha matte → trellis2/generate → polykit.output`
+
+   其中 `anima/image` 只负责生成 RGB 概念图，alpha matte 是独立处理节点；这样
+   Agent 可以替换风格、seed、分辨率或 LoRA，而不把抠图逻辑塞进模型节点。
 4. **质量上限候选：HunyuanImage-2.1**：
    `HunyuanImage-2.1 FP8 + refiner → BiRefNet-HR → RGBA PNG → Trellis2`。
    [官方仓库](https://github.com/Tencent-Hunyuan/HunyuanImage-2.1)报告它是 17B、
