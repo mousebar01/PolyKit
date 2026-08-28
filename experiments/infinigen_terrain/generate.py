@@ -40,7 +40,7 @@ def _load_infinigen_api():
     try:
         import infinigen  # type: ignore
         from infinigen.core.util.math import FixedSeed, int_hash  # type: ignore
-        from infinigen.core.util.organization import LandTile, Process  # type: ignore
+        from infinigen.core.util.organization import AssetFile, LandTile, Process  # type: ignore
         from infinigen.terrain.assets.landtiles import assets_to_data, landtile_asset  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on external install.
         raise RuntimeError(
@@ -59,7 +59,16 @@ def _load_infinigen_api():
         "volcano": LandTile.Volcano,
         "coast": LandTile.Coast,
     }
-    return infinigen, FixedSeed, int_hash, Process, assets_to_data, landtile_asset, presets
+    return (
+        infinigen,
+        FixedSeed,
+        int_hash,
+        AssetFile,
+        Process,
+        assets_to_data,
+        landtile_asset,
+        presets,
+    )
 
 
 def generate_one(
@@ -76,6 +85,7 @@ def generate_one(
         infinigen,
         FixedSeed,
         int_hash,
+        AssetFile,
         Process,
         assets_to_data,
         landtile_asset,
@@ -88,20 +98,18 @@ def generate_one(
         raise ValueError("resolution below 128 is not useful for this benchmark")
 
     preset = presets[preset_key]
-    asset_folder = cache_dir / preset_key / f"seed_{seed}_r{resolution}"
+    # Infinigen's assets_to_data() derives the preset name from the parent
+    # directory, so preserve the upstream LandTile name verbatim here.
+    asset_folder = cache_dir / str(preset) / f"seed_{seed}_r{resolution}"
     if force and asset_folder.exists():
         shutil.rmtree(asset_folder)
     asset_folder.parent.mkdir(parents=True, exist_ok=True)
 
-    finish = asset_folder / "FINISH"
-    # Infinigen's exact finish filename is versioned through AssetFile, so the
-    # folder itself is used as the stable cache identity. Re-running its asset
-    # function is safe when the caller requests --force; otherwise reuse any
-    # existing generated fields if they can be read.
-    need_generate = not asset_folder.exists() or not any(asset_folder.iterdir())
+    finish = asset_folder / str(AssetFile.Finish)
+    need_generate = not finish.exists()
     if need_generate:
         print(
-            f"[infinigen] generating {preset_key} seed={seed} "
+            f"[infinigen] generating {preset_key} ({preset}) seed={seed} "
             f"resolution={resolution} device={device}"
         )
         asset_folder.mkdir(parents=True, exist_ok=True)
@@ -150,6 +158,7 @@ def generate_one(
     metadata = {
         "generator": "Infinigen",
         "infinigen_version": str(getattr(infinigen, "__version__", "unknown")),
+        "upstream_preset": str(preset),
         "preset_key": preset_key,
         "device": device,
         "cache_dir": str(asset_folder),
