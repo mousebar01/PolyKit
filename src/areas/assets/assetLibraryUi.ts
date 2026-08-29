@@ -3,7 +3,7 @@ import type { AssetLibraryOpenRequest } from '../../shared/types/assetLibrary'
 import { resolveAssetLibraryOpenTarget, type AssetLibraryOpenTarget, type ProjectedAssetLibraryEntry } from './assetLibraryProjection'
 
 export type AssetsOpenPanel = 'decimate' | 'smooth' | 'light' | null
-export type AssetLibrarySortMode = 'type' | 'name' | 'date'
+export type AssetLibrarySortMode = 'name' | 'date'
 
 export const DEFAULT_ASSET_LIBRARY_SORT_MODE: AssetLibrarySortMode = 'date'
 
@@ -32,7 +32,6 @@ const ASSET_LIBRARY_CAPABILITY_SECTIONS = [
 const ASSET_LIBRARY_INTERNAL_DIRECTORY_NAMES = new Set(['tmp', 'temp', 'cache'])
 
 export const ASSET_LIBRARY_SORT_OPTIONS = [
-  { value: 'type', label: 'Type' },
   { value: 'name', label: 'Name' },
   { value: 'date', label: 'Date' },
 ] as const satisfies ReadonlyArray<{ value: AssetLibrarySortMode, label: string }>

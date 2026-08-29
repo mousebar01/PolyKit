@@ -507,7 +507,7 @@ export default function AssetsPage(): JSX.Element {
   const [librarySearchQuery, setLibrarySearchQuery] = useState('')
   const [libraryRenameTarget, setLibraryRenameTarget] = useState<ProjectedAssetLibraryEntry | null>(null)
   const [libraryDeleteTargets, setLibraryDeleteTargets] = useState<ProjectedAssetLibraryEntry[] | null>(null)
-  const [librarySortMode, setLibrarySortMode] = useState<AssetLibrarySortMode>('type')
+  const [librarySortMode, setLibrarySortMode] = useState<AssetLibrarySortMode>('date')
   const [libraryCollapsedSectionKeys, setLibraryCollapsedSectionKeys] = useState<string[]>(() => getDefaultAssetLibraryCollapsedSectionKeys())
   const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate' | 'scale' | null>(null)
   const dragging = useRef(false)

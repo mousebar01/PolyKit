@@ -31,7 +31,7 @@ function entry(overrides: Partial<AssetLibraryEntry> = {}): ProjectedAssetLibrar
   return projectAssetLibraryEntry(base)
 }
 
-function groupPaths(entries: ProjectedAssetLibraryEntry[], search = '', sortMode: AssetLibrarySortMode = 'type'): string[] {
+function groupPaths(entries: ProjectedAssetLibraryEntry[], search = '', sortMode: AssetLibrarySortMode = 'date'): string[] {
   return filterAssetLibraryEntryGroups(entries, search, sortMode).flatMap((group) => (
     group.entries.map((item) => item.workspacePath)
   ))
@@ -46,7 +46,7 @@ test('organizes visible library assets by capability with images and mesh expand
     entry({ id: 'unsupported', workspacePath: 'Workflows/readme.txt', displayName: 'readme.txt', state: 'unsupported', openable: false }),
   ]
 
-  const groups = filterAssetLibraryEntryGroups(entries, '', 'type')
+  const groups = filterAssetLibraryEntryGroups(entries, '', 'date')
   assert.deepEqual(groups.map((group) => group.capability), ['image', 'mesh', 'rigged-mesh'])
   assert.deepEqual(groupPaths(entries), ['Workflows/Illustrations/hero.png', 'Workflows/run/hero.glb', 'Workflows/rig/hero-rig.gltf'])
   assert.equal(DEFAULT_ASSET_LIBRARY_SORT_MODE, 'date')

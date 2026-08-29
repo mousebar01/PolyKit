@@ -44,7 +44,6 @@ import {
 } from '../assetLibraryUi'
 
 const SORT_LABEL_KEYS: Record<AssetLibrarySortMode, TranslationKey> = {
-  type: 'assets.sortType',
   name: 'assets.sortName',
   date: 'assets.sortDate',
 }
@@ -444,16 +443,8 @@ export default function AssetLibrarySidebar({
   const [favoritePaths, setFavoritePaths] = useState<Set<string>>(readFavoritePaths)
   const [viewMode, setViewMode] = useState<AssetLibraryViewMode>(readAssetLibraryViewMode)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
-  const defaultSortApplied = useRef(false)
-
   const entryGroups = filterAssetLibraryEntryGroups(entries, searchQuery, sortMode)
   const normalizedSearchQuery = searchQuery.trim()
-
-  useEffect(() => {
-    if (defaultSortApplied.current) return
-    defaultSortApplied.current = true
-    if (sortMode === 'type') onSortModeChange(DEFAULT_ASSET_LIBRARY_SORT_MODE)
-  }, [onSortModeChange, sortMode])
 
   useEffect(() => {
     const availablePaths = new Set(entries.map((entry) => entry.workspacePath))
