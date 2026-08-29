@@ -9,6 +9,7 @@ export default tseslint.config(
       'dist/**',
       'dist-web/**',
       'out/**',
+      '.venv/**',
       'node_modules/**',
       'resources/**',
       'api/**',
