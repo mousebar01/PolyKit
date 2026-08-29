@@ -23,6 +23,7 @@
   --bg: #e7e7e5;
   --bg-panel: #f1f1ef;
   --bg-elevated: #f8f8f6;
+  --bg-sidebar: #e2e2df;
   --bg-hover: #dededb;
   --bg-selected: #d4d4d0;
   --border: #c9c9c5;
@@ -33,6 +34,12 @@
   --accent: #4f76ad;
   --accent-hover: #5f86bd;
   --accent-soft: rgba(79,118,173,0.14);
+  --success: #16a34a;
+  --success-bg: rgba(22,163,74,0.10);
+  --success-border: rgba(22,163,74,0.18);
+  --danger: #dc2626;
+  --danger-bg: rgba(220,38,38,0.06);
+  --danger-border: rgba(220,38,38,0.28);
   --user-bg: #ddddda;
   --assistant-bg: transparent;
   --tool-bg: #e2e2df;
@@ -48,23 +55,30 @@
 }
 
 html.dark {
-  --bg: #282828;
-  --bg-panel: #303030;
-  --bg-elevated: #383838;
-  --bg-hover: #3a3a3a;
-  --bg-selected: #424242;
+  --bg: #0d1117;
+  --bg-panel: #151b23;
+  --bg-elevated: #1b2230;
+  --bg-sidebar: #11161d;
+  --bg-hover: #222b3a;
+  --bg-selected: #263248;
   /* Keep controls framed without turning structural edges into bright rules. */
-  --border: #343434;
-  --border-soft: #252525;
-  --text: #e3e3e3;
-  --text-muted: #b1b1ad;
-  --text-dim: #777773;
-  --accent: #5680b8;
-  --accent-hover: #6991c5;
-  --accent-soft: rgba(86,128,184,0.18);
-  --user-bg: #353535;
+  --border: rgba(255,255,255,0.08);
+  --border-soft: rgba(255,255,255,0.06);
+  --text: #f3f6fb;
+  --text-muted: #a9b4c3;
+  --text-dim: #7d8896;
+  --accent: #5aa9ff;
+  --accent-hover: #6bb4ff;
+  --accent-soft: rgba(90,169,255,0.14);
+  --success: #4ade80;
+  --success-bg: rgba(74,222,128,0.10);
+  --success-border: rgba(74,222,128,0.18);
+  --danger: #ff6b6b;
+  --danger-bg: rgba(239,68,68,0.06);
+  --danger-border: rgba(239,68,68,0.28);
+  --user-bg: #1b2230;
   --assistant-bg: transparent;
-  --tool-bg: #313131;
+  --tool-bg: #1b2230;
   --bg-subtle: rgba(255,255,255,0.04);
 
   --shadow-float: none;

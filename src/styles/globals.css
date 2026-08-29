@@ -14,35 +14,37 @@
   :root {
     --app-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --brand-font: 'Space Grotesk', var(--app-font);
-    /* Editor palette: a blue-graphite workspace keeps large empty areas calm,
-       while floating panels sit one clear surface step above it. */
-    --background: 220 10% 8%;
-    --foreground: 215 16% 91%;
-    --card: 220 8% 15%;
-    --card-foreground: 215 16% 91%;
-    --popover: 220 8% 18%;
-    --popover-foreground: 215 16% 93%;
-    --primary: 211 58% 60%;
-    --primary-foreground: 220 24% 10%;
-    --secondary: 220 12% 22%;
-    --secondary-foreground: 215 16% 93%;
-    --muted: 220 8% 19%;
-    --muted-foreground: 215 12% 66%;
+    /* Deep blue-gray workstation palette. Surfaces are separated by small,
+       deliberate lightness steps instead of near-black blocks. */
+    --background: 215 28% 7%;
+    --foreground: 214 32% 95%;
+    --card: 214 26% 11%;
+    --card-foreground: 214 32% 95%;
+    --popover: 219 28% 15%;
+    --popover-foreground: 214 32% 96%;
+    --primary: 211 100% 68%;
+    --primary-foreground: 215 28% 7%;
+    --secondary: 217 25% 15%;
+    --secondary-foreground: 214 32% 95%;
+    --muted: 216 27% 18%;
+    --muted-foreground: 214 22% 70%;
     /* Compatibility alias for legacy controls; new UI should use semantic tokens. */
-    --accent: 211 58% 60%;
-    --accent-foreground: 220 24% 10%;
-    --destructive: 4 74% 58%;
+    --accent: 211 100% 68%;
+    --accent-foreground: 215 28% 7%;
+    --destructive: 4 74% 60%;
     --destructive-foreground: 0 0% 98%;
     /* Keep the legacy Agent stylesheet's raw var(--border) declarations
        valid. Tailwind utilities use --ui-border below and remain HSL-based. */
-    --border: hsl(220 10% 25%);
-    --ui-border: 220 10% 25%;
+    --border: hsl(215 18% 25%);
+    --ui-border: 215 18% 25%;
     /* Structural separators stay darker than the control/card border token. */
-    --divider: 220 8% 14%;
+    --divider: 215 18% 16%;
     --border-soft: hsl(var(--divider));
-    --input: 220 10% 29%;
-    --ring: 211 58% 60%;
+    --input: 215 18% 27%;
+    --ring: 211 100% 68%;
     --brand-secondary: 198 72% 53%;
+    --success-hsl: 152 64% 51%;
+    --danger-hsl: 4 78% 64%;
     --radius: 0.4rem;
   }
 
@@ -100,20 +102,28 @@
   .agent-chat-root {
     --bg: hsl(var(--background));
     --bg-panel: hsl(var(--card));
+    --bg-sidebar: hsl(212 26% 9%);
+    --bg-elevated: hsl(var(--popover));
     --bg-hover: hsl(var(--muted));
-    --bg-selected: hsl(var(--muted));
+    --bg-selected: hsl(218 32% 21%);
     /* The migrated Agent stylesheet uses raw color variables (var(--border))
        instead of Tailwind's HSL token. Keep those values valid inside the
        scoped chat surface so the browser never falls back to its bright
        preflight border color. */
     --border: hsl(var(--ui-border));
     --border-soft: hsl(var(--divider));
-    --divider: 220 8% 14%;
+    --divider: 215 18% 16%;
     --text: hsl(var(--foreground));
     --text-muted: hsl(var(--muted-foreground));
     --text-dim: hsl(var(--muted-foreground) / 0.72);
     --accent: hsl(var(--primary));
     --accent-hover: hsl(var(--primary) / 0.86);
+    --success: hsl(var(--success-hsl));
+    --success-bg: hsl(var(--success-hsl) / 0.1);
+    --success-border: hsl(var(--success-hsl) / 0.18);
+    --danger: hsl(var(--danger-hsl));
+    --danger-bg: hsl(var(--danger-hsl) / 0.06);
+    --danger-border: hsl(var(--danger-hsl) / 0.28);
     --user-bg: hsl(var(--muted));
     --assistant-bg: hsl(var(--card));
     --tool-bg: hsl(var(--muted));

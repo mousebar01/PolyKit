@@ -406,7 +406,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
          <SectionTitle>{t("i18n.provider")}</SectionTitle>
         <button onClick={onDelete}
-          style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11 }}>
+          style={{ padding: "3px 8px", background: "var(--danger-bg)", border: "1px solid var(--danger-border)", borderRadius: 4, color: "var(--danger)", cursor: "pointer", fontSize: 11 }}>
            {t("i18n.delete")}
         </button>
       </div>
@@ -454,7 +454,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         )}
 
         {discoveryState.phase === "error" && (
-          <div style={{ padding: "7px 9px", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", fontSize: 11, lineHeight: 1.4 }}>
+          <div style={{ padding: "7px 9px", border: "1px solid var(--danger-border)", borderRadius: 5, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 11, lineHeight: 1.4 }}>
             {discoveryState.message}
           </div>
         )}
@@ -602,7 +602,7 @@ function ThinkingLevelMapEditor({
           fontWeight: 600,
         };
         const btnActiveDisabled: React.CSSProperties = {
-          background: "#ef4444",
+          background: "var(--danger)",
           color: "#fff",
           fontWeight: 600,
         };
@@ -895,7 +895,7 @@ function ModelDetail({
     ? catalogState.message
     : catalogResultSummary;
   const catalogStatusColor = catalogState.phase === "error"
-    ? "#ef4444"
+    ? "var(--danger)"
     : catalogState.phase === "success" && catalogState.recommendation.price.status === "unreliable"
       ? "#d97706"
       : "var(--text-dim)";
@@ -912,10 +912,10 @@ function ModelDetail({
                 maxWidth: 260,
                 height: 24,
                 padding: "0 8px",
-                border: `1px solid ${testState.phase === "error" ? "#fecaca" : testState.phase === "success" ? "#bbf7d0" : "var(--border)"}`,
+                border: `1px solid ${testState.phase === "error" ? "var(--danger-border)" : testState.phase === "success" ? "var(--success-border)" : "var(--border)"}`,
                 borderRadius: 4,
-                background: testState.phase === "error" ? "#fee2e2" : testState.phase === "success" ? "#dcfce7" : "#e5e7eb",
-                color: "#111827",
+                background: testState.phase === "error" ? "var(--danger-bg)" : testState.phase === "success" ? "var(--success-bg)" : "var(--bg-elevated)",
+                color: testState.phase === "error" ? "var(--danger)" : testState.phase === "success" ? "var(--success)" : "var(--text-muted)",
                 fontSize: 11,
                 display: "inline-flex",
                 alignItems: "center",
@@ -935,8 +935,8 @@ function ModelDetail({
             style={{
               height: 24,
               padding: "0 8px",
-              background: testState.phase === "success" ? "#16a34a" : "none",
-              border: `1px solid ${testState.phase === "success" ? "#16a34a" : "var(--border)"}`,
+              background: testState.phase === "success" ? "var(--success)" : "none",
+              border: `1px solid ${testState.phase === "success" ? "var(--success)" : "var(--border)"}`,
               borderRadius: 4,
               color: testState.phase === "success" ? "#fff" : (!model.id.trim() || testState.phase === "testing") ? "var(--text-dim)" : "var(--text-muted)",
               cursor: (!model.id.trim() || testState.phase === "testing") ? "not-allowed" : "pointer",
@@ -956,7 +956,7 @@ function ModelDetail({
              {testState.phase === "testing" ? t("i18n.checking") : testState.phase === "success" ? t("common.ok") : t("i18n.test")}
           </button>
           <button onClick={onDelete}
-            style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
+            style={{ height: 24, padding: "0 8px", background: "var(--danger-bg)", border: "1px solid var(--danger-border)", borderRadius: 4, color: "var(--danger)", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
              {t("i18n.remove")}
           </button>
         </div>
@@ -1218,9 +1218,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
            <SectionTitle>{t("i18n.subscription")}</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "#4ade80" : "var(--border)", display: "inline-block" }} />
-          <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 999, background: provider.loggedIn ? "var(--success-bg)" : "var(--bg-elevated)", border: `1px solid ${provider.loggedIn ? "var(--success-border)" : "var(--border-soft)"}`, color: provider.loggedIn ? "var(--success)" : "var(--text-dim)" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "var(--success)" : "var(--text-dim)", display: "inline-block" }} />
+          <span style={{ fontSize: 11, color: "inherit" }}>
              {provider.loggedIn ? t("i18n.connected") : t("i18n.notConnected")}
           </span>
         </div>
@@ -1309,10 +1309,10 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
         )}
         {loginState.phase === "success" && (
-             <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>{t("i18n.connectedSuccessfully")}</p>
+             <p style={{ margin: 0, fontSize: 12, color: "var(--success)" }}>{t("i18n.connectedSuccessfully")}</p>
         )}
         {loginState.phase === "error" && (
-          <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.message}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>{loginState.message}</p>
         )}
       </div>
 
@@ -1336,7 +1336,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             {provider.loggedIn && (
               <button
                 onClick={handleLogout}
-                style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 12 }}
+                style={{ padding: "5px 12px", background: "var(--danger-bg)", border: "1px solid var(--danger-border)", borderRadius: 5, color: "var(--danger)", cursor: "pointer", fontSize: 12 }}
               >
                  {t("i18n.disconnect")}
               </button>
@@ -1414,8 +1414,8 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.2, color: "var(--text)" }}>{provider.displayName}</span>
           <SectionTitle>API Key</SectionTitle>
         </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 999, background: provider.configured ? "rgba(52,211,153,0.1)" : "var(--bg-panel)", color: provider.configured ? "#6ee7b7" : "var(--text-dim)" }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: provider.configured ? "#34d399" : "var(--text-dim)", display: "inline-block" }} />
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", borderRadius: 999, background: provider.configured ? "var(--success-bg)" : "var(--bg-elevated)", border: `1px solid ${provider.configured ? "var(--success-border)" : "var(--border-soft)"}`, color: provider.configured ? "var(--success)" : "var(--text-dim)" }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: provider.configured ? "var(--success)" : "var(--text-dim)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: "inherit" }}>
              {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
           </span>
@@ -1445,7 +1445,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
             disabled={saving || !apiKey.trim() || savedOk}
             style={{
               padding: "6px 12px",
-              background: savedOk ? "#16a34a" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
+              background: savedOk ? "var(--success)" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
               border: "none", borderRadius: 5,
               color: (apiKey.trim() || savedOk) ? "#fff" : "var(--text-dim)",
               cursor: (saving || !apiKey.trim() || savedOk) ? "not-allowed" : "pointer",
@@ -1463,7 +1463,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
         </div>
       </Field>
 
-      {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
+      {error && <p style={{ margin: 0, fontSize: 12, color: "var(--danger)" }}>{error}</p>}
 
       {provider.configured && (
         <button
@@ -1471,8 +1471,8 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           disabled={removing}
           style={{
             alignSelf: "flex-start", padding: "5px 12px",
-            background: "none", border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 5, color: "#ef4444",
+            background: "var(--danger-bg)", border: "1px solid var(--danger-border)",
+            borderRadius: 5, color: "var(--danger)",
             cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
           }}
         >
@@ -1925,7 +1925,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             maxHeight: isMobile ? "40vh" : undefined,
             borderRight: isMobile ? "none" : "1px solid var(--border-soft)",
             borderBottom: isMobile ? "1px solid var(--border-soft)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg)",
+            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-sidebar)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
               {/* OAuth subscriptions */}
@@ -2045,7 +2045,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           </div>
 
           {/* Right: detail */}
-          <div style={{ flex: 1, minWidth: 0, overflowY: embedded ? "visible" : "auto", padding: embedded ? "16px 20px 20px" : 16, background: embedded ? "transparent" : "var(--bg-panel)" }}>
+          <div style={{ flex: 1, minWidth: 0, overflowY: embedded ? "visible" : "auto", padding: embedded ? "18px 22px 22px" : 16, background: embedded ? "transparent" : "var(--bg-panel)" }}>
             {loading ? null : (
               <div
                 className="agent-config-detail-surface"
@@ -2064,7 +2064,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         {/* Footer */}
         {showConfigFooter && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "12px 20px", borderTop: "1px solid var(--border-soft)", background: "transparent", flexShrink: 0 }}>
-            {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
+            {saveError && <span style={{ fontSize: 12, color: "var(--danger)", flex: 1 }}>{saveError}</span>}
             <button onClick={onClose} style={{ height: 36, padding: "0 18px", background: "transparent", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
                {t("i18n.cancel")}
             </button>
@@ -2073,7 +2073,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
               height: 36,
               padding: "0 18px",
               minWidth: 108,
-              background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
+              background: savedOk ? "var(--success)" : saving ? "var(--bg-panel)" : "var(--accent)",
               border: "none", borderRadius: 7,
               color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
               cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
