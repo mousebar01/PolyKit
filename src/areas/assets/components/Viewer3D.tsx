@@ -30,7 +30,11 @@ const SELECTION_OUTLINE_EDGE_STRENGTH = 2.5
 const SELECTION_OUTLINE_BLUR = false
 const SELECTION_OUTLINE_MULTISAMPLING = 0
 const SELECTION_OUTLINE_RESOLUTION_SCALE = 0.5
-const VIEWER_BACKGROUND_COLOR = '#25272b'
+/** Shared with the Agent scene preview so both empty and loaded viewports use
+ * the same elevated blue-gray surface as the rest of the workspace. */
+export const VIEWER_BACKGROUND_COLOR = '#151b23'
+const VIEWER_GRID_MAJOR_COLOR = '#3a4658'
+const VIEWER_GRID_MINOR_COLOR = '#283344'
 // Loading a very large GLB into the browser can block the main thread while
 // GLTFLoader parses buffers and WebGL uploads them. Keep the viewer responsive
 // and let the server-side decimator handle these files instead.
@@ -188,7 +192,7 @@ function ModelLoadError(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#25272b] px-6 text-muted-foreground">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card px-6 text-muted-foreground">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <circle cx="12" cy="12" r="10" />
         <line x1="15" y1="9" x2="9" y2="15" />
@@ -1259,7 +1263,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
       fallback={<ModelLoadError />}
     >
       <div
-        className="relative h-full w-full bg-[#25272b] focus-within:ring-1 focus-within:ring-ring/60"
+        className="relative h-full w-full bg-card focus-within:ring-1 focus-within:ring-ring/60"
         onPointerDown={(event) => {
           if (event.target instanceof HTMLCanvasElement) event.currentTarget.querySelector<HTMLElement>('[data-viewport-canvas]')?.focus()
         }}
@@ -1309,7 +1313,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <Lightformer intensity={0.3 * (lightSettings.envIntensity ?? DEFAULT_LIGHT_SETTINGS.envIntensity)} position={[4, 1, -4]} scale={6} />
           </Environment>
 
-          <gridHelper args={[10, 20, '#474747', '#383838']} />
+          <gridHelper args={[10, 20, VIEWER_GRID_MAJOR_COLOR, VIEWER_GRID_MINOR_COLOR]} />
           <axesHelper args={[5]} scale={[1, 0, 1]} />
 
           {canRenderMesh && modelUrl && currentJob ? (
@@ -1371,7 +1375,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
 
         {!modelUrl && !isSplat && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center" aria-hidden="true">
-            <span className="select-none font-brand text-5xl font-semibold tracking-[0.16em] text-black/35">PolyKit</span>
+            <span className="select-none font-brand text-5xl font-semibold tracking-[0.16em] text-foreground/20">PolyKit</span>
           </div>
         )}
 

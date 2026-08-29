@@ -10,7 +10,7 @@ import { solvePlacements } from '@areas/worlds/runtime/placement'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
-import Viewer3D from '@areas/assets/components/Viewer3D'
+import Viewer3D, { VIEWER_BACKGROUND_COLOR } from '@areas/assets/components/Viewer3D'
 
 const REFRESH_INTERVAL_MS = 2500
 
@@ -106,7 +106,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       style={{ flexBasis: `${width}%`, width: `${width}%` }}
       aria-label={zh ? '当前场景预览' : 'Current scene preview'}
     >
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#25272b]">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-card">
         <div className="absolute right-3 top-3 z-30 flex items-center gap-1">
           <Button
             type="button"
@@ -144,7 +144,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
 
         {renderable ? (
           <>
-            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor="#25272b" />
+            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={VIEWER_BACKGROUND_COLOR} />
           </>
         ) : document ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
