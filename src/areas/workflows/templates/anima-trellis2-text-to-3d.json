@@ -2,8 +2,8 @@
   "templateId": "anima-trellis2-text-to-3d",
   "nodePackId": "anima",
   "requires": ["anima", "image-background-remover", "trellis2"],
-  "name": "Text to 3D (Anima + Cutout + Trellis.2)",
-  "description": "Generate a stylized illustration with Anima, remove its background, then turn the transparent image into a 3D mesh with Trellis.2.",
+  "name": "Text to 3D (Anima + Cutout + Trellis.2 Texture)",
+  "description": "Generate a stylized illustration with Anima, remove its background, create a 3D mesh with Trellis.2, then project a texture atlas onto the mesh.",
   "nodes": [
     {
       "id": "text-input",
@@ -45,9 +45,25 @@
       }
     },
     {
+      "id": "texture-mesh",
+      "type": "nodePackNode",
+      "position": { "x": 1380, "y": 180 },
+      "data": {
+        "nodePackId": "trellis2/refine",
+        "enabled": true,
+        "params": {
+          "texture_resolution": 1024,
+          "texture_size": 2048,
+          "texture_steps": 12,
+          "texture_guidance": 3.0,
+          "foreground_ratio": 0.85
+        }
+      }
+    },
+    {
       "id": "scene-output",
       "type": "outputNode",
-      "position": { "x": 1380, "y": 180 },
+      "position": { "x": 1710, "y": 180 },
       "data": {
         "enabled": true,
         "params": {}
@@ -74,8 +90,22 @@
       "targetHandle": "input-0"
     },
     {
-      "id": "mesh-to-scene",
+      "id": "mesh-to-texture",
       "source": "generate-mesh",
+      "sourceHandle": "output",
+      "target": "texture-mesh",
+      "targetHandle": "input-1"
+    },
+    {
+      "id": "cutout-to-texture",
+      "source": "remove-background",
+      "sourceHandle": "output",
+      "target": "texture-mesh",
+      "targetHandle": "input-0"
+    },
+    {
+      "id": "texture-to-scene",
+      "source": "texture-mesh",
       "sourceHandle": "output",
       "target": "scene-output"
     }

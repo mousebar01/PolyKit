@@ -30,6 +30,17 @@ const PACKS = [
     input: 'image', output: 'mesh', params: [], builtin: false, type: 'model',
   },
   {
+    id: 'trellis2/refine', nodePackId: 'trellis2', nodePackName: 'Trellis.2 GGUF',
+    nodePackAuthor: '', nodeId: 'refine', name: 'Texture Mesh', description: '',
+    input: 'image', inputs: ['image', 'mesh'], output: 'mesh', params: [
+      { id: 'texture_resolution', label: 'Texture Resolution', type: 'select', default: 1024 },
+      { id: 'texture_size', label: 'Texture Atlas Size', type: 'select', default: 2048 },
+      { id: 'texture_steps', label: 'Texture Steps', type: 'int', default: 12 },
+      { id: 'texture_guidance', label: 'Guidance Strength', type: 'float', default: 3.0 },
+      { id: 'foreground_ratio', label: 'Foreground Ratio', type: 'float', default: 0.85 },
+    ], builtin: false, type: 'model',
+  },
+  {
     id: 'anima/generate', nodePackId: 'anima', nodePackName: 'Anima', nodePackAuthor: 'CircleStone Labs', nodeId: 'generate', name: 'Generate Illustration', description: '',
     input: 'text', output: 'image', params: [], builtin: true, type: 'model',
   },
@@ -44,6 +55,7 @@ const wf = (nodes, edges = []) => ({ id: 'wf', name: 'wf', description: '', node
 const edge = (s, t, th) => ({ id: `${s}->${t}`, source: s, target: t, ...(th ? { targetHandle: th } : {}) })
 const img = (id = 'img') => node(id, 'imageNode')
 const model = (id = 'gen') => node(id, 'nodePackNode', {}, 'trellis2/generate')
+const refineModel = (id = 'refine') => node(id, 'nodePackNode', {}, 'trellis2/refine')
 const animaModel = (id = 'anima') => node(id, 'nodePackNode', {}, 'anima/generate')
 const cutoutModel = (id = 'cutout') => node(id, 'nodePackNode', {}, 'image-background-remover/remove-background')
 const out = (id = 'out', enabled = true) => node(id, 'outputNode', {})
@@ -191,15 +203,23 @@ test('text → Anima → image preview compiles with an image sink input', async
   assert.deepEqual(res.ok && res.payload.prompt.preview.inputs.image, ['anima', 'image'])
 })
 
-test('text → Anima → cutout → Trellis.2 → mesh output compiles as one pipeline', async () => {
+test('text → Anima → cutout → Trellis.2 → texture → mesh output compiles as one pipeline', async () => {
   const text = node('text', 'textNode', { text: 'single stylized anime character, full body, plain background' })
   const anima = animaModel()
   const cutout = cutoutModel()
   const trellis = model('trellis')
+  const refine = refineModel()
   const res = await compileServerWorkflow(
     wf(
-      [text, anima, cutout, trellis, out()],
-      [edge('text', 'anima', 'input-0'), edge('anima', 'cutout', 'input-0'), edge('cutout', 'trellis', 'input-0'), edge('trellis', 'out')],
+      [text, anima, cutout, trellis, refine, out()],
+      [
+        edge('text', 'anima', 'input-0'),
+        edge('anima', 'cutout', 'input-0'),
+        edge('cutout', 'trellis', 'input-0'),
+        edge('cutout', 'refine', 'input-0'),
+        edge('trellis', 'refine', 'input-1'),
+        edge('refine', 'out'),
+      ],
     ),
     PACKS,
   )
@@ -209,5 +229,8 @@ test('text → Anima → cutout → Trellis.2 → mesh output compiles as one pi
   assert.deepEqual(res.ok && res.payload.prompt.anima.inputs.text, ['text', 'text'])
   assert.deepEqual(res.ok && res.payload.prompt.cutout.inputs.image, ['anima', 'image'])
   assert.deepEqual(res.ok && res.payload.prompt.trellis.inputs.image, ['cutout', 'image'])
-  assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['trellis', 'mesh'])
+  assert.deepEqual(res.ok && res.payload.prompt.refine.inputs.image, ['cutout', 'image'])
+  assert.deepEqual(res.ok && res.payload.prompt.refine.inputs.mesh, ['trellis', 'mesh'])
+  assert.equal(res.ok && res.payload.prompt.refine.inputs.params.texture_size, 2048)
+  assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['refine', 'mesh'])
 })
