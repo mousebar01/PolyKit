@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { Bot, LoaderCircle, MessageSquare, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { Bot, ChevronLeft, ChevronRight, LoaderCircle, MessageSquare, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
 import { Button } from '@shared/components/ui'
 import { useI18n } from '@shared/i18n'
@@ -23,6 +23,7 @@ interface AgentSessionRecord {
 }
 
 const ACTIVE_SESSION_STORAGE_KEY = 'polykit-agent:active-session-id'
+const SESSION_HISTORY_COLLAPSED_STORAGE_KEY = 'polykit-agent:session-history-collapsed'
 const PREVIEW_WIDTH_STORAGE_KEY = 'polykit-agent:scene-preview-width'
 const DEFAULT_PREVIEW_WIDTH = 42
 const MIN_PREVIEW_WIDTH_PX = 320
@@ -70,6 +71,14 @@ function writeActiveSessionId(id: string | null): void {
   }
 }
 
+function readSessionHistoryCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SESSION_HISTORY_COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
 function formatSessionDate(value: string, language: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -109,6 +118,8 @@ function AgentSessionHistory({
   onNewSession,
   onRefresh,
   onSelect,
+  collapsed,
+  onToggleCollapsed,
 }: {
   sessions: AgentSessionRecord[]
   selectedSessionId: string | null
@@ -118,17 +129,67 @@ function AgentSessionHistory({
   onNewSession: () => void
   onRefresh: () => void
   onSelect: (session: AgentSessionRecord) => void
+  collapsed: boolean
+  onToggleCollapsed: () => void
 }): JSX.Element {
   const { t } = useI18n()
 
+  if (collapsed) {
+    return (
+      <aside className="flex w-10 shrink-0 flex-col items-center border-r border-divider bg-card/45" aria-label={t('agent.sessionHistory')}>
+        <div className="flex w-full shrink-0 justify-center border-b border-divider py-2.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground"
+            onClick={onToggleCollapsed}
+            title={t('agent.expandSessionHistory')}
+            aria-label={t('agent.expandSessionHistory')}
+            aria-expanded={false}
+          >
+            <ChevronRight className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-2 py-2">
+          <MessageSquare className="size-4 text-primary" strokeWidth={1.8} aria-hidden="true" />
+          <span className="font-mono text-[10px] text-muted-foreground">{sessions.length}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground"
+            onClick={onNewSession}
+            title={t('agent.newSession')}
+            aria-label={t('agent.newSession')}
+          >
+            <Plus className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
-    <aside className="flex w-[232px] shrink-0 flex-col border-r border-divider bg-card/45">
+    <aside className="flex w-[232px] shrink-0 flex-col border-r border-divider bg-card/45" aria-label={t('agent.sessionHistory')}>
       <div className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2.5">
         <MessageSquare className="size-4 text-primary" strokeWidth={1.8} aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-foreground">{t('agent.sessionHistory')}</p>
           <p className="text-[10px] text-muted-foreground">{sessions.length}</p>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0 text-muted-foreground"
+          onClick={onToggleCollapsed}
+          title={t('agent.collapseSessionHistory')}
+          aria-label={t('agent.collapseSessionHistory')}
+          aria-expanded
+        >
+          <ChevronLeft className="size-3.5" aria-hidden="true" />
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -320,6 +381,7 @@ export default function AgentPage(): JSX.Element {
   const [sessionLoading, setSessionLoading] = useState(false)
   const [sessionError, setSessionError] = useState(false)
   const [sessionKey, setSessionKey] = useState(0)
+  const [sessionHistoryCollapsed, setSessionHistoryCollapsed] = useState(readSessionHistoryCollapsed)
   const [previewWidth, setPreviewWidth] = useState(readPreviewWidth)
   const splitPaneRef = useRef<HTMLDivElement>(null)
   const initialSelectionDone = useRef(false)
@@ -327,6 +389,18 @@ export default function AgentPage(): JSX.Element {
   const updatePreviewWidth = useCallback((next: number) => {
     setPreviewWidth((current) => Math.abs(current - next) < 0.1 ? current : next)
   }, [])
+
+  const toggleSessionHistoryCollapsed = useCallback(() => {
+    setSessionHistoryCollapsed((current) => !current)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SESSION_HISTORY_COLLAPSED_STORAGE_KEY, String(sessionHistoryCollapsed))
+    } catch {
+      // Local storage is optional; the current layout remains usable without it.
+    }
+  }, [sessionHistoryCollapsed])
 
   useEffect(() => {
     try {
@@ -483,6 +557,8 @@ export default function AgentPage(): JSX.Element {
               onNewSession={handleNewSession}
               onRefresh={() => { void loadSessions() }}
               onSelect={handleSelectSession}
+              collapsed={sessionHistoryCollapsed}
+              onToggleCollapsed={toggleSessionHistoryCollapsed}
             />
             <div ref={splitPaneRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
