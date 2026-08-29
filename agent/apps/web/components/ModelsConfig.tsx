@@ -1673,6 +1673,11 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const [selection, setSelection] = useState<Selection | null>(null);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
+  // Adding a provider from the picker is independent from the detail panel's
+  // single current selection. Keep every provider added during this panel
+  // session visible instead of replacing the previously added row.
+  const [addedOAuthProviderIds, setAddedOAuthProviderIds] = useState<Set<string>>(() => new Set());
+  const [addedApiKeyProviderIds, setAddedApiKeyProviderIds] = useState<Set<string>>(() => new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const loadOAuthProviders = useCallback(() => {
@@ -1825,15 +1830,14 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
-  // Keep a provider visible while its detail panel is open. Subscription
-  // providers are normally listed only after OAuth succeeds; hiding the
-  // selected, still-unconfigured entry made ChatGPT Plus/Pro appear to vanish
-  // immediately after it was chosen from the picker.
+  // OAuth/API-key entries become active after authentication. Entries chosen
+  // from the picker are also kept visible until the panel is closed, so adding
+  // a second provider does not replace the first one in the sidebar.
   const visibleOAuth = oauthProviders.filter((p) =>
-    p.loggedIn || (selection?.type === "oauth" && selection.providerId === p.id),
+    p.loggedIn || addedOAuthProviderIds.has(p.id) || (selection?.type === "oauth" && selection.providerId === p.id),
   );
   const visibleApiKey = apiKeyProviders.filter((p) =>
-    p.configured || (selection?.type === "apikey" && selection.providerId === p.id),
+    p.configured || addedApiKeyProviderIds.has(p.id) || (selection?.type === "apikey" && selection.providerId === p.id),
   );
   // OAuth/API-key details save through their own auth endpoints. The models
   // config footer is only relevant for editable models.json entries.
@@ -2093,8 +2097,24 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       <AddProviderPicker
         oauthProviders={oauthProviders}
         apiKeyProviders={apiKeyProviders}
-        onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-        onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
+        onSelectOAuth={(id) => {
+          setAddedOAuthProviderIds((previous) => {
+            if (previous.has(id)) return previous;
+            const next = new Set(previous);
+            next.add(id);
+            return next;
+          });
+          setSelection({ type: "oauth", providerId: id });
+        }}
+        onSelectApiKey={(id) => {
+          setAddedApiKeyProviderIds((previous) => {
+            if (previous.has(id)) return previous;
+            const next = new Set(previous);
+            next.add(id);
+            return next;
+          });
+          setSelection({ type: "apikey", providerId: id });
+        }}
         onAddCustom={addCustomProvider}
         onClose={() => setPickerOpen(false)}
       />
