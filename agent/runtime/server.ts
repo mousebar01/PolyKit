@@ -8,11 +8,12 @@
  */
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
-import { createAgentSessionServices, DefaultPackageManager, getAgentDir, parseFrontmatter, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionServices, DefaultPackageManager, getAgentDir, ModelRuntime, parseFrontmatter, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   getRpcSession,
@@ -35,7 +36,16 @@ import { readMcpConfig, writeProjectMcpEnabled } from "../apps/web/lib/mcp-confi
 import { collectProviderListingInputs } from "../apps/web/lib/provider-listing-runtime";
 import { buildApiKeyProviderList, buildOAuthProviderList } from "../apps/web/lib/provider-listing";
 import { removeStoredCredentialIfType, storeProviderCredential } from "../apps/web/lib/provider-credential-store";
+import { invalidateModelsCache } from "../apps/web/lib/models-cache";
 import { configureHttpDispatcher } from "../apps/web/lib/http-dispatcher";
+import { resolveModelDiscoveryAuth } from "../apps/web/lib/model-discovery-auth";
+import { buildModelsListUrl, parseDiscoveredModels } from "../apps/web/lib/model-discovery";
+import {
+  flattenModelsDevCatalog,
+  recommendModelCatalogPreset,
+  searchModelCatalog,
+  type ModelCatalogEntry,
+} from "../apps/web/lib/model-catalog";
 
 const PORT = Number(process.env.POLYKIT_AGENT_PORT ?? "0");
 const TOKEN = process.env.POLYKIT_AGENT_INTERNAL_TOKEN ?? "";
@@ -75,6 +85,10 @@ function json(res: ServerResponse, status: number, payload: unknown): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -289,6 +303,201 @@ function writeModelsConfig(value: unknown): void {
   const filePath = join(agentDir, "models.json");
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   chmodSync(filePath, 0o600);
+}
+
+function buildModelDiscoveryHeaders(api: string, apiKey: string | undefined, configured: Record<string, string>): Headers {
+  const headers = new Headers(configured);
+  if (!headers.has("accept")) headers.set("Accept", "application/json");
+  if (!apiKey) return headers;
+  if (api === "anthropic-messages") {
+    if (!headers.has("x-api-key")) headers.set("x-api-key", apiKey);
+    if (!headers.has("anthropic-version")) headers.set("anthropic-version", "2023-06-01");
+  } else if (api === "google-generative-ai") {
+    if (!headers.has("x-goog-api-key")) headers.set("x-goog-api-key", apiKey);
+  } else if (!headers.has("authorization")) {
+    headers.set("Authorization", `Bearer ${apiKey}`);
+  }
+  return headers;
+}
+
+async function discoverProviderModels(req: IncomingMessage): Promise<unknown> {
+  const body = await readJson(req);
+  const providerName = typeof body.providerName === "string" ? body.providerName.trim() : "";
+  if (!providerName) throw Object.assign(new Error("providerName is required"), { statusCode: 400 });
+  if (!isRecord(body.provider)) throw Object.assign(new Error("provider is required"), { statusCode: 400 });
+
+  const baseUrl = typeof body.provider.baseUrl === "string" ? body.provider.baseUrl.trim() : "";
+  if (!baseUrl) throw Object.assign(new Error("Base URL is required"), { statusCode: 400 });
+  const api = typeof body.provider.api === "string" && body.provider.api
+    ? body.provider.api
+    : "openai-completions";
+  let endpoint: URL;
+  try {
+    endpoint = buildModelsListUrl(baseUrl, api);
+  } catch {
+    throw Object.assign(new Error("Base URL is invalid"), { statusCode: 400 });
+  }
+
+  const auth = await resolveModelDiscoveryAuth(providerName, body.provider);
+  if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {
+    throw Object.assign(new Error(`No API key found for "${providerName}"`), { statusCode: 400 });
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: buildModelDiscoveryHeaders(api, auth.apiKey, auth.headers),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(responseText.slice(0, 500) || `Upstream returned HTTP ${response.status}`),
+        { statusCode: 502 },
+      );
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw Object.assign(new Error("Upstream model list was not valid JSON"), { statusCode: 502 });
+    }
+    const models = parseDiscoveredModels(payload);
+    if (models.length === 0) {
+      throw Object.assign(new Error("No models found in the upstream response"), { statusCode: 502 });
+    }
+    return { models, endpoint: endpoint.toString() };
+  } catch (error) {
+    if (typeof error === "object" && error && "statusCode" in error) throw error;
+    const statusCode = error instanceof DOMException && error.name === "TimeoutError" ? 504 : 502;
+    throw Object.assign(new Error(errorMessage(error)), { statusCode });
+  }
+}
+
+type ModelCatalogCache = {
+  entries: ModelCatalogEntry[];
+  expiresAt: number;
+  inFlight?: Promise<ModelCatalogEntry[]>;
+};
+
+const modelCatalogCache: ModelCatalogCache = { entries: [], expiresAt: 0 };
+
+async function loadModelCatalog(): Promise<ModelCatalogEntry[]> {
+  if (modelCatalogCache.entries.length > 0 && modelCatalogCache.expiresAt > Date.now()) {
+    return modelCatalogCache.entries;
+  }
+  if (!modelCatalogCache.inFlight) {
+    modelCatalogCache.inFlight = (async () => {
+      const response = await fetch("https://models.dev/api.json", {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`);
+      const entries = flattenModelsDevCatalog(await response.json());
+      if (entries.length === 0) throw new Error("models.dev returned an empty catalog");
+      modelCatalogCache.entries = entries;
+      modelCatalogCache.expiresAt = Date.now() + 60 * 60 * 1000;
+      return entries;
+    })().finally(() => {
+      modelCatalogCache.inFlight = undefined;
+    });
+  }
+  try {
+    return await modelCatalogCache.inFlight;
+  } catch (error) {
+    if (modelCatalogCache.entries.length > 0) return modelCatalogCache.entries;
+    throw error;
+  }
+}
+
+async function modelCatalog(url: URL): Promise<unknown> {
+  const query = (url.searchParams.get("q") ?? "").slice(0, 120);
+  const provider = (url.searchParams.get("provider") ?? "").slice(0, 120);
+  const baseUrl = (url.searchParams.get("baseUrl") ?? "").slice(0, 500);
+  const parsedLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 50;
+  try {
+    const entries = await loadModelCatalog();
+    return {
+      models: searchModelCatalog(entries, query, provider, limit),
+      recommendation: recommendModelCatalogPreset(entries, query, provider, baseUrl),
+      source: "https://models.dev/api.json",
+    };
+  } catch (error) {
+    throw Object.assign(new Error(errorMessage(error)), { statusCode: 502 });
+  }
+}
+
+function assistantText(message: AssistantMessage): string {
+  return message.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+async function testConfiguredModel(req: IncomingMessage): Promise<unknown> {
+  const body = await readJson(req);
+  const providerName = typeof body.providerName === "string" ? body.providerName.trim() : "";
+  if (!providerName) throw Object.assign(new Error("providerName is required"), { statusCode: 400 });
+  if (!isRecord(body.provider)) throw Object.assign(new Error("provider is required"), { statusCode: 400 });
+  if (!isRecord(body.model)) throw Object.assign(new Error("model is required"), { statusCode: 400 });
+  const modelId = typeof body.model.id === "string" ? body.model.id.trim() : "";
+  if (!modelId) throw Object.assign(new Error("Model ID is required"), { statusCode: 400 });
+
+  const tempDir = mkdtempSync(join(tmpdir(), "polykit-agent-model-test-"));
+  try {
+    const modelsPath = join(tempDir, "models.json");
+    writeFileSync(modelsPath, JSON.stringify({
+      providers: {
+        [providerName]: {
+          ...body.provider,
+          models: [{ ...body.model, id: modelId }],
+        },
+      },
+    }, null, 2), "utf8");
+
+    const modelRuntime = await ModelRuntime.create({ modelsPath });
+    const loadError = modelRuntime.getError();
+    if (loadError) return { ok: false, error: loadError };
+    const model = modelRuntime.getModel(providerName, modelId);
+    if (!model) return { ok: false, error: `Model not found: ${providerName}/${modelId}` };
+    const resolved = await modelRuntime.getAuth(model);
+    if (!resolved?.auth.apiKey) return { ok: false, error: `No API key found for "${providerName}"` };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    let status: number | undefined;
+    const startedAt = Date.now();
+    try {
+      const message = await completeSimple(model, {
+        messages: [{ role: "user", content: "Reply with OK only.", timestamp: Date.now() }],
+      }, {
+        apiKey: resolved.auth.apiKey,
+        headers: resolved.auth.headers,
+        maxTokens: 16,
+        timeoutMs: 20_000,
+        maxRetries: 0,
+        cacheRetention: "none",
+        signal: controller.signal,
+        onResponse: (response) => { status = response.status; },
+      });
+      const latencyMs = Date.now() - startedAt;
+      if (message.stopReason === "error" || message.stopReason === "aborted") {
+        return {
+          ok: false,
+          error: message.errorMessage ?? (controller.signal.aborted ? "Test timed out" : "Model returned an error"),
+          latencyMs,
+          status,
+        };
+      }
+      return { ok: true, latencyMs, status, responseText: assistantText(message).slice(0, 300) };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function providerListings(): Promise<{
@@ -696,7 +905,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (req.method === "PUT" && url.pathname === "/models-config") {
       const body = await readJson(req);
       writeModelsConfig(body);
+      invalidateModelsCache();
       return json(res, 200, { success: true });
+    }
+    if (req.method === "POST" && url.pathname === "/models-config/discover") {
+      return json(res, 200, await discoverProviderModels(req));
+    }
+    if (req.method === "GET" && url.pathname === "/models-config/catalog") {
+      return json(res, 200, await modelCatalog(url));
+    }
+    if (req.method === "POST" && url.pathname === "/models-config/test") {
+      return json(res, 200, await testConfiguredModel(req));
     }
     if (req.method === "GET" && url.pathname === "/auth/providers") return json(res, 200, { providers: (await providerListings()).providers });
     if (req.method === "GET" && url.pathname === "/auth/all-providers") return json(res, 200, { providers: (await providerListings()).apiKeyProviders });
