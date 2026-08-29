@@ -182,16 +182,19 @@ crystal 六类现有原型各生成固定 seed 的小样本，按下面的顺序
 
 ## MCP 工具
 
-项目根目录的 `.mcp.json` 已声明本地 `polykit` MCP server。内置 Agent sidecar
-会通过 `POLYKIT_MCP_CONFIG` 自动发现这份声明，即使实际 workspace 是
-`~/.polykit/workspace` 也不需要复制配置文件；配置默认使用
-`uv run python api/mcp_server.py` 启动本地服务。启用 Agent 的 MCP adapter 后，
-内置或外部 Agent 都可以使用：
+项目根目录的 `.mcp.json` 已声明本地 `polykit` MCP server。配置默认使用
+`uv run python api/mcp_server.py` 启动本地服务。内置 Agent sidecar 的设置页能读取
+这份声明，但当会话 cwd 是 `~/.polykit/workspace` 时，部分 MCP adapter 版本不会把
+项目配置自动注册到 `mcp()` 网关；此时使用标准 MCP stdio 客户端直连同一服务即可，
+不需要复制配置文件到工作区。启用并正确注册 Agent 的 MCP adapter 后，内置或外部
+Agent 都可以使用：
 
 - `polykit_world_get` / `polykit_world_save`：读取和保存世界计划。
 - `polykit_world_update_stage`：记录上述阶段的 `pending/running/done/blocked`。
 - `polykit_world_list_workflows`：查看可用的本地可编辑工作流。
 - `polykit_generate_image`：提交本地 text-to-image 工作流（默认官方 Anima），输出 PNG。
+- `polykit_remove_background`：用本地抠图节点输出透明 PNG；输入必须是工作区内的图片。
+- `polykit_generate_from_image`：提交本地 image-to-3D 任务，可选择集合、贴图精修和模型参数。
 - `polykit_world_generate_asset`：为某个原型提交本地 image-to-3D 任务。
 - `polykit_get_generation_status`：轮询服务端任务，直到拿到 `scene_candidate.workspace_path`。
 - `polykit_world_attach_asset`：把完成的 workspace 相对路径写回原型，不复制二进制文件。
@@ -211,7 +214,8 @@ crystal 六类现有原型各生成固定 seed 的小样本，按下面的顺序
 1. `polykit_world_get`；没有文档时先用 `polykit_world_save` 写入 `intent` 和 `plan`。
 2. 将 `intent`、`plan` 标记为 `done`，把 `terrain` / `placement` / `assets` 标记为 `running`。
 3. 用 `polykit_world_list_workflows` 选择已经存在的本地工作流；需要生成风格化概念图时调用
-   `polykit_generate_image`，需要把概念图重建为网格时再调用 `polykit_world_generate_asset`。
+   `polykit_generate_image`，先用 `polykit_remove_background` 清理透明度，再调用
+   `polykit_generate_from_image` 或 `polykit_world_generate_asset`，并在需要时开启贴图精修。
 4. 轮询任务，完成后将输出的 `scene_candidate.workspace_path` 传给
    `polykit_world_attach_asset`，再更新 `assets` 和 `refine`。
 

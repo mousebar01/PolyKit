@@ -12,6 +12,7 @@ import asyncio
 import json
 import mimetypes
 from collections.abc import Mapping
+from pathlib import Path
 
 import httpx
 from mcp.server import Server
@@ -20,6 +21,7 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from services.world_agent import attach_world_artifact, update_world_stage
 from services.world_store import WorldStoreError, validate_world_id
+from services.runtime_paths import runtime_paths
 
 API_BASE = "http://localhost:8765"
 
@@ -62,6 +64,55 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "enum": ["quad", "triangle", "none"],
                         "description": "Remesh strategy after generation. Default: quad.",
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": "Workspace collection for the mesh; default: Workflows.",
+                    },
+                    "enable_texture": {
+                        "type": "boolean",
+                        "description": "Run the compatible texture-refinement node after mesh generation.",
+                    },
+                    "texture_resolution": {
+                        "type": "integer",
+                        "description": "Texture refinement resolution when enable_texture is true. Default: 1024.",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Optional Trellis generation/refinement parameters.",
+                    },
+                    "workflow_id": {
+                        "type": "string",
+                        "description": "Optional workflow provenance id.",
+                    },
+                },
+                "required": ["image_path"],
+            },
+        ),
+        Tool(
+            name="polykit_remove_background",
+            description=(
+                "Remove the background from a local image through the installed local process node "
+                "and publish a transparent PNG. Returns a server run ID to track progress."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "description": "Absolute path to an image inside the PolyKit workspace.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Background-removal model. Default: isnet-anime.",
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": "Workspace collection for the transparent PNG; default: Illustrations.",
+                    },
+                    "workflow_id": {
+                        "type": "string",
+                        "description": "Optional workflow provenance id.",
                     },
                 },
                 "required": ["image_path"],
@@ -262,6 +313,18 @@ async def list_tools() -> list[Tool]:
                         "enum": ["quad", "triangle", "none"],
                         "description": "Remesh strategy; default: quad.",
                     },
+                    "enable_texture": {
+                        "type": "boolean",
+                        "description": "Run the compatible texture-refinement node after mesh generation.",
+                    },
+                    "texture_resolution": {
+                        "type": "integer",
+                        "description": "Texture refinement resolution when enable_texture is true. Default: 1024.",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Optional generation/refinement parameters.",
+                    },
                 },
                 "required": ["world_id", "proto_id", "image_path"],
             },
@@ -327,9 +390,19 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         mime = mimetypes.guess_type(image_path)[0] or "image/png"
         filename = image_path.replace("\\", "/").split("/")[-1]
 
-        form_data = {"remesh": args.get("remesh", "quad")}
+        form_data = {
+            "remesh": args.get("remesh", "quad"),
+            "collection": args.get("collection", "Workflows"),
+            "enable_texture": str(_as_bool(args.get("enable_texture", False))).lower(),
+            "texture_resolution": str(int(args.get("texture_resolution", 1024))),
+        }
         if args.get("model_id"):
             form_data["model_id"] = args["model_id"]
+        if args.get("workflow_id"):
+            form_data["workflow_id"] = args["workflow_id"]
+        params = args.get("params")
+        if isinstance(params, Mapping):
+            form_data["params"] = json.dumps(dict(params), ensure_ascii=False)
 
         response = await client.post(
             f"{API_BASE}/workflow-runs/from-image",
@@ -342,6 +415,40 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return (
             f"Generation started. Run ID: {run_id}\n"
             f"Use polykit_get_generation_status with this ID to track progress."
+        )
+
+    if name == "polykit_remove_background":
+        image_ref = _workspace_image_reference(args["image_path"])
+        params = {"model": args.get("model", "isnet-anime")}
+        payload = {
+            "schema_version": 1,
+            "workflow_id": str(args.get("workflow_id") or "").strip() or None,
+            "prompt": {
+                "image": {
+                    "class_type": "polykit.image",
+                    "inputs": {"image": image_ref},
+                },
+                "cutout": {
+                    "class_type": "image-background-remover/remove-background",
+                    "inputs": {
+                        "image": ["image", "image"],
+                        "params": params,
+                    },
+                },
+                "output": {
+                    "class_type": "polykit.image_output",
+                    "inputs": {"image": ["cutout", "image"]},
+                },
+            },
+            "output_node_id": "output",
+            "collection": str(args.get("collection") or "Illustrations"),
+        }
+        response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
+        response.raise_for_status()
+        run_id = response.json()["run_id"]
+        return (
+            f"Background removal started with {params['model']}. Run ID: {run_id}\n"
+            "Use polykit_get_generation_status with this ID to track progress."
         )
 
     if name == "polykit_generate_image":
@@ -503,6 +610,13 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             "world_id": world_id,
             "proto_id": proto_id,
         }
+        if args.get("enable_texture") is not None:
+            form_data["enable_texture"] = str(_as_bool(args["enable_texture"])).lower()
+        if args.get("texture_resolution") is not None:
+            form_data["texture_resolution"] = str(int(args["texture_resolution"]))
+        params = args.get("params")
+        if isinstance(params, Mapping):
+            form_data["params"] = json.dumps(dict(params), ensure_ascii=False)
         if args.get("model_id"):
             form_data["model_id"] = args["model_id"]
         if args.get("workflow_id"):
@@ -544,6 +658,27 @@ def _required_text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise WorldStoreError(f"{label} is required")
     return value.strip()
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _workspace_image_reference(image_path: object) -> dict[str, str]:
+    """Convert a trusted local image path into the workflow's safe file reference."""
+    path = Path(_required_text(image_path, "image_path")).expanduser().resolve()
+    root = runtime_paths.workspace.resolve()
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise WorldStoreError("image_path must point to a file inside the PolyKit workspace") from exc
+    if not path.is_file():
+        raise WorldStoreError(f"Image file not found: {path}")
+    return {"kind": "workspace_path", "path": relative.as_posix()}
 
 
 def _safe_world_id(value: object) -> str:

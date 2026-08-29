@@ -102,9 +102,11 @@ types and `[node_id, output_name]` references, then executes the DAG through
 `services.workflow_engine.WorkflowEngine`.
 
 The external MCP adapter in `api/mcp_server.py` also exposes `polykit_world_*`
-tools. They let an Agent author and resume a WorldClaw-inspired plan, submit
-local image-to-3D work, and attach completed workspace artifacts without
-introducing a second runtime or a hosted generation dependency.
+tools plus local image helpers. They let an Agent author and resume a
+WorldClaw-inspired plan, generate illustrations, remove image backgrounds,
+submit image-to-3D work with optional texture refinement, and attach completed
+workspace artifacts without introducing a second runtime or a hosted
+generation dependency.
 
 Server-owned model/process nodes share the same `RunCoordinator`, single-GPU slot,
 cancellation signals, persistence, and workspace lifecycle. If a graph cannot
