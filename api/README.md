@@ -77,6 +77,7 @@ behind authentication and TLS termination.
 | DELETE | `/workflow-definitions/{workflow_id}` | Delete one editable workflow graph |
 | GET | `/workspace-library/worlds/{world_id}` | Read one server-owned world plan/manifest |
 | PUT | `/workspace-library/worlds/{world_id}` | Create or replace one world plan/manifest |
+| POST | `/workspace-library/worlds` | Allocate a fresh scene record for one Agent generation |
 
 `/generate/*` remains mounted only as an explicit compatibility surface for
 older CLI callers. New product code must use `/workflow-runs/*`.

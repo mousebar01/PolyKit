@@ -226,6 +226,26 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
+            name="polykit_world_create",
+            description=(
+                "Start a new scene record for one world-generation request. Call this once before "
+                "polykit_world_save and the stage tools; keep the returned world_id for every "
+                "subsequent stage and asset attachment. This allocates a fresh scene and never "
+                "overwrites an earlier world."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Optional display name for the scene."},
+                    "prompt": {"type": "string", "description": "Original scene request, if known."},
+                    "parent_world_id": {
+                        "type": "string",
+                        "description": "Optional earlier scene id when this is a deliberate revision.",
+                    },
+                },
+            },
+        ),
+        Tool(
             name="polykit_world_get",
             description=(
                 "Read a server-owned world document. Use this before changing a world so the "
@@ -540,6 +560,25 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
         response.raise_for_status()
         return _json_text(response.json())
+
+    if name == "polykit_world_create":
+        payload = {
+            key: value
+            for key, value in {
+                "name": args.get("name"),
+                "prompt": args.get("prompt"),
+                "parent_world_id": args.get("parent_world_id"),
+            }.items()
+            if isinstance(value, str) and value.strip()
+        }
+        response = await client.post(f"{API_BASE}/workspace-library/worlds", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return (
+            f"New scene created: {data.get('world_id', '?')}\n"
+            f"{_json_text(data.get('world', data))}\n"
+            "Use this world_id for the planning stages and all later asset attachments."
+        )
 
     if name == "polykit_world_save":
         world_id = _safe_world_id(args.get("world_id"))

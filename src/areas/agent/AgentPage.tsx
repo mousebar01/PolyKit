@@ -8,6 +8,7 @@ import type { AgentSettings } from '@shared/types/runtime.d'
 import { ChatWindow } from '@agent/components/ChatWindow'
 import { I18nProvider } from '@agent/hooks/useI18n'
 import '@agent/app/globals.css'
+import AgentScenePreview from './components/AgentScenePreview'
 
 interface AgentSessionRecord {
   path: string
@@ -325,19 +326,22 @@ export default function AgentPage(): JSX.Element {
               onRefresh={() => { void loadSessions() }}
               onSelect={handleSelectSession}
             />
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <ChatWindow
-                key={sessionKey}
-                session={selectedSession}
-                newSessionCwd={selectedSession ? null : workspaceDir}
-                showWorkspacePicker={false}
-                initialModel={initialModel}
-                initialToolPreset={toolPreset}
-                initialThinkingLevel={agentSettings.thinkingLevel}
-                onSessionCreated={handleSessionCreated}
-                onSessionForked={handleSessionForked}
-                onAgentEnd={() => { void loadSessions() }}
-              />
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                <ChatWindow
+                  key={sessionKey}
+                  session={selectedSession}
+                  newSessionCwd={selectedSession ? null : workspaceDir}
+                  showWorkspacePicker={false}
+                  initialModel={initialModel}
+                  initialToolPreset={toolPreset}
+                  initialThinkingLevel={agentSettings.thinkingLevel}
+                  onSessionCreated={handleSessionCreated}
+                  onSessionForked={handleSessionForked}
+                  onAgentEnd={() => { void loadSessions() }}
+                />
+              </div>
+              <AgentScenePreview />
             </div>
           </I18nProvider>
         ) : (

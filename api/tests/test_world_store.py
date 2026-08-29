@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from routers.workspace_worlds import put_world, read_world
+from routers.workspace_worlds import WorldCreateRequest, create_world, put_world, read_world
 from services.runtime_paths import runtime_paths
-from services.world_agent import attach_world_artifact, update_world_stage
+from services.world_agent import attach_world_artifact, create_world_document, update_world_stage
 from services.world_store import (
     MAX_WORLD_BYTES,
     WorldStoreError,
@@ -140,6 +140,19 @@ class WorldStoreTests(unittest.TestCase):
                 workspace_path="/tmp/hero.glb",
             )
 
+    def test_new_scene_document_has_one_persistent_id_and_paper_stages(self) -> None:
+        first = create_world_document(name="Harbor", prompt="A stylized harbor")
+        second = create_world_document(name="Harbor", prompt="A stylized harbor")
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(first["world_id"], first["id"])
+        self.assertEqual(first["spec"], {})
+        self.assertEqual(
+            [stage["id"] for stage in first["agent_plan"]["stages"]],
+            ["intent", "plan", "terrain", "placement", "assets", "materials", "refine"],
+        )
+        self.assertEqual(first["agent_plan"]["prompt"], "A stylized harbor")
+
 
 class WorkspaceWorldRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
@@ -176,6 +189,12 @@ class WorkspaceWorldRouteTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as unsafe:
             await put_world("../unsafe", body)
         self.assertEqual(unsafe.exception.status_code, 400)
+
+    async def test_create_allocates_a_new_scene_record(self) -> None:
+        response = await create_world(WorldCreateRequest(name="Harbor", prompt="A stylized harbor"))
+        self.assertTrue(response["world_id"].startswith("scene-"))
+        self.assertEqual(response["world"]["agent_plan"]["stages"][1]["id"], "plan")
+        self.assertEqual(await read_world(response["world_id"]), response["world"])
 
 
 if __name__ == "__main__":

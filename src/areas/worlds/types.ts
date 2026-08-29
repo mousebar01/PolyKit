@@ -22,6 +22,10 @@ export interface WorldDocument {
   name: string
   created_at: string
   updated_at: string
+  /** Server run that created this scene, when it came from Agent generation. */
+  run_id?: string
+  /** Optional parent scene when the Agent deliberately creates a revision. */
+  parent_world_id?: string
   spec: WorldSpec
   instances: Instance[]
   artifacts: Record<string, WorldAssetArtifact>

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { DEMO_SPEC } from './runtime/demo'
 import { buildTerrain, type BuiltTerrain } from './runtime/terrain'
 import { solvePlacements } from './runtime/placement'
-import type { Instance, WorldSpec } from './runtime/types'
+import { isRenderableWorldSpec, type Instance, type WorldSpec } from './runtime/types'
 import type { WorldAssetArtifact, WorldDocument } from './types'
 import { createWorldAgentPlan } from './worldPlan'
 
@@ -51,6 +51,12 @@ export function createWorldDocument(spec: WorldSpec = DEMO_SPEC, id = DEMO_ID): 
 }
 
 function prepare(document: WorldDocument): { document: WorldDocument; terrain: BuiltTerrain; instances: Instance[] } {
+  // Agent-created scene records are persisted before their plan is complete.
+  // Keep the store loadable while the Worlds page renders its planning state;
+  // never send an incomplete spec into the terrain generator.
+  if (!isRenderableWorldSpec(document.spec)) {
+    return { document, terrain: buildTerrain(DEMO_SPEC, { resolution: 96 }), instances: [] }
+  }
   const terrain = buildTerrain(document.spec, { resolution: 96 })
   const instances = document.instances.length > 0 ? document.instances : solvePlacements(document.spec, terrain)
   return { document, terrain, instances }

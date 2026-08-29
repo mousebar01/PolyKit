@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from services.world_store import WorldStoreError, validate_workspace_relative_path
+from services.world_store import WorldStoreError, new_world_id, validate_workspace_relative_path
 
 
 # These stages mirror the coarse-to-fine flow described by WorldClaw: intent
@@ -38,6 +38,55 @@ def _require_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise WorldStoreError(f"{label} is required")
     return value.strip()
+
+
+def create_world_document(
+    *,
+    name: str | None = None,
+    prompt: str | None = None,
+    parent_world_id: str | None = None,
+) -> dict[str, Any]:
+    """Create the initial record for one Agent generation request.
+
+    This is not an extra workflow stage.  It gives the seven visible planning
+    stages a stable document to update while the Agent progressively fills in
+    the actual scene specification and artifact references.
+    """
+
+    world_id = new_world_id()
+    timestamp = _now()
+    title = (name or "Untitled scene").strip() or "Untitled scene"
+    plan: dict[str, Any] = {
+        "version": 1,
+        "source": "worldclaw-paper",
+        "stages": [
+            {"id": stage_id, "status": "pending"}
+            for stage_id in WORLDCLAW_STAGE_IDS
+        ],
+        "updated_at": timestamp,
+    }
+    if prompt and prompt.strip():
+        plan["prompt"] = prompt.strip()
+
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "polykit.world",
+        "id": world_id,
+        "world_id": world_id,
+        "name": title,
+        "created_at": timestamp,
+        "updated_at": timestamp,
+        # The Agent replaces this with the real WorldSpec during the plan
+        # stage.  Keeping the field JSON-compatible makes the shell resumable
+        # without inventing a second draft format.
+        "spec": {},
+        "instances": [],
+        "artifacts": {},
+        "agent_plan": plan,
+    }
+    if parent_world_id and parent_world_id.strip():
+        result["parent_world_id"] = parent_world_id.strip()
+    return result
 
 
 def _normalise_artifacts(value: Any) -> dict[str, Any]:
@@ -162,5 +211,6 @@ __all__ = [
     "WORLDCLAW_STAGE_IDS",
     "WORLDCLAW_STAGE_STATUSES",
     "attach_world_artifact",
+    "create_world_document",
     "update_world_stage",
 ]

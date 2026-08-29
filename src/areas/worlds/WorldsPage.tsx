@@ -9,6 +9,7 @@ import { useAppStore } from '@shared/stores/appStore'
 import { useNavStore } from '@shared/stores/navStore'
 import { useI18n } from '@shared/i18n'
 import WorldCanvas from './components/WorldCanvas'
+import { isRenderableWorldSpec } from './runtime/types'
 import { useWorldStore } from './worldStore'
 
 function formatNumber(value: number): string {
@@ -24,14 +25,15 @@ export default function WorldsPage(): JSX.Element {
     setSelectedProtoId, save, load, clearError,
   } = useWorldStore()
   const [worldId, setWorldId] = useState(document.id)
+  const renderable = isRenderableWorldSpec(document.spec)
 
   const heroCount = useMemo(
-    () => document.spec.assets.filter((asset) => asset.tier === 'hero').length,
-    [document.spec.assets],
+    () => renderable ? document.spec.assets.filter((asset) => asset.tier === 'hero').length : 0,
+    [document.spec, renderable],
   )
   const regionSummary = useMemo(
-    () => document.spec.regions.map((region) => ({ ...region, count: instances.filter((item) => item.regionId === region.id).length })),
-    [document.spec.regions, instances],
+    () => renderable ? document.spec.regions.map((region) => ({ ...region, count: instances.filter((item) => item.regionId === region.id).length })) : [],
+    [document.spec, instances, renderable],
   )
 
   async function handleSave(): Promise<void> {
@@ -52,7 +54,7 @@ export default function WorldsPage(): JSX.Element {
             <h1 id="worlds-title" className="text-2xl font-semibold tracking-tight">{t('worlds.title')}</h1>
             <Badge variant="secondary">{t('worlds.localRuntime')}</Badge>
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{document.spec.logline}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{renderable ? document.spec.logline : t('worlds.planningScene')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => navigate('agent')}>
@@ -70,13 +72,14 @@ export default function WorldsPage(): JSX.Element {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_290px] gap-3">
+      {renderable ? <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_290px] gap-3">
         <div className="relative min-h-0 overflow-hidden rounded-lg bg-muted">
           <WorldCanvas
             spec={document.spec}
             terrain={terrain}
             instances={instances}
             selectedProtoId={selectedProtoId}
+            artifacts={document.artifacts}
           />
           <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-md bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
@@ -167,7 +170,32 @@ export default function WorldsPage(): JSX.Element {
             </CardContent>
           </Card>
         </aside>
-      </div>
+      </div> : <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_290px] gap-3">
+        <div className="flex min-h-0 items-center justify-center rounded-lg bg-muted px-8 text-center">
+          <div className="max-w-sm space-y-2">
+            <Sparkles className="mx-auto size-8 text-primary/75" strokeWidth={1.5} aria-hidden="true" />
+            <h2 className="text-sm font-medium">{t('worlds.planningScene')}</h2>
+            <p className="text-xs text-muted-foreground">{t('worlds.planningSceneDescription')}</p>
+            <p className="break-all font-mono text-[10px] text-muted-foreground/70">{document.id}</p>
+          </div>
+        </div>
+        <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+          <Card>
+            <CardHeader className="pb-3"><CardTitle>{t('worlds.openSaved')}</CardTitle><CardDescription>{t('worlds.openSavedDescription')}</CardDescription></CardHeader>
+            <CardContent className="space-y-2">
+              <label htmlFor="world-id" className="text-xs font-medium">{t('worlds.worldId')}</label>
+              <div className="flex gap-2">
+                <Input id="world-id" value={worldId} onChange={(event) => setWorldId(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleLoad() }} />
+                <Button type="button" variant="outline" size="icon" title={t('worlds.load')} aria-label={t('worlds.load')} onClick={() => void handleLoad()} disabled={loading}>
+                  {loading ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
+                </Button>
+              </div>
+              {!apiUrl && <p className="text-[11px] text-muted-foreground">{t('worlds.connectServer')}</p>}
+              {error && <button type="button" className="w-full rounded-md bg-destructive/10 px-2 py-1.5 text-left text-[11px] text-destructive" onClick={clearError}>{error}</button>}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>}
     </section>
   )
 }

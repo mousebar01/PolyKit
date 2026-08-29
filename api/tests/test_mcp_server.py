@@ -33,6 +33,7 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
         names = {tool.name for tool in tools}
         self.assertTrue(
             {
+                "polykit_world_create",
                 "polykit_world_get",
                 "polykit_world_save",
                 "polykit_world_update_stage",
@@ -47,6 +48,18 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
 
         result = await _on_list_tools(None, None)
         self.assertEqual({tool.name for tool in result.tools}, names)
+
+    async def test_world_create_dispatches_to_server_allocator(self) -> None:
+        client = _Client()
+        message = await _dispatch(
+            client,
+            "polykit_world_create",
+            {"name": "Harbor", "prompt": "A stylized harbor"},
+        )
+        self.assertIn("New scene created", message)
+        url, kwargs = client.payload
+        self.assertTrue(url.endswith("/workspace-library/worlds"))
+        self.assertEqual(kwargs["json"], {"name": "Harbor", "prompt": "A stylized harbor"})
 
     async def test_generate_image_dispatches_a_local_text_image_dag(self) -> None:
         client = _Client()

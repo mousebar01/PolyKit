@@ -14,6 +14,7 @@ import re
 import threading
 import uuid
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, overload
 
@@ -134,6 +135,25 @@ def world_path(world_id: str) -> Path:
     relative = f"{WORLD_ROOT}/{safe_id}{WORLD_SUFFIX}"
     # ``resolve_workspace_path`` checks both traversal and symlink escapes.
     return resolve_workspace_path(runtime_paths.workspace, relative)
+
+
+def new_world_id(prefix: str = "scene") -> str:
+    """Return a collision-resistant id for a newly generated scene.
+
+    World ids are deliberately allocated by the server rather than by the
+    browser/Agent.  This keeps a generation request from accidentally
+    replacing a previous scene when two clients submit at nearly the same
+    time.
+    """
+
+    safe_prefix = re.sub(r"[^a-z0-9-]+", "-", prefix.strip().lower()).strip("-") or "scene"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    with _lock:
+        for _ in range(10):
+            candidate = f"{safe_prefix}-{timestamp}-{uuid.uuid4().hex[:10]}"
+            if not world_path(candidate).exists():
+                return candidate
+    raise WorldStoreError("Could not allocate a unique world id")
 
 
 def _as_mapping(world: Mapping[str, Any] | BaseModel) -> dict[str, Any]:
@@ -387,6 +407,7 @@ __all__ = [
     "WorldTooLargeError",
     "get_world",
     "load_world",
+    "new_world_id",
     "save_world",
     "validate_world_id",
     "validate_workspace_relative_path",

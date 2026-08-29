@@ -121,6 +121,26 @@ export interface WorldSpec {
   relations: RelationSpec[]
 }
 
+/**
+ * A newly-created scene is intentionally persisted before the Agent has
+ * written its full plan. Keep that shell document out of the renderer until
+ * all world fields are present.
+ */
+export function isRenderableWorldSpec(value: unknown): value is WorldSpec {
+  if (!value || typeof value !== 'object') return false
+  const spec = value as Partial<WorldSpec>
+  return typeof spec.name === 'string'
+    && typeof spec.logline === 'string'
+    && typeof spec.seed === 'number'
+    && typeof spec.size === 'number'
+    && typeof spec.seaLevel === 'number'
+    && Boolean(spec.sky)
+    && Array.isArray(spec.regions)
+    && Array.isArray(spec.rivers)
+    && Array.isArray(spec.assets)
+    && Array.isArray(spec.relations)
+}
+
 export interface Instance {
   id: string
   protoId: string
@@ -137,4 +157,3 @@ export interface AssetArtifact {
   meshUrl?: string
   procedural: boolean
 }
-
