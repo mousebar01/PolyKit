@@ -35,6 +35,7 @@ import {
 } from '@shared/components/ui'
 import { useI18n, type TranslationKey } from '@shared/i18n'
 import type { ProjectedAssetLibraryEntry } from '../assetLibraryProjection'
+import { CAPABILITY_LABEL_KEYS } from '../assetLibraryLabels'
 import {
   ASSET_LIBRARY_SORT_OPTIONS,
   DEFAULT_ASSET_LIBRARY_SORT_MODE,
@@ -91,18 +92,6 @@ function ExportFormatItems({
       ))}
     </div>
   )
-}
-
-type AssetCapability = NonNullable<ProjectedAssetLibraryEntry['capability']>
-
-const CAPABILITY_LABEL_KEYS: Record<AssetCapability, TranslationKey> = {
-  image: 'assets.capabilityImages',
-  mesh: 'assets.capabilityMesh',
-  'rigged-mesh': 'assets.capabilityRiggedMesh',
-  'animation-motion': 'assets.capabilityAnimations',
-  'landmarks-sidecar': 'assets.capabilityLandmarks',
-  'generated-world': 'assets.capabilityGeneratedWorlds',
-  'scene-manifest': 'assets.capabilitySceneManifests',
 }
 
 type AssetLibraryViewMode = 'grid' | 'list'

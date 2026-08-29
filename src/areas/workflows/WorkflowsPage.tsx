@@ -13,7 +13,10 @@ import {
   type Edge,
   type OnConnectStartParams,
 } from '@xyflow/react'
-import { FolderPlus, Image as ImageIcon } from 'lucide-react'
+import { FolderPlus } from 'lucide-react'
+import { getDefaultAssetLibraryService } from '@areas/assets/assetLibraryService'
+import type { ProjectedAssetLibraryEntry } from '@areas/assets/assetLibraryProjection'
+import AssetLibraryEntryCard from '@areas/assets/components/AssetLibraryEntryCard'
 import { useWorkflowsStore, NODE_TYPES_WITHOUT_TARGET, NODE_TYPES_WITHOUT_SOURCE, FOLDER_COLORS } from '@shared/stores/workflowsStore'
 import { useNodePacksStore } from '@shared/stores/nodePacksStore'
 import { useAppStore } from '@shared/stores/appStore'
@@ -501,6 +504,14 @@ function outputDisplayName(url: string): string {
   try { return decodeURIComponent(raw) } catch { return raw }
 }
 
+function outputWorkspacePath(url: string): string | undefined {
+  const marker = '/workspace/'
+  const markerIndex = url.indexOf(marker)
+  if (markerIndex < 0) return undefined
+  const rawPath = url.slice(markerIndex + marker.length).split(/[?#]/, 1)[0]
+  try { return decodeURIComponent(rawPath) } catch { return rawPath }
+}
+
 interface RemoteWorkflowRun {
   run_id: string
   status: string
@@ -515,6 +526,33 @@ function isImageOutputUrl(url: string): boolean {
   return /\.(png|jpe?g|webp|gif|bmp)(?:[?#]|$)/i.test(url)
 }
 
+function outputAssetEntry(
+  url: string,
+  isImage: boolean,
+  libraryEntries: ProjectedAssetLibraryEntry[],
+): ProjectedAssetLibraryEntry {
+  const workspacePath = outputWorkspacePath(url) ?? url.replace(/^\/+/, '')
+  const existing = libraryEntries.find((entry) => entry.workspacePath === workspacePath)
+  if (existing) {
+    // Output metadata is authoritative for the artifact kind even while the
+    // library index is catching up with a newly completed run.
+    return { ...existing, capability: isImage ? 'image' : 'mesh' }
+  }
+
+  return {
+    id: `workflow-output:${url}`,
+    workspacePath,
+    displayName: outputDisplayName(url),
+    capability: isImage ? 'image' : 'mesh',
+    state: 'ready',
+    previewKind: isImage ? 'image' : '3d-model',
+    warnings: [],
+    openable: true,
+    thumbnail: isImage ? url : undefined,
+    preview: isImage ? url : undefined,
+  }
+}
+
 function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Element {
   const { t } = useI18n()
   const currentJob = useAppStore((s) => s.currentJob)
@@ -523,6 +561,23 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
   const apiUrl = useAppStore((s) => s.apiUrl)
   const { navigate } = useNavStore()
   const [remoteRuns, setRemoteRuns] = useState<RemoteWorkflowRun[]>([])
+  const [libraryEntries, setLibraryEntries] = useState<ProjectedAssetLibraryEntry[]>([])
+  const assetLibraryService = useMemo(() => getDefaultAssetLibraryService(), [])
+  const lastIndexedOutput = useRef<string | undefined>(undefined)
+
+  const refreshAssetLibrary = useCallback(async (): Promise<void> => {
+    try {
+      const result = await assetLibraryService.list()
+      if (result.success) setLibraryEntries(result.entries)
+    } catch {
+      // The output list remains usable with a lightweight fallback entry while
+      // the asset index is temporarily unavailable.
+    }
+  }, [assetLibraryService])
+
+  useEffect(() => {
+    void refreshAssetLibrary()
+  }, [refreshAssetLibrary])
 
   // The server owns the actual generation job. Poll its persisted run list so
   // a browser refresh can reconnect to progress and outputs instead of showing
@@ -558,6 +613,16 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
   const activeRemoteRun = remoteRuns.find((run) => run.status === 'pending' || run.status === 'running')
   const latestRemoteOutput = remoteRuns.find((run) => run.status === 'done' && run.output_url)
 
+  // A completed run creates a workspace asset asynchronously. Refresh once
+  // for each new output so the card picks up the server-generated thumbnail and
+  // the same metadata shown in the Assets page.
+  useEffect(() => {
+    const outputUrl = latestRemoteOutput?.output_url
+    if (!outputUrl || lastIndexedOutput.current === outputUrl) return
+    lastIndexedOutput.current = outputUrl
+    void refreshAssetLibrary()
+  }, [latestRemoteOutput?.output_url, refreshAssetLibrary])
+
   // If the browser was refreshed, restore the latest server output into the
   // shared viewer state as soon as the run becomes terminal.
   useEffect(() => {
@@ -590,6 +655,14 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
     return [...new Set(candidates.filter((url): url is string => typeof url === 'string' && url.length > 0))]
   }, [currentJob?.outputUrl, meshHistory, remoteRuns])
 
+  const outputEntries = useMemo(() => outputs.map((url) => {
+    const run = remoteRuns.find((candidate) => candidate.output_url === url)
+    const isImage = (currentJob?.outputUrl === url && currentJob.outputKind === 'image')
+      || run?.meta?.artifact_kind === 'image'
+      || isImageOutputUrl(url)
+    return { url, entry: outputAssetEntry(url, isImage, libraryEntries), isImage }
+  }), [currentJob?.outputKind, currentJob?.outputUrl, libraryEntries, outputs, remoteRuns])
+
   const openOutput = (url: string): void => {
     const existing = useAppStore.getState().currentJob
     setCurrentJob({
@@ -611,7 +684,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
   const step = activeRemoteRun?.step ?? currentJob?.step ?? t('common.processing')
 
   return (
-    <aside className="flex w-[260px] shrink-0 flex-col border-l border-divider bg-card/55">
+    <aside className="flex w-[clamp(260px,22vw,360px)] shrink-0 flex-col border-l border-divider bg-card/55">
       <div className="bg-card/35 px-4 py-4">
         <div className="flex items-center gap-2">
           <span className="flex h-5 w-5 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
@@ -623,7 +696,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
             <h2 className="text-xs font-semibold text-foreground">{t('workflows.outputs')}</h2>
             <p className="mt-0.5 text-[10px] text-muted-foreground">{t('workflows.generatedProducts')}</p>
           </div>
-          {outputs.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground">{outputs.length}</span>}
+          {outputEntries.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground">{outputEntries.length}</span>}
         </div>
       </div>
 
@@ -644,7 +717,7 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
           </div>
         )}
 
-        {outputs.length === 0 ? (
+        {outputEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-divider text-muted-foreground">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -660,45 +733,17 @@ function WorkflowOutputsPanel({ workflowId }: { workflowId?: string }): JSX.Elem
           </div>
         ) : (
           <div className="space-y-2.5">
-            {outputs.map((url, index) => {
-              const active = currentJob?.outputUrl === url
-              const isImage = (currentJob?.outputUrl === url && currentJob.outputKind === 'image')
-                || remoteRuns.find((run) => run.output_url === url)?.meta?.artifact_kind === 'image'
-                || isImageOutputUrl(url)
-              return (
-                <button
-                  key={url}
-                  type="button"
-                  onClick={() => openOutput(url)}
-                  className={`w-full text-left rounded-lg border p-3 transition-colors group
-                    ${active
-                      ? 'border-primary/45 bg-primary/10'
-                      : 'border-divider bg-card/70 hover:border-primary/30 hover:bg-muted/60'}`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <span className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 border
-                      ${active ? 'border-primary/30 bg-primary/15 text-primary' : 'border-divider bg-muted text-muted-foreground group-hover:text-foreground'}`}>
-                      {isImage
-                        ? <ImageIcon className="h-[15px] w-[15px]" strokeWidth={1.5} />
-                        : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>
-                          </svg>}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-[11px] font-medium text-foreground">{outputDisplayName(url)}</span>
-                        {index === 0 && <span className="shrink-0 text-[9px] text-sky-400">{t('workflows.latest')}</span>}
-                      </span>
-                      <span className="mt-1 block truncate text-[10px] text-muted-foreground">{url.replace(/^\/workspace\//, '')}</span>
-                    </span>
-                  </div>
-                  <span className="mt-2.5 flex items-center justify-between border-t border-divider pt-2">
-                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{t(isImage ? 'workflows.image' : 'workflows.mesh3d')}</span>
-                    <span className="text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">{t(isImage ? 'workflows.viewImage' : 'workflows.viewIn3d')}</span>
-                  </span>
-                </button>
-              )
-            })}
+            {outputEntries.map(({ url, entry, isImage }, index) => (
+              <AssetLibraryEntryCard
+                key={url}
+                entry={entry}
+                thumbnailBase={apiUrl}
+                latest={index === 0}
+                active={currentJob?.outputUrl === url}
+                onClick={() => openOutput(url)}
+                actionLabel={t(isImage ? 'workflows.viewImage' : 'workflows.viewIn3d')}
+              />
+            ))}
           </div>
         )}
       </div>
