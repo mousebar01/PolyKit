@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Box, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react'
+import { Info, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react'
 
 import { Button } from '@shared/components/ui/button'
 import { useAppStore } from '@shared/stores/appStore'
@@ -43,6 +43,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
   const [instances, setInstances] = useState<WorldDocument['instances']>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [infoOpen, setInfoOpen] = useState(false)
   const loadingRef = useRef(false)
   const lastLoadedRef = useRef<string>('')
 
@@ -105,26 +106,44 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       style={{ flexBasis: `${width}%`, width: `${width}%` }}
       aria-label={zh ? '当前场景预览' : 'Current scene preview'}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2.5">
-        <Box className="size-4 text-primary" strokeWidth={1.8} aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-xs font-semibold text-foreground">{zh ? '当前场景' : 'Current scene'}</h2>
-          <p className="truncate text-[10px] text-muted-foreground">{summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
-        </div>
-        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" onClick={() => void refresh()} disabled={loading} title={zh ? '刷新场景' : 'Refresh scene'} aria-label={zh ? '刷新场景' : 'Refresh scene'}>
-          {loading ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
-        </Button>
-      </header>
-
       <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/35">
+        <div className="absolute right-3 top-3 z-30 flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 bg-background/75 text-muted-foreground backdrop-blur-sm hover:bg-background hover:text-foreground"
+            onClick={() => setInfoOpen((open) => !open)}
+            title={zh ? '显示场景信息' : 'Show scene info'}
+            aria-label={zh ? '显示场景信息' : 'Show scene info'}
+            aria-expanded={infoOpen}
+          >
+            <Info className="size-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 bg-background/75 text-muted-foreground backdrop-blur-sm hover:bg-background hover:text-foreground"
+            onClick={() => void refresh()}
+            disabled={loading}
+            title={zh ? '刷新场景' : 'Refresh scene'}
+            aria-label={zh ? '刷新场景' : 'Refresh scene'}
+          >
+            {loading ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
+          </Button>
+        </div>
+
+        {infoOpen && (
+          <div className="absolute right-3 top-12 z-30 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
+            <p className="truncate font-medium text-foreground">{document?.name ?? summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
+            <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document?.id ?? summary?.id ?? (zh ? '尚未创建场景' : 'No scene created')}</p>
+          </div>
+        )}
+
         {renderable ? (
           <>
             <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor="#303030" />
-            <div className="pointer-events-none absolute left-3 top-3 max-w-[calc(100%-24px)] rounded-md bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm">
-              <span className="font-medium text-foreground">{document.name}</span>
-              <span className="mx-1.5 text-divider">·</span>
-              <span className="font-mono">{document.id}</span>
-            </div>
             <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-background/75 px-2.5 py-1.5 text-[10px] text-muted-foreground backdrop-blur-sm">
               {t('worlds.controls')}
             </div>
