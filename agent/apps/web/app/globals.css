@@ -1726,6 +1726,10 @@ html.dark .settings-backdrop {
   content: "·";
 }
 
+.assistant-message-metadata > .assistant-message-actions::before {
+  content: none;
+}
+
 .assistant-model-identity {
   color: var(--text-muted);
   font-weight: 500;

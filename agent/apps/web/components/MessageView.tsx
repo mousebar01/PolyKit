@@ -668,38 +668,38 @@ function AssistantMessageView({
               <span className="assistant-usage">{formatUsage(message.usage)}</span>
             )}
             {time && <span className="assistant-message-time">{time}</span>}
-          </div>
-          <div
-            className="assistant-message-actions"
-            data-visible={hovered || forking || copied || undefined}
-          >
-            {textContent && (
-              <button
-                type="button"
-                onClick={copyContent}
-                aria-label={copied ? t("i18n.copied") : t("i18n.copyMessage")}
-                title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
-                className="assistant-message-action"
-                data-active={copied || undefined}
-              >
-                {copied
-                  ? <Check size={14} strokeWidth={1.8} aria-hidden="true" />
-                  : <Copy size={14} strokeWidth={1.8} aria-hidden="true" />}
-              </button>
-            )}
-            {canFork && (
-              <button
-                type="button"
-                onClick={() => onFork(entryId)}
-                disabled={forking}
-                aria-label={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChat")}
-                title={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChatTitle")}
-                className="assistant-message-action"
-                data-active={forking || undefined}
-              >
-                <GitBranch size={14} strokeWidth={1.8} aria-hidden="true" />
-              </button>
-            )}
+            <div
+              className="assistant-message-actions"
+              data-visible={hovered || forking || copied || undefined}
+            >
+              {textContent && (
+                <button
+                  type="button"
+                  onClick={copyContent}
+                  aria-label={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+                  title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+                  className="assistant-message-action"
+                  data-active={copied || undefined}
+                >
+                  {copied
+                    ? <Check size={14} strokeWidth={1.8} aria-hidden="true" />
+                    : <Copy size={14} strokeWidth={1.8} aria-hidden="true" />}
+                </button>
+              )}
+              {canFork && (
+                <button
+                  type="button"
+                  onClick={() => onFork(entryId)}
+                  disabled={forking}
+                  aria-label={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChat")}
+                  title={forking ? t("i18n.creatingFork") : t("i18n.continueInNewChatTitle")}
+                  className="assistant-message-action"
+                  data-active={forking || undefined}
+                >
+                  <GitBranch size={14} strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
