@@ -104,7 +104,19 @@ export function filterAssetLibraryEntryGroups(
       }
     })
 
-  return entryGroups.filter((group): group is AssetLibraryEntryGroup => group !== null)
+  const visibleGroups = entryGroups.filter((group): group is AssetLibraryEntryGroup => group !== null)
+  // Keep the image shelf discoverable before the first image is generated or
+  // imported. Other capability sections stay data-driven so the sidebar does
+  // not fill with empty categories.
+  if (!normalizedSearchQuery && !visibleGroups.some((group) => group.capability === 'image')) {
+    visibleGroups.unshift({
+      capability: 'image',
+      capabilityLabel: 'Images',
+      sectionKey: 'capability:image',
+      entries: [],
+    })
+  }
+  return visibleGroups
 }
 
 export function createAssetLibraryOpenJob(

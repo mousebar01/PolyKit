@@ -49,7 +49,7 @@ const Viewer3D = lazy(() => import('./components/Viewer3D'))
 
 function AssetsLoading({ label }: { label: string }): JSX.Element {
   return (
-    <div className="flex flex-1 items-center justify-center bg-background" role="status" aria-live="polite">
+    <div className="flex flex-1 items-center justify-center bg-[#303030]" role="status" aria-live="polite">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <LoaderCircle className="h-4 w-4 animate-spin" />
         {label}

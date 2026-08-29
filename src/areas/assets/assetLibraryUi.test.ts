@@ -57,6 +57,15 @@ test('organizes visible library assets by capability with images and mesh expand
   assert.deepEqual(toggleAssetLibrarySectionKey(['capability:rigged-mesh'], 'capability:rigged-mesh'), [])
 })
 
+test('keeps the image shelf visible before the first image is available', () => {
+  const groups = filterAssetLibraryEntryGroups([
+    entry({ id: 'mesh', workspacePath: 'Workflows/run/hero.glb', displayName: 'hero.glb', capability: 'mesh' }),
+  ], '', 'type')
+
+  assert.deepEqual(groups.map((group) => group.capability), ['image', 'mesh'])
+  assert.equal(groups[0]?.entries.length, 0)
+})
+
 test('searches workspace assets while date sorting keeps capability groups stable and newest mesh first', () => {
   const entries = [
     entry({

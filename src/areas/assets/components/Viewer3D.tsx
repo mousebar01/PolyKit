@@ -187,7 +187,7 @@ function ModelLoadError(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-muted-foreground">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#303030] px-6 text-muted-foreground">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <circle cx="12" cy="12" r="10" />
         <line x1="15" y1="9" x2="9" y2="15" />
@@ -1405,6 +1405,12 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <GizmoBubbles />
           </GizmoHelper>
         </Canvas>
+        )}
+
+        {!modelUrl && !isSplat && (
+          <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
+            <span className="select-none font-brand text-5xl font-semibold tracking-[0.16em] text-black/25">PolyKit</span>
+          </div>
         )}
 
         {modelUrl && modelLoadPhase === 'loading' && (
