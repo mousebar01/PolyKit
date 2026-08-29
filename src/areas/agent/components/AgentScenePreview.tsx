@@ -11,6 +11,7 @@ import { solvePlacements } from '@areas/worlds/runtime/placement'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
+import Viewer3D from '@areas/assets/components/Viewer3D'
 
 const REFRESH_INTERVAL_MS = 2500
 
@@ -74,7 +75,8 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       if (isRenderableWorldSpec(nextDocument.spec)) {
         const nextTerrain = buildTerrain(nextDocument.spec, { resolution: 72 })
         setTerrain(nextTerrain)
-        setInstances(nextDocument.instances.length > 0 ? nextDocument.instances : solvePlacements(nextDocument.spec, nextTerrain))
+        const nextInstances = Array.isArray(nextDocument.instances) ? nextDocument.instances : []
+        setInstances(nextInstances.length > 0 ? nextInstances : solvePlacements(nextDocument.spec, nextTerrain))
       } else {
         setTerrain(null)
         setInstances([])
@@ -141,12 +143,9 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
             <p className="max-w-xs break-all font-mono text-[10px] text-muted-foreground/70">{document.id}</p>
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
-            <Box className="size-7 opacity-60" strokeWidth={1.5} aria-hidden="true" />
-            <p className="text-xs">{error ?? (zh ? 'Agent 创建场景后，这里会自动显示预览' : 'The preview will appear after the Agent creates a scene')}</p>
-          </div>
+          <Viewer3D forceEmpty />
         )}
-        {error && document && <div className="absolute bottom-3 right-3 max-w-[min(320px,calc(100%-24px))] rounded-md bg-destructive/10 px-2.5 py-1.5 text-[10px] text-destructive">{error}</div>}
+        {error && <div className="absolute bottom-3 right-3 max-w-[min(320px,calc(100%-24px))] rounded-md bg-destructive/10 px-2.5 py-1.5 text-[10px] text-destructive">{error}</div>}
       </div>
     </aside>
   )

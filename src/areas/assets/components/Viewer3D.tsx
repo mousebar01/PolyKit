@@ -1069,7 +1069,7 @@ function ScaleGizmo({ object, onDragStart, onDragEnd }: { object: THREE.Object3D
 
 type TransformSnapshot = { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 }
 
-export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmoMode = null, gizmoUndoRef }: { lightSettings?: LightSettings; gizmoMode?: GizmoMode | null; gizmoUndoRef?: MutableRefObject<(() => boolean) | null> }): JSX.Element {
+export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmoMode = null, gizmoUndoRef, forceEmpty = false }: { lightSettings?: LightSettings; gizmoMode?: GizmoMode | null; gizmoUndoRef?: MutableRefObject<(() => boolean) | null>; forceEmpty?: boolean }): JSX.Element {
   const { currentJob } = useGeneration()
   const apiUrl = useAppStore((s) => s.apiUrl)
   const { t } = useI18n()
@@ -1101,8 +1101,8 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
   const transformHistory = useRef<TransformSnapshot[]>([])
   const pendingTransform = useRef<TransformSnapshot | null>(null)
 
-  const outputUrl = currentJob?.outputUrl ?? ''
-  const modelUrl = currentJob?.status === 'done' && currentJob.outputUrl
+  const outputUrl = forceEmpty ? '' : currentJob?.outputUrl ?? ''
+  const modelUrl = !forceEmpty && currentJob?.status === 'done' && currentJob.outputUrl
     ? resolveViewerUrl(apiUrl, currentJob.outputUrl)
     : null
 
