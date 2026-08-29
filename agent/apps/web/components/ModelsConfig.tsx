@@ -1925,7 +1925,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             maxHeight: isMobile ? "40vh" : undefined,
             borderRight: isMobile ? "none" : "1px solid var(--border-soft)",
             borderBottom: isMobile ? "1px solid var(--border-soft)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-sidebar)",
+            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
               {/* OAuth subscriptions */}
