@@ -613,7 +613,7 @@ export default function AssetLibrarySidebar({
                   <h3 className="text-[11px] font-semibold text-foreground">{t(CAPABILITY_LABEL_KEYS[group.capability])}</h3>
                   <Badge variant="outline" className="ml-auto h-5 px-1.5 font-mono text-[10px] text-muted-foreground">{group.entries.length}</Badge>
                 </button>
-                {!collapsed && (group.entries.length > 0 ? (
+                {!collapsed && (
                   <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-2 px-3 pt-1' : 'flex flex-col gap-2 px-3 pt-1'}>
                     {group.entries.map((entry) => (
                       <AssetCard
@@ -642,12 +642,7 @@ export default function AssetLibrarySidebar({
                       />
                     ))}
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3 pb-3 pt-1 text-[11px] text-muted-foreground">
-                    <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t('assets.noImages')}
-                  </div>
-                ))}
+                )}
               </section>
             )
           })}

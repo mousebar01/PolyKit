@@ -104,19 +104,10 @@ export function filterAssetLibraryEntryGroups(
       }
     })
 
-  const visibleGroups = entryGroups.filter((group): group is AssetLibraryEntryGroup => group !== null)
-  // Keep the image shelf discoverable before the first image is generated or
-  // imported. Other capability sections stay data-driven so the sidebar does
-  // not fill with empty categories.
-  if (!normalizedSearchQuery && !visibleGroups.some((group) => group.capability === 'image')) {
-    visibleGroups.unshift({
-      capability: 'image',
-      capabilityLabel: 'Images',
-      sectionKey: 'capability:image',
-      entries: [],
-    })
-  }
-  return visibleGroups
+  // Keep the sidebar compact: capability sections only appear once they have
+  // at least one visible asset. Images are included automatically as soon as
+  // the server reports a real image artifact.
+  return entryGroups.filter((group): group is AssetLibraryEntryGroup => group !== null)
 }
 
 export function createAssetLibraryOpenJob(
