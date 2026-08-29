@@ -106,7 +106,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       style={{ flexBasis: `${width}%`, width: `${width}%` }}
       aria-label={zh ? '当前场景预览' : 'Current scene preview'}
     >
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/35">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#25272b]">
         <div className="absolute right-3 top-3 z-30 flex items-center gap-1">
           <Button
             type="button"
@@ -138,15 +138,13 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
           <div className="absolute right-3 top-12 z-30 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <p className="truncate font-medium text-foreground">{document?.name ?? summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
             <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document?.id ?? summary?.id ?? (zh ? '尚未创建场景' : 'No scene created')}</p>
+            {renderable && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
           </div>
         )}
 
         {renderable ? (
           <>
-            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor="#303030" />
-            <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-background/75 px-2.5 py-1.5 text-[10px] text-muted-foreground backdrop-blur-sm">
-              {t('worlds.controls')}
-            </div>
+            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor="#25272b" />
           </>
         ) : document ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">

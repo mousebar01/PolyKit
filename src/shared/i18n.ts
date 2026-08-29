@@ -6,7 +6,7 @@ import { useAppStore, type Language } from './stores/appStore'
 export const EN_US = {
   'nav.assets': 'Assets', 'nav.worlds': 'Worlds', 'nav.workflows': 'Workflows', 'nav.nodePacks': 'Node Packs', 'nav.agent': 'Chat', 'nav.settings': 'Settings',
   'worlds.title': 'Worlds', 'worlds.localRuntime': 'Agent-directed preview', 'worlds.openAgent': 'Open Agent', 'worlds.openWorkflows': 'Open workflows', 'worlds.save': 'Save world', 'worlds.saving': 'Saving…',
-  'worlds.seed': 'Seed', 'worlds.instances': 'instances', 'worlds.controls': 'Middle-drag orbit · Shift+middle pan · scroll zoom · double-click/Home reset', 'worlds.snapshot': 'World snapshot',
+  'worlds.seed': 'Seed', 'worlds.instances': 'instances', 'worlds.controls': 'Middle-drag orbit · Shift+middle pan · scroll zoom · double-click reset', 'worlds.snapshot': 'World snapshot',
   'worlds.planningScene': 'Planning scene', 'worlds.planningSceneDescription': 'The scene will appear here when the Agent finishes the planning stage.',
   'worlds.snapshotDescription': 'Deterministic terrain and placement from one seed.', 'worlds.mapSize': 'Map size', 'worlds.regions': 'Regions',
   'worlds.heroSlots': 'Hero slots', 'worlds.prototypes': 'Prototypes', 'worlds.prototypeHint': 'Click a prototype to highlight its instances.',
@@ -233,7 +233,7 @@ export type TranslationKey = keyof typeof EN_US
 export const ZH_CN = {
   'nav.assets': '资产', 'nav.worlds': '世界', 'nav.workflows': '工作流', 'nav.nodePacks': '节点包', 'nav.agent': '对话', 'nav.settings': '设置',
   'worlds.title': '世界', 'worlds.localRuntime': 'Agent 编排预览', 'worlds.openAgent': '打开 Agent', 'worlds.openWorkflows': '打开工作流', 'worlds.save': '保存世界', 'worlds.saving': '保存中…',
-  'worlds.seed': '种子', 'worlds.instances': '个实例', 'worlds.controls': '中键旋转 · Shift+中键平移 · 滚轮缩放 · 双击/Home复位', 'worlds.snapshot': '世界快照',
+  'worlds.seed': '种子', 'worlds.instances': '个实例', 'worlds.controls': '中键旋转 · Shift+中键平移 · 滚轮缩放 · 双击复位', 'worlds.snapshot': '世界快照',
   'worlds.planningScene': '正在规划场景', 'worlds.planningSceneDescription': 'Agent 完成规划阶段后，场景会显示在这里。',
   'worlds.snapshotDescription': '由同一个种子确定性生成地形和布局。', 'worlds.mapSize': '地图尺寸', 'worlds.regions': '区域',
   'worlds.heroSlots': '主资产槽位', 'worlds.prototypes': '原型', 'worlds.prototypeHint': '点击原型高亮它的实例。',
