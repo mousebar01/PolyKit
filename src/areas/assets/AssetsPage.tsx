@@ -954,7 +954,8 @@ export default function AssetsPage(): JSX.Element {
           </div>
         </div>
 
-        <div className="relative flex-1 overflow-hidden bg-background">
+        {/* Keep the viewer surface stable while the lazy Three.js canvas mounts. */}
+        <div className="relative flex-1 overflow-hidden bg-[#303030]">
           {hasImage && currentJob?.outputUrl ? (
             <AssetImageViewer apiUrl={apiUrl} outputUrl={currentJob.outputUrl} alt={currentJob.imageFile || 'Generated image'} />
           ) : (
