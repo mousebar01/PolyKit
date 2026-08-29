@@ -1370,8 +1370,8 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
         )}
 
         {!modelUrl && !isSplat && (
-          <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
-            <span className="select-none font-brand text-5xl font-semibold tracking-[0.16em] text-black/25">PolyKit</span>
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center" aria-hidden="true">
+            <span className="select-none font-brand text-5xl font-semibold tracking-[0.16em] text-black/35">PolyKit</span>
           </div>
         )}
 
