@@ -1,7 +1,8 @@
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { Component, Suspense, useMemo, type ReactNode } from 'react'
+import { Component, Suspense, useMemo, useRef, type ReactNode } from 'react'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import type { BuiltTerrain } from '../runtime/terrain'
 import type { AssetProtoSpec, Instance, WorldSpec } from '../runtime/types'
 import { buildProceduralGeometry, proceduralMaterial } from '../runtime/procedural'
@@ -217,15 +218,52 @@ function WorldScene({ spec, terrain, instances, selectedProtoId, artifacts = {},
 }
 
 export default function WorldCanvas(props: WorldCanvasProps): JSX.Element {
+  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+
   return (
-    <Canvas
-      camera={{ position: [150, 120, 180], fov: 42, near: 0.1, far: 1200 }}
-      dpr={[1, 1.7]}
-      shadows
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+    <div
+      className="relative h-full w-full focus-within:ring-1 focus-within:ring-ring/60"
+      onPointerDown={(event) => {
+        if (event.target instanceof HTMLCanvasElement) event.currentTarget.querySelector<HTMLElement>('[data-viewport-canvas]')?.focus()
+      }}
+      onDoubleClick={(event) => {
+        if (!(event.target instanceof HTMLCanvasElement)) return
+        event.preventDefault()
+        controlsRef.current?.reset()
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Home') return
+        event.preventDefault()
+        controlsRef.current?.reset()
+      }}
     >
-      <WorldScene {...props} />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxPolarAngle={Math.PI * 0.48} minDistance={30} maxDistance={480} target={[0, 0, 0]} />
-    </Canvas>
+      <Canvas
+        data-viewport-canvas="true"
+        tabIndex={0}
+        className="outline-none"
+        camera={{ position: [150, 120, 180], fov: 42, near: 0.1, far: 1200 }}
+        dpr={[1, 1.7]}
+        shadows
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+      >
+        <WorldScene {...props} />
+        <OrbitControls
+          ref={controlsRef}
+          makeDefault
+          enableDamping
+          dampingFactor={0.08}
+          enablePan
+          enableZoom
+          enableRotate
+          keyEvents
+          zoomToCursor
+          mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: undefined }}
+          maxPolarAngle={Math.PI * 0.48}
+          minDistance={30}
+          maxDistance={480}
+          target={[0, 0, 0]}
+        />
+      </Canvas>
+    </div>
   )
 }

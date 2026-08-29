@@ -5,6 +5,7 @@ import type { ThreeEvent } from '@react-three/fiber'
 import { Environment, GizmoHelper, Lightformer, OrbitControls, useGizmoContext, useGLTF } from '@react-three/drei'
 import { EffectComposer, Outline, Select, Selection } from '@react-three/postprocessing'
 import * as THREE from 'three'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 
@@ -480,7 +481,12 @@ function SceneMeshModel({
     <Select enabled={selected}>
       <primitive
         object={scene}
-        onClick={(e: { stopPropagation: () => void }) => { e.stopPropagation(); onSelect() }}
+        onClick={(e: ThreeEvent<MouseEvent>) => {
+          e.stopPropagation()
+          // Keep selection on the primary button. Middle-drag is reserved for
+          // Blender-style orbiting and must not select the mesh on release.
+          if (e.button === 0) onSelect()
+        }}
       />
     </Select>
   )
@@ -1087,6 +1093,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
   const setSelected = useAppStore((s) => s.setMeshSelected)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const splatRef = useRef<SplatViewerHandle | null>(null)
+  const controlsRef = useRef<OrbitControlsImpl | null>(null)
 
   const [meshObject, setMeshObject] = useState<THREE.Object3D | null>(null)
   const [modelLoadPhase, setModelLoadPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'blocked'>('idle')
@@ -1289,7 +1296,22 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
       onError={handleModelError}
       fallback={<ModelLoadError />}
     >
-      <div className="relative h-full w-full bg-[#303030]">
+      <div
+        className="relative h-full w-full bg-[#303030] focus-within:ring-1 focus-within:ring-ring/60"
+        onPointerDown={(event) => {
+          if (event.target instanceof HTMLCanvasElement) event.currentTarget.querySelector<HTMLElement>('[data-viewport-canvas]')?.focus()
+        }}
+        onDoubleClick={(event) => {
+          if (!(event.target instanceof HTMLCanvasElement)) return
+          event.preventDefault()
+          controlsRef.current?.reset()
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Home') return
+          event.preventDefault()
+          controlsRef.current?.reset()
+        }}
+      >
         {/* Splat path → fully isolated viewer (mkkellogg, outside R3F) */}
         {modelUrl && isSplat && splatUrl ? (
           <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">{t('assets.loadingSplat')}</div>}>
@@ -1300,8 +1322,12 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
         {/* Mesh path → the interactive Canvas scene */}
         {!isSplat && (
         <Canvas
+          data-viewport-canvas="true"
+          tabIndex={0}
           className="relative z-10"
-          onPointerMissed={() => setSelected(false)}
+          onPointerMissed={(event) => {
+            if (event.button === 0) setSelected(false)
+          }}
           camera={{ position: [0, 1.5, 4], fov: 45 }}
           dpr={[1, 2]}
           gl={{
@@ -1359,10 +1385,14 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
           )}
 
           <OrbitControls
+            ref={controlsRef}
             makeDefault
             enablePan
             enableZoom
             enableRotate
+            keyEvents
+            zoomToCursor
+            mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: undefined }}
             minDistance={0.5}
             maxDistance={20}
             autoRotate={autoRotate}
@@ -1437,7 +1467,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <p className="text-xs text-muted-foreground/70">
               {selected
                 ? <>{t('assets.clickMeshToSelect')} &bull; <span className="text-muted-foreground">{t('assets.deleteToRemove')}</span></>
-                : `${t('assets.dragToRotate')} • ${t('assets.scrollToZoom')}`
+                : `${t('assets.dragToRotate')} • ${t('assets.panView')} • ${t('assets.scrollToZoom')} • ${t('assets.resetView')}`
               }
             </p>
           </div>
