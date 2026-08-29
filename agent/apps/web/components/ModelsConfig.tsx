@@ -1825,6 +1825,16 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  // Keep a provider visible while its detail panel is open. Subscription
+  // providers are normally listed only after OAuth succeeds; hiding the
+  // selected, still-unconfigured entry made ChatGPT Plus/Pro appear to vanish
+  // immediately after it was chosen from the picker.
+  const visibleOAuth = oauthProviders.filter((p) =>
+    p.loggedIn || (selection?.type === "oauth" && selection.providerId === p.id),
+  );
+  const visibleApiKey = apiKeyProviders.filter((p) =>
+    p.configured || (selection?.type === "apikey" && selection.providerId === p.id),
+  );
   // OAuth/API-key details save through their own auth endpoints. The models
   // config footer is only relevant for editable models.json entries.
   const showConfigFooter = !selection || selection.type === "provider" || selection.type === "model";
@@ -1914,8 +1924,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
-              {/* Active OAuth subscriptions */}
-              {activeOAuth.map((p) => {
+              {/* OAuth subscriptions */}
+              {visibleOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (
                   <div
@@ -1931,8 +1941,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                 );
               })}
 
-              {/* Active API key providers */}
-              {activeApiKey.map((p) => {
+              {/* API key providers */}
+              {visibleApiKey.map((p) => {
                 const isSelected = selection?.type === "apikey" && selection.providerId === p.id;
                 return (
                   <div
@@ -1949,7 +1959,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
               })}
 
               {/* Divider before custom providers, only when there are active managed providers */}
-              {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
+              {(visibleOAuth.length > 0 || visibleApiKey.length > 0) && providers.length > 0 && (
                 <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border-soft)" }} />
               )}
 
