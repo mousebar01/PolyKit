@@ -740,9 +740,9 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, runnin
   running: boolean;
 }) {
   const { t } = useI18n();
-  // Thinking is readable context, so keep it visible as soon as the message
-  // is mounted. Users can still collapse it for a compact transcript.
-  const [expanded, setExpanded] = useState(true);
+  // Keep the transcript compact by default. The preview remains visible and
+  // users can expand the block when they want to inspect the full reasoning.
+  const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
