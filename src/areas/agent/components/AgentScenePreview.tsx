@@ -14,6 +14,10 @@ import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi
 
 const REFRESH_INTERVAL_MS = 2500
 
+interface AgentScenePreviewProps {
+  width: number
+}
+
 function stageLabel(status: string | undefined, zh: boolean): string {
   if (status === 'done') return zh ? '已完成' : 'Done'
   if (status === 'running') return zh ? '进行中' : 'Running'
@@ -29,7 +33,7 @@ function currentStage(document: WorldDocument | null): { id: string; status: str
     ?? stages[stages.length - 1]
 }
 
-export default function AgentScenePreview(): JSX.Element {
+export default function AgentScenePreview({ width }: AgentScenePreviewProps): JSX.Element {
   const { language, t } = useI18n()
   const zh = language === 'zh-CN'
   const apiUrl = useAppStore((state) => state.apiUrl)
@@ -95,7 +99,11 @@ export default function AgentScenePreview(): JSX.Element {
   const renderable = document && terrain && isRenderableWorldSpec(document.spec)
 
   return (
-    <aside className="flex min-h-0 w-[42%] min-w-[320px] max-w-[520px] shrink-0 flex-col overflow-hidden border-l border-divider bg-card/25" aria-label={zh ? '当前场景预览' : 'Current scene preview'}>
+    <aside
+      className="flex min-h-0 min-w-[320px] shrink-0 flex-col overflow-hidden bg-card/25"
+      style={{ flexBasis: `${width}%`, width: `${width}%` }}
+      aria-label={zh ? '当前场景预览' : 'Current scene preview'}
+    >
       <header className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2.5">
         <Box className="size-4 text-primary" strokeWidth={1.8} aria-hidden="true" />
         <div className="min-w-0 flex-1">

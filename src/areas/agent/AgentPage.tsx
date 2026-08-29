@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { Bot, LoaderCircle, MessageSquare, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
 import { Button } from '@shared/components/ui'
@@ -23,6 +23,35 @@ interface AgentSessionRecord {
 }
 
 const ACTIVE_SESSION_STORAGE_KEY = 'polykit-agent:active-session-id'
+const PREVIEW_WIDTH_STORAGE_KEY = 'polykit-agent:scene-preview-width'
+const DEFAULT_PREVIEW_WIDTH = 42
+const MIN_PREVIEW_WIDTH_PX = 320
+const MIN_DIALOGUE_WIDTH_PX = 420
+const MIN_PREVIEW_WIDTH_PERCENT = 28
+const MAX_PREVIEW_WIDTH_PERCENT = 62
+
+function readPreviewWidth(): number {
+  try {
+    const value = Number(window.localStorage.getItem(PREVIEW_WIDTH_STORAGE_KEY))
+    return Number.isFinite(value)
+      ? Math.min(MAX_PREVIEW_WIDTH_PERCENT, Math.max(MIN_PREVIEW_WIDTH_PERCENT, value))
+      : DEFAULT_PREVIEW_WIDTH
+  } catch {
+    return DEFAULT_PREVIEW_WIDTH
+  }
+}
+
+function previewWidthBounds(containerWidth: number): { min: number; max: number } {
+  const width = Math.max(containerWidth, 1)
+  const min = Math.max(MIN_PREVIEW_WIDTH_PERCENT, (MIN_PREVIEW_WIDTH_PX / width) * 100)
+  const max = Math.min(MAX_PREVIEW_WIDTH_PERCENT, Math.max(min, ((width - MIN_DIALOGUE_WIDTH_PX) / width) * 100))
+  return { min, max }
+}
+
+function clampPreviewWidth(value: number, containerWidth: number): number {
+  const { min, max } = previewWidthBounds(containerWidth)
+  return Math.min(max, Math.max(min, value))
+}
 
 function readActiveSessionId(): string | null {
   try {
@@ -178,6 +207,109 @@ function AgentSessionHistory({
   )
 }
 
+function AgentSplitHandle({
+  width,
+  label,
+  splitPaneRef,
+  onWidthChange,
+}: {
+  width: number
+  label: string
+  splitPaneRef: RefObject<HTMLDivElement>
+  onWidthChange: (width: number) => void
+}): JSX.Element {
+  const [resizing, setResizing] = useState(false)
+  const dragRef = useRef<{ startX: number; startWidth: number; containerWidth: number } | null>(null)
+  const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
+
+  const stopResize = useCallback(() => {
+    dragRef.current = null
+    setResizing(false)
+    if (previousBodyStyleRef.current) {
+      document.body.style.cursor = previousBodyStyleRef.current.cursor
+      document.body.style.userSelect = previousBodyStyleRef.current.userSelect
+      previousBodyStyleRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleWindowBlur = () => stopResize()
+    window.addEventListener('blur', handleWindowBlur)
+    return () => {
+      window.removeEventListener('blur', handleWindowBlur)
+      stopResize()
+    }
+  }, [stopResize])
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const container = splitPaneRef.current
+    if (!container) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      startX: event.clientX,
+      startWidth: width,
+      containerWidth: container.getBoundingClientRect().width,
+    }
+    previousBodyStyleRef.current = {
+      cursor: document.body.style.cursor,
+      userSelect: document.body.style.userSelect,
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    setResizing(true)
+  }, [splitPaneRef, width])
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const deltaPercent = ((event.clientX - drag.startX) / Math.max(drag.containerWidth, 1)) * 100
+    onWidthChange(clampPreviewWidth(drag.startWidth - deltaPercent, drag.containerWidth))
+  }, [onWidthChange])
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const containerWidth = splitPaneRef.current?.getBoundingClientRect().width ?? 1200
+    const { min, max } = previewWidthBounds(containerWidth)
+    const step = 3
+    let next: number | null = null
+    if (event.key === 'ArrowLeft') next = Math.min(max, width + step)
+    if (event.key === 'ArrowRight') next = Math.max(min, width - step)
+    if (event.key === 'Home') next = min
+    if (event.key === 'End') next = max
+    if (next === null) return
+    event.preventDefault()
+    onWidthChange(next)
+  }, [onWidthChange, splitPaneRef, width])
+
+  const handleDoubleClick = useCallback(() => {
+    const containerWidth = splitPaneRef.current?.getBoundingClientRect().width ?? 1200
+    onWidthChange(clampPreviewWidth(DEFAULT_PREVIEW_WIDTH, containerWidth))
+  }, [onWidthChange, splitPaneRef])
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuemin={Math.round(previewWidthBounds(splitPaneRef.current?.getBoundingClientRect().width ?? 1200).min)}
+      aria-valuemax={Math.round(previewWidthBounds(splitPaneRef.current?.getBoundingClientRect().width ?? 1200).max)}
+      aria-valuenow={Math.round(width)}
+      tabIndex={0}
+      className={`group relative z-20 w-px shrink-0 cursor-col-resize bg-divider outline-none transition-colors focus-visible:bg-primary ${resizing ? 'bg-primary' : ''}`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={stopResize}
+      onPointerCancel={stopResize}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="absolute inset-y-0 -left-2 -right-2" aria-hidden="true" />
+      <span className={`pointer-events-none absolute left-1/2 top-1/2 h-10 w-px -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70 transition-opacity ${resizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} aria-hidden="true" />
+    </div>
+  )
+}
+
 export default function AgentPage(): JSX.Element {
   const { language, t } = useI18n()
   const openSettings = useNavStore((state) => state.openSettings)
@@ -188,7 +320,33 @@ export default function AgentPage(): JSX.Element {
   const [sessionLoading, setSessionLoading] = useState(false)
   const [sessionError, setSessionError] = useState(false)
   const [sessionKey, setSessionKey] = useState(0)
+  const [previewWidth, setPreviewWidth] = useState(readPreviewWidth)
+  const splitPaneRef = useRef<HTMLDivElement>(null)
   const initialSelectionDone = useRef(false)
+
+  const updatePreviewWidth = useCallback((next: number) => {
+    setPreviewWidth((current) => Math.abs(current - next) < 0.1 ? current : next)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PREVIEW_WIDTH_STORAGE_KEY, String(previewWidth))
+    } catch {
+      // Local storage is optional; the current layout remains usable without it.
+    }
+  }, [previewWidth])
+
+  useEffect(() => {
+    const node = splitPaneRef.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const containerWidth = entries[0]?.contentRect.width
+      if (!containerWidth) return
+      setPreviewWidth((current) => clampPreviewWidth(current, containerWidth))
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -326,7 +484,7 @@ export default function AgentPage(): JSX.Element {
               onRefresh={() => { void loadSessions() }}
               onSelect={handleSelectSession}
             />
-            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div ref={splitPaneRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                 <ChatWindow
                   key={sessionKey}
@@ -341,7 +499,13 @@ export default function AgentPage(): JSX.Element {
                   onAgentEnd={() => { void loadSessions() }}
                 />
               </div>
-              <AgentScenePreview />
+              <AgentSplitHandle
+                width={previewWidth}
+                label={t('agent.resizePreview')}
+                splitPaneRef={splitPaneRef}
+                onWidthChange={updatePreviewWidth}
+              />
+              <AgentScenePreview width={previewWidth} />
             </div>
           </I18nProvider>
         ) : (
