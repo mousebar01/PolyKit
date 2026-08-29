@@ -1410,7 +1410,12 @@ function WorkflowCanvasInner({
 
   const handleRun = useCallback((targetNodeId?: string) => {
     if (isRunning) { cancel(); return }
-    if (preflightIssues.length > 0) {
+    // A staged run intentionally does not require the final Output node to be
+    // valid: the compiler adds a transient sink for the selected node. The
+    // server-side compiler still validates the selected branch and returns a
+    // precise error for invalid inputs. Full-graph runs keep the normal
+    // preflight guard so they fail before submitting a job.
+    if (!targetNodeId && preflightIssues.length > 0) {
       showToast(preflightIssues[0].message)
       return
     }

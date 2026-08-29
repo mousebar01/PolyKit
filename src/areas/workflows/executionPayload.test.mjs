@@ -234,3 +234,40 @@ test('text → Anima → cutout → Trellis.2 → texture → mesh output compil
   assert.equal(res.ok && res.payload.prompt.refine.inputs.params.texture_size, 2048)
   assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['refine', 'mesh'])
 })
+
+test('running to an intermediate node adds a transient typed output sink', async () => {
+  const text = node('text', 'textNode', { text: 'single stylized anime character, full body, plain background' })
+  const anima = animaModel()
+  const res = await compileServerWorkflow(
+    wf(
+      [text, anima],
+      [edge('text', 'anima', 'input-0')],
+    ),
+    PACKS,
+    { targetNodeId: 'anima' },
+  )
+
+  assert.equal(res.ok, true)
+  assert.ok(res.ok && res.payload.output_node_id === '__run_target__anima')
+  assert.deepEqual(res.ok && res.payload.target_node_ids, ['__run_target__anima'])
+  assert.equal(res.ok && res.payload.prompt.__run_target__anima.class_type, 'polykit.image_output')
+  assert.deepEqual(res.ok && res.payload.prompt.__run_target__anima.inputs.image, ['anima', 'image'])
+})
+
+test('intermediate runs ignore an unrelated disconnected final output', async () => {
+  const text = node('text', 'textNode', { text: 'single stylized anime character' })
+  const anima = animaModel()
+  const disconnectedOutput = out('out')
+  const res = await compileServerWorkflow(
+    wf(
+      [text, anima, disconnectedOutput],
+      [edge('text', 'anima', 'input-0')],
+    ),
+    PACKS,
+    { targetNodeId: 'anima' },
+  )
+
+  assert.equal(res.ok, true)
+  assert.ok(res.ok && res.payload.prompt.__run_target__anima)
+  assert.equal(res.ok && res.payload.prompt.out, undefined)
+})

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Handle, Position, useReactFlow } from '@xyflow/react'
-import { ArrowRight, FolderOpen } from 'lucide-react'
+import { ArrowRight, FolderOpen, Play } from 'lucide-react'
 
 import { Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@shared/components/ui'
+import { useI18n } from '@shared/i18n'
 import { useNodePacksStore } from '@shared/stores/nodePacksStore'
 import type { WFNodeData } from '@shared/types/runtime.d'
 import { buildAllWorkflowNodePacks } from '../mockNodePacks'
 import type { ParamSchema } from '../mockNodePacks'
 import { useWorkflowRunStore } from '../workflowRunStore'
+import { useWorkflowNodeExecution } from '../workflowNodeExecutionContext'
 import BaseNode from './BaseNode'
 
 // ─── Handle colors ────────────────────────────────────────────────────────────
@@ -270,7 +272,9 @@ function ParamControl({ id, param, value, onChange, resolvedParams }: {
 
 export default function NodePackNode({ id, data, selected }: { id: string; data: WFNodeData; selected?: boolean }) {
   const { updateNodeData } = useReactFlow()
+  const { t } = useI18n()
   const running = useWorkflowRunStore((state) => state.activeNodeId === id)
+  const { isRunning, runToHere } = useWorkflowNodeExecution()
 
   const ioRowRef = useRef<HTMLDivElement>(null)
   const ioRow2Ref = useRef<HTMLDivElement>(null)
@@ -386,6 +390,20 @@ export default function NodePackNode({ id, data, selected }: { id: string; data:
       title={ext?.name ?? data.nodePackId ?? 'Unknown extension'}
       enabled={data.enabled}
       showInGenerate={data.showInGenerate ?? false}
+      actions={ext ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="nodrag mt-0.5 h-5 w-5 shrink-0 text-primary hover:bg-primary/10 hover:text-primary"
+          onClick={(event) => { event.stopPropagation(); runToHere(id) }}
+          disabled={isRunning || data.enabled === false}
+          title={t('workflows.runToHereHint')}
+          aria-label={t('workflows.runToHereHint')}
+        >
+          <Play className="size-3" fill="currentColor" />
+        </Button>
+      ) : undefined}
       collapsible={visibleParams.length > 0}
       minWidth={200}
       subheader={ioSubheader}

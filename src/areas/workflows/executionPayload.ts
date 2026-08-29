@@ -24,13 +24,18 @@ export interface CompileOptions {
    * precedence over a node preview or the globally selected image.
    */
   imageNodeWorkspacePaths?: Record<string, string>
-  /** Compile only the selected output sink and its upstream dependencies. */
+  /**
+   * Compile only the selected node and its upstream dependencies. A node-pack
+   * target gets a temporary server-owned sink so intermediate image/mesh
+   * results can be published without changing the editable workflow graph.
+   */
   targetNodeId?: string
 }
 
 const IMAGE_NODE = 'polykit.image'
 const TEXT_NODE = 'polykit.text'
 const OUTPUT_NODE = 'polykit.output'
+const IMAGE_OUTPUT_NODE = 'polykit.image_output'
 const MESH_NODE = 'polykit.mesh'
 const PREVIEW_NODE = 'polykit.preview'
 
@@ -109,8 +114,20 @@ export async function compileServerWorkflow(
   allNodePacks: WorkflowNodePack[],
   options: CompileOptions = {},
 ): Promise<ServerWorkflowCompile> {
+  const targetNode = options.targetNodeId
+    ? workflow.nodes.find((node) => node.id === options.targetNodeId)
+    : undefined
+  if (options.targetNodeId && !targetNode) {
+    return { ok: false, error: 'The selected run target no longer exists in this workflow.' }
+  }
+
+  const enabled = (node: WFNode): boolean => node.data.enabled !== false
+  const executionNodeIds = targetNode
+    ? upstreamNodeIds(workflow, targetNode.id)
+    : new Set(workflow.nodes.map((node) => node.id))
+
   const unsupported = workflow.nodes.find(
-    (node) => !SERVER_NODE_TYPES.has(node.type) && !INERT_NODE_TYPES.has(node.type),
+    (node) => executionNodeIds.has(node.id) && !SERVER_NODE_TYPES.has(node.type) && !INERT_NODE_TYPES.has(node.type),
   )
   if (unsupported) {
     return {
@@ -119,9 +136,8 @@ export async function compileServerWorkflow(
     }
   }
 
-  const enabled = (node: WFNode): boolean => node.data.enabled !== false
   const executable = workflow.nodes.filter(
-    (node) => node.type === 'nodePackNode' && enabled(node),
+    (node) => executionNodeIds.has(node.id) && node.type === 'nodePackNode' && enabled(node),
   )
   if (executable.length === 0) {
     return { ok: false, error: 'The workflow has no model or process node to run. Add one from the node library.' }
@@ -142,7 +158,7 @@ export async function compileServerWorkflow(
     { kind: 'base64'; data: string } | { kind: 'workspace_path'; path: string }
   >()
   for (const node of workflow.nodes) {
-    if (node.type !== 'imageNode') continue
+    if (node.type !== 'imageNode' || !executionNodeIds.has(node.id)) continue
     const filePath = node.data.params?.filePath as string | undefined
     const hasExplicitWorkspaceBinding = Object.prototype.hasOwnProperty.call(
       options.imageNodeWorkspacePaths ?? {},
@@ -183,16 +199,32 @@ export async function compileServerWorkflow(
     imageSourceByNode.set(node.id, { kind: 'base64', data: imageData })
   }
 
+  if (targetNode && !enabled(targetNode)) {
+    return { ok: false, error: 'The selected run target is disabled. Enable it and run again.' }
+  }
+  if (
+    targetNode &&
+    targetNode.type !== 'nodePackNode' &&
+    targetNode.type !== 'outputNode' &&
+    targetNode.type !== 'previewNode'
+  ) {
+    return { ok: false, error: 'Choose a model, process, Output, or Preview node to run to that point.' }
+  }
+
   const enabledSinks = workflow.nodes.filter(
-    (node) => (node.type === 'outputNode' || node.type === 'previewNode') && enabled(node),
+    (node) => executionNodeIds.has(node.id)
+      && (node.type === 'outputNode' || node.type === 'previewNode')
+      && enabled(node),
   )
-  if (enabledSinks.length === 0) {
+  if (!targetNode && enabledSinks.length === 0) {
     return {
       ok: false,
       error: 'The output node is disabled or missing. Enable an "Output" node to receive the final mesh.',
     }
   }
-  for (const sink of enabledSinks) {
+  // A staged run only needs to validate its selected sink (if it has one).
+  // Unrelated terminal nodes must not block running an earlier stage.
+  for (const sink of enabledSinks.filter((candidate) => !targetNode || candidate.id === targetNode.id)) {
     if (!incomingSource(workflow, sink.id)) {
       return {
         ok: false,
@@ -202,17 +234,11 @@ export async function compileServerWorkflow(
       }
     }
   }
-  if (options.targetNodeId && !enabledSinks.some((sink) => sink.id === options.targetNodeId)) {
-    return {
-      ok: false,
-      error: 'Choose an enabled Output or Preview node to run to that point.',
-    }
-  }
-
   const prompt: Record<string, WorkflowExecutionNode> = {}
   let outputNodeId: string | undefined
 
   for (const node of workflow.nodes) {
+    if (!executionNodeIds.has(node.id)) continue
     if (node.type === 'imageNode') {
       prompt[node.id] = {
         class_type: IMAGE_NODE,
@@ -246,6 +272,12 @@ export async function compileServerWorkflow(
         },
       }
     } else if (node.type === 'outputNode' || node.type === 'previewNode') {
+      // When a model/process node is the staged target, the transient sink
+      // below is the only terminal needed for this execution branch.
+      if (targetNode?.type === 'nodePackNode') continue
+      // For a selected Output/Preview target, omit unrelated terminal branches
+      // so their disconnected inputs cannot prevent a partial run.
+      if (targetNode && node.id !== targetNode.id) continue
       if (!enabled(node)) continue
       const sourceId = incomingSource(workflow, node.id)
       if (!sourceId) {
@@ -271,7 +303,37 @@ export async function compileServerWorkflow(
     }
   }
 
-  if (!Object.values(prompt).some((node) => node.class_type === OUTPUT_NODE || node.class_type === PREVIEW_NODE)) {
+  // Partial runs may target a model/process node directly. The server's DAG
+  // contract intentionally accepts only sink targets, so add a transient sink
+  // to publish that node's result while keeping the user's graph unchanged.
+  let executionTargetId = options.targetNodeId
+  if (targetNode?.type === 'nodePackNode') {
+    const targetOutput = outputNameOf(targetNode, allNodePacks)
+    if (targetOutput !== 'mesh' && targetOutput !== 'image') {
+      return { ok: false, error: 'The selected node does not produce a runnable image or mesh result.' }
+    }
+    // Keep the sink outside the editable graph and make its id unique even if
+    // a user imported a workflow containing our reserved prefix.
+    const targetSinkBase = `__run_target__${targetNode.id}`
+    let targetSinkId = targetSinkBase
+    let targetSinkSuffix = 1
+    while (prompt[targetSinkId]) {
+      targetSinkId = `${targetSinkBase}_${targetSinkSuffix}`
+      targetSinkSuffix += 1
+    }
+    prompt[targetSinkId] = {
+      class_type: targetOutput === 'image' ? 'polykit.image_output' : OUTPUT_NODE,
+      inputs: { [targetOutput === 'image' ? 'image' : 'mesh']: [targetNode.id, targetOutput] },
+    }
+    executionTargetId = targetSinkId
+    outputNodeId = targetSinkId
+  }
+
+  if (!Object.values(prompt).some((node) => (
+    node.class_type === OUTPUT_NODE ||
+    node.class_type === PREVIEW_NODE ||
+    node.class_type === IMAGE_OUTPUT_NODE
+  ))) {
     return { ok: false, error: 'The workflow could not be compiled for the server. Check the graph and try again.' }
   }
 
@@ -282,7 +344,7 @@ export async function compileServerWorkflow(
       workflow_id: workflow.id,
       prompt,
       output_node_id: outputNodeId,
-      ...(options.targetNodeId ? { target_node_ids: [options.targetNodeId] } : {}),
+      ...(executionTargetId ? { target_node_ids: [executionTargetId] } : {}),
       collection: 'Workflows',
     },
   }
@@ -290,4 +352,18 @@ export async function compileServerWorkflow(
 
 function incomingSource(workflow: Workflow, nodeId: string): string | undefined {
   return workflow.edges.find((edge) => edge.target === nodeId)?.source
+}
+
+function upstreamNodeIds(workflow: Workflow, targetNodeId: string): Set<string> {
+  const ids = new Set<string>([targetNodeId])
+  const pending = [targetNodeId]
+  while (pending.length > 0) {
+    const nodeId = pending.pop()!
+    for (const edge of workflow.edges) {
+      if (edge.target !== nodeId || ids.has(edge.source)) continue
+      ids.add(edge.source)
+      pending.push(edge.source)
+    }
+  }
+  return ids
 }
