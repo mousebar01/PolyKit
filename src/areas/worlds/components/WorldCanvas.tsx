@@ -14,6 +14,7 @@ interface WorldCanvasProps {
   instances: Instance[]
   selectedProtoId: string | null
   artifacts?: Record<string, WorldAssetArtifact>
+  backgroundColor?: string
 }
 
 const FALLBACK_COLORS = ['#77869b', '#8e9f74', '#b4966a', '#526f63', '#7b7b75']
@@ -165,7 +166,7 @@ function ProceduralInstances({ instances, prototype, geometry, selected }: { ins
   )
 }
 
-function WorldScene({ spec, terrain, instances, selectedProtoId, artifacts = {} }: WorldCanvasProps): JSX.Element {
+function WorldScene({ spec, terrain, instances, selectedProtoId, artifacts = {}, backgroundColor }: WorldCanvasProps): JSX.Element {
   const prototypes = useMemo(() => new Map(spec.assets.map((asset) => [asset.id, asset])), [spec.assets])
   const geometries = useMemo(() => {
     const map = new Map<string, THREE.BufferGeometry>()
@@ -181,8 +182,8 @@ function WorldScene({ spec, terrain, instances, selectedProtoId, artifacts = {} 
   }, [spec.sky, spec.size])
   return (
     <>
-      <color attach="background" args={[spec.sky.fogColor]} />
-      <fog attach="fog" args={[spec.sky.fogColor, spec.size * 0.2, spec.size * 1.3]} />
+      <color attach="background" args={[backgroundColor ?? spec.sky.fogColor]} />
+      <fog attach="fog" args={[backgroundColor ?? spec.sky.fogColor, spec.size * 0.2, spec.size * 1.3]} />
       <ambientLight color={spec.sky.ambientColor} intensity={spec.sky.ambientIntensity * 1.2} />
       <directionalLight position={sun} color={spec.sky.sunColor} intensity={spec.sky.sunIntensity} castShadow />
       <TerrainMesh spec={spec} terrain={terrain} />

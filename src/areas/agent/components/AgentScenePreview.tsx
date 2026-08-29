@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react'
 
-import { Badge } from '@shared/components/ui/badge'
 import { Button } from '@shared/components/ui/button'
 import { useAppStore } from '@shared/stores/appStore'
 import { useI18n } from '@shared/i18n'
@@ -109,10 +108,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       <header className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2.5">
         <Box className="size-4 text-primary" strokeWidth={1.8} aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-xs font-semibold text-foreground">{zh ? '当前场景' : 'Current scene'}</h2>
-            {document && <Badge variant={renderable ? 'default' : 'secondary'} className="h-5 px-1.5 text-[10px]">{renderable ? (zh ? '可预览' : 'Preview') : (zh ? '规划中' : 'Planning')}</Badge>}
-          </div>
+          <h2 className="truncate text-xs font-semibold text-foreground">{zh ? '当前场景' : 'Current scene'}</h2>
           <p className="truncate text-[10px] text-muted-foreground">{summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
         </div>
         <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" onClick={() => void refresh()} disabled={loading} title={zh ? '刷新场景' : 'Refresh scene'} aria-label={zh ? '刷新场景' : 'Refresh scene'}>
@@ -123,7 +119,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
       <div className="relative min-h-0 flex-1 overflow-hidden bg-muted/35">
         {renderable ? (
           <>
-            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} />
+            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor="#303030" />
             <div className="pointer-events-none absolute left-3 top-3 max-w-[calc(100%-24px)] rounded-md bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm">
               <span className="font-medium text-foreground">{document.name}</span>
               <span className="mx-1.5 text-divider">·</span>
