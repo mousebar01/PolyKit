@@ -206,7 +206,16 @@ def _validate_artifact_paths(value: Any, *, artifact_context: bool = False, fiel
             normalized_key = key.lower().replace("-", "_")
             child_context = artifact_context or _looks_like_artifact_key(key)
             if normalized_key in _PATH_KEYS:
-                validate_workspace_relative_path(child)
+                # ``path`` is also part of the editable terrain vocabulary
+                # (for example ``spec.rivers[].path`` is an array of UV
+                # points).  Only fields inside an artifact reference are
+                # required to be workspace-relative file paths; ordinary
+                # world data is allowed to recurse through list/object
+                # values without being mistaken for a file path.
+                if isinstance(child, str):
+                    validate_workspace_relative_path(child)
+                elif artifact_context:
+                    raise WorldStoreError("Artifact path must be a string")
             elif normalized_key in _URL_PATH_KEYS and artifact_context:
                 # World artifacts are server-owned references, not browser blob
                 # URLs or local absolute paths.  Keep the wire value unchanged
