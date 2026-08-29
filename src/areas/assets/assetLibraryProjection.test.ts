@@ -47,6 +47,23 @@ test('projects image assets to the image viewer target', () => {
   })
 })
 
+test('projects generated world assets to the scene viewer target', () => {
+  const projected = projectAssetLibraryEntry({
+    ...glbEntry,
+    id: 'library:Workflows/emberfall.world.json',
+    workspacePath: 'Workflows/emberfall.world.json',
+    displayName: 'emberfall.world.json',
+    capability: 'generated-world',
+    previewKind: 'text',
+  })
+
+  assert.deepEqual(resolveAssetLibraryOpenTarget(projected), {
+    kind: 'world',
+    workspacePath: 'Workflows/emberfall.world.json',
+    worldId: 'emberfall',
+  })
+})
+
 test('projects sidecars with safe GLB source links as linked-source open targets', () => {
   const projected = projectAssetLibraryEntry({
     ...glbEntry,

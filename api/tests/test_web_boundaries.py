@@ -87,6 +87,50 @@ class WebBoundaryTests(unittest.TestCase):
             self.assertTrue(safe["success"])
             self.assertEqual(safe["preview"]["kind"], "3d-model")
 
+    def test_workspace_library_opens_generated_world_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_paths.update(workspace_dir=root)
+            workflows = root / "Workflows"
+            workflows.mkdir()
+            world_path = workflows / "emberfall.world.json"
+            world_path.write_text("{}", encoding="utf-8")
+
+            result = asyncio.run(
+                workspace_library.open_library(
+                    workspace_library.LibraryRequest(workspacePath="Workflows/emberfall.world.json")
+                )
+            )
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["entry"]["capability"], "generated-world")
+            self.assertTrue(result["entry"]["openable"])
+
+    def test_workspace_library_rename_preserves_generated_world_suffix_and_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_paths.update(workspace_dir=root)
+            workflows = root / "Workflows"
+            workflows.mkdir()
+            world_path = workflows / "emberfall.world.json"
+            world_path.write_text(json.dumps({"id": "emberfall", "kind": "polykit.world"}), encoding="utf-8")
+
+            result = asyncio.run(
+                workspace_library.rename_asset(
+                    workspace_library.LibraryRenameRequest(
+                        workspacePath="Workflows/emberfall.world.json",
+                        newName="harbor",
+                    )
+                )
+            )
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["workspacePath"], "Workflows/harbor.world.json")
+            self.assertFalse(world_path.exists())
+            renamed = workflows / "harbor.world.json"
+            self.assertTrue(renamed.exists())
+            self.assertEqual(json.loads(renamed.read_text(encoding="utf-8"))["id"], "harbor")
+
     def test_workspace_library_reads_image_preview_without_mesh_processing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

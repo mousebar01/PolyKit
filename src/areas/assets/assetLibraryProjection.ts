@@ -9,6 +9,7 @@ export type AssetLibraryViewerKind = 'image' | 'mesh'
 export type AssetLibraryOpenTarget =
   | { kind: 'self', url: string, workspacePath: string, assetKind: AssetLibraryViewerKind }
   | { kind: 'linked-source', url: string, workspacePath: string, sourceWorkspacePath: string, assetKind: 'mesh' }
+  | { kind: 'world', workspacePath: string, worldId: string }
   | { kind: 'unavailable', reason: string }
 
 function isSafeWorkspacePath(workspacePath: string): boolean {
@@ -29,6 +30,13 @@ function isImage(workspacePath: string): boolean {
   return /\.(png|jpe?g|webp|gif|bmp)$/i.test(workspacePath)
 }
 
+function worldIdFromWorkspacePath(workspacePath: string): string | null {
+  const filename = workspacePath.replace(/\\/g, '/').split('/').pop() ?? ''
+  if (!filename.endsWith('.world.json')) return null
+  const worldId = filename.slice(0, -'.world.json'.length).trim()
+  return worldId.length > 0 ? worldId : null
+}
+
 export function projectAssetLibraryEntry(entry: AssetLibraryEntry): ProjectedAssetLibraryEntry {
   const warnings = [...new Set(entry.warnings)]
   if (!isSafeWorkspacePath(entry.workspacePath)) {
@@ -44,6 +52,14 @@ export function projectAssetLibraryEntry(entry: AssetLibraryEntry): ProjectedAss
 export function resolveAssetLibraryOpenTarget(entry: ProjectedAssetLibraryEntry): AssetLibraryOpenTarget {
   if (entry.state !== 'ready') {
     return { kind: 'unavailable', reason: entry.nonOpenableReason ?? 'Workspace asset is not openable.' }
+  }
+  if (entry.capability === 'generated-world') {
+    if (!entry.openable) {
+      return { kind: 'unavailable', reason: entry.nonOpenableReason ?? 'Generated scene is not openable.' }
+    }
+    const worldId = worldIdFromWorkspacePath(entry.workspacePath)
+    if (!worldId) return { kind: 'unavailable', reason: 'Generated scene has an invalid workspace path.' }
+    return { kind: 'world', workspacePath: entry.workspacePath, worldId }
   }
   if (entry.source?.workspacePath) {
     if (!isSafeWorkspacePath(entry.source.workspacePath) || entry.source.workspacePath === entry.workspacePath || !isGlbOrGltf(entry.source.workspacePath)) {

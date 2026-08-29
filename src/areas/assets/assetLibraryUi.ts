@@ -38,7 +38,7 @@ export const ASSET_LIBRARY_SORT_OPTIONS = [
 
 export function getDefaultAssetLibraryCollapsedSectionKeys(): string[] {
   return ASSET_LIBRARY_CAPABILITY_SECTIONS
-    .filter((capabilitySection) => !['image', 'mesh'].includes(capabilitySection.capability))
+    .filter((capabilitySection) => !['image', 'mesh', 'generated-world'].includes(capabilitySection.capability))
     .map((capabilitySection) => `capability:${capabilitySection.capability}`)
 }
 
@@ -64,6 +64,7 @@ export function describeAssetLibraryOpenability(entry: ProjectedAssetLibraryEntr
   if (entry.state === 'unsupported') return 'This asset is tracked in the library but is not supported in Generate.'
   if (entry.state === 'unsafe') return 'This asset was rejected because its workspace path is unsafe.'
   const target = resolveAssetLibraryOpenTarget(entry)
+  if (target.kind === 'world') return 'Ready to open this generated scene in the viewer.'
   if (target.kind === 'linked-source') return `Ready to open linked source ${entry.source?.displayName ?? target.sourceWorkspacePath} in Generate.`
   if (target.kind === 'self') return 'Ready to open this asset directly in Generate.'
   if (entry.nonOpenableReason) return entry.nonOpenableReason
@@ -113,7 +114,7 @@ export function createAssetLibraryOpenJob(
   target: AssetLibraryOpenTarget,
   now = Date.now(),
 ): AssetLibraryOpenSelection | null {
-  if (target.kind === 'unavailable') return null
+  if (target.kind === 'unavailable' || target.kind === 'world') return null
   return {
     historyUrl: target.url,
     job: {

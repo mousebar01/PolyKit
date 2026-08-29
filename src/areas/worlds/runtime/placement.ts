@@ -205,9 +205,3 @@ function dominantRegionId(spec: WorldSpec, terrain: BuiltTerrain, x: number, z: 
   }
   return bestIndex >= 0 ? spec.regions[bestIndex].id : null
 }
-
-/** Normalize a mesh's measured height to a prototype's authored height. */
-export function normalizeScale(prototype: AssetProtoSpec, boundingBoxHeight: number): number {
-  if (!Number.isFinite(boundingBoxHeight) || boundingBoxHeight <= 1e-4) return 1
-  return prototype.targetHeight / boundingBoxHeight
-}

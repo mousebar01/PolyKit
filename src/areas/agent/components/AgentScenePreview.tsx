@@ -10,7 +10,8 @@ import { solvePlacements } from '@areas/worlds/runtime/placement'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
-import Viewer3D, { VIEWER_BACKGROUND_COLOR } from '@areas/assets/components/Viewer3D'
+import Viewer3D from '@areas/assets/components/Viewer3D'
+import { WORLD_VIEWER_BACKGROUND_COLOR } from '@areas/worlds/components/WorldCanvas'
 
 const REFRESH_INTERVAL_MS = 2500
 
@@ -144,7 +145,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
 
         {renderable ? (
           <>
-            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={VIEWER_BACKGROUND_COLOR} />
+            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
           </>
         ) : document ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">

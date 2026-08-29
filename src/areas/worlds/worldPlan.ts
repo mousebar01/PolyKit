@@ -26,12 +26,3 @@ export interface WorldAgentPlan {
   stages: WorldAgentStage[]
   updated_at?: string
 }
-
-export function createWorldAgentPlan(prompt?: string): WorldAgentPlan {
-  return {
-    version: 1,
-    source: 'worldclaw-paper',
-    ...(prompt ? { prompt } : {}),
-    stages: WORLDCLAW_STAGE_IDS.map((id) => ({ id, status: 'pending' as const })),
-  }
-}

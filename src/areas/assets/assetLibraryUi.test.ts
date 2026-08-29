@@ -37,7 +37,7 @@ function groupPaths(entries: ProjectedAssetLibraryEntry[], search = '', sortMode
   ))
 }
 
-test('organizes visible library assets by capability with images and mesh expanded by default', () => {
+test('organizes visible library assets by capability with primary media and scenes expanded by default', () => {
   const entries = [
     entry({ id: 'image', workspacePath: 'Workflows/Illustrations/hero.png', displayName: 'hero.png', capability: 'image', previewKind: 'image' }),
     entry({ id: 'workflow-mesh', workspacePath: 'Workflows/run/hero.glb', displayName: 'hero.glb', capability: 'mesh' }),
@@ -52,6 +52,7 @@ test('organizes visible library assets by capability with images and mesh expand
   assert.equal(DEFAULT_ASSET_LIBRARY_SORT_MODE, 'date')
   assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:mesh'), false)
   assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:image'), false)
+  assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:generated-world'), false)
   assert.equal(getDefaultAssetLibraryCollapsedSectionKeys().includes('capability:rigged-mesh'), true)
   assert.deepEqual(toggleAssetLibrarySectionKey([], 'capability:mesh'), ['capability:mesh'])
   assert.deepEqual(toggleAssetLibrarySectionKey(['capability:rigged-mesh'], 'capability:rigged-mesh'), [])
@@ -118,6 +119,20 @@ test('opens safe images, glb, and gltf entries through the shared viewer job sta
   assert.equal(selection.job.originalOutputUrl, '/workspace/Workflows/run/hero.glb')
   const imageSelection = createAssetLibraryOpenJob(resolveAssetLibraryOpenTarget(image), 1718546400003)
   assert.equal(imageSelection?.job.outputKind, 'image')
+})
+
+test('keeps generated worlds openable without pretending they are mesh jobs', () => {
+  const scene = entry({
+    id: 'scene',
+    workspacePath: 'Workflows/emberfall.world.json',
+    displayName: 'emberfall.world.json',
+    capability: 'generated-world',
+    previewKind: 'text',
+  })
+  assert.equal(isAssetLibraryEntryOpenable(scene), true)
+  assert.equal(describeAssetLibraryOpenability(scene), 'Ready to open this generated scene in the viewer.')
+  assert.deepEqual(buildAssetLibraryOpenRequest(scene), { workspacePath: 'Workflows/emberfall.world.json' })
+  assert.equal(createAssetLibraryOpenJob(resolveAssetLibraryOpenTarget(scene)), null)
 })
 
 test('keeps library jobs pointed at the full server asset', () => {

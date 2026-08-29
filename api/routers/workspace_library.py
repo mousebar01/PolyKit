@@ -4,6 +4,7 @@ The Web client exposes a safe list/read/open contract for files already owned
 by the server.
 """
 from datetime import datetime
+import json
 import tempfile
 import zipfile
 from pathlib import Path
@@ -63,7 +64,10 @@ def _entry(workspace_path: str, path: Path) -> dict:
     if workspace_path.endswith(".landmarks.v1.json"):
         capability, state, preview, openable, reason = "landmarks-sidecar", "ready", "text", False, "Landmark sidecars require opening their source mesh."
     elif workspace_path.endswith(".world.json"):
-        capability, state, preview, openable, reason = "generated-world", "ready", "text", False, "Generated worlds are list-only in this release."
+        # A world document is a compound scene asset.  The asset library opens
+        # it through the world API so the Web client can render and edit the
+        # derived terrain while keeping the JSON document server-owned.
+        capability, state, preview, openable, reason = "generated-world", "ready", "text", True, None
     elif workspace_path.endswith(".scene.json"):
         capability, state, preview, openable, reason = "scene-manifest", "ready", "text", False, "Scene manifests are list-only in this release."
     elif extension in _MOTION_EXTENSIONS:
@@ -393,7 +397,13 @@ async def rename_asset(request: LibraryRenameRequest):
         raise HTTPException(400, "New name must be a plain filename (no folders, no leading dot).")
     if len(new_name) > 120:
         raise HTTPException(400, "New name is too long.")
-    if not Path(new_name).suffix:
+    is_world = workspace_path.endswith(".world.json")
+    if is_world and not new_name.endswith(".world.json"):
+        # Keep the compound-asset suffix intact.  Path.suffix only sees the
+        # final `.json`, which would otherwise turn `scene.world.json` into a
+        # plain unsupported JSON asset when the user enters just `scene`.
+        new_name = f"{new_name.removesuffix('.json')}.world.json"
+    elif not Path(new_name).suffix:
         new_name += path.suffix  # keep the asset format if the user omitted the extension
 
     if new_name == path.name:
@@ -408,6 +418,20 @@ async def rename_asset(request: LibraryRenameRequest):
         path.rename(target)
     except OSError as exc:
         raise HTTPException(500, f"Failed to rename {workspace_path}: {exc}") from exc
+    if is_world:
+        # World ids are the filename stem used by `/workspace-library/worlds`.
+        # Keep the durable document and its asset-library path in sync after a
+        # rename, otherwise the next save would recreate the old file.
+        try:
+            document = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(document, dict):
+                world_id = new_name.removesuffix(".world.json")
+                document["id"] = world_id
+                target.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            # A malformed document remains renameable; opening it will report
+            # the existing document error instead of losing the user file.
+            pass
     for suffix in _SIDECAR_SUFFIXES:
         side = path.with_name(path.stem + suffix)
         if side.is_file():

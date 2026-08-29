@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  Globe2,
   Image as ImageIcon,
   LayoutGrid,
   List,
@@ -38,7 +39,6 @@ import type { ProjectedAssetLibraryEntry } from '../assetLibraryProjection'
 import { CAPABILITY_LABEL_KEYS } from '../assetLibraryLabels'
 import {
   ASSET_LIBRARY_SORT_OPTIONS,
-  DEFAULT_ASSET_LIBRARY_SORT_MODE,
   filterAssetLibraryEntryGroups,
   isAssetLibraryEntryOpenable,
   type AssetLibrarySortMode,
@@ -328,6 +328,8 @@ function AssetCard({
         {(!thumbnailUrl || thumbnailState === 'error') && (
           entry.capability === 'image'
             ? <ImageIcon className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+            : entry.capability === 'generated-world'
+              ? <Globe2 className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
             : <Box className="h-[22px] w-[22px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
         )}
         {thumbnailUrl && (
@@ -386,13 +388,13 @@ function AssetCard({
                   setActionsAt(null)
                   setExportMenuOpen(false)
                 }}
-                formats={entry.capability === 'image' ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS}
+              formats={entry.capability === 'image' || entry.capability === 'generated-world' ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS}
               />
             </>
           ) : (
             <AssetActionItems
               onExport={() => setExportMenuOpen(true)}
-              canExport={entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh'}
+              canExport={entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh' || entry.capability === 'generated-world'}
               onRename={onRename}
               onDelete={onDelete}
               onClose={() => setActionsAt(null)}
@@ -465,13 +467,16 @@ export default function AssetLibrarySidebar({
 
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null
   const exportablePaths = new Set(entries
-    .filter((entry) => entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh')
+    .filter((entry) => entry.capability === 'image' || entry.capability === 'mesh' || entry.capability === 'rigged-mesh' || entry.capability === 'generated-world')
     .map((entry) => entry.workspacePath))
   const exportTargets = selectMode
     ? [...selectedPaths].filter((path) => exportablePaths.has(path))
     : selectedEntry && exportablePaths.has(selectedEntry.workspacePath) ? [selectedEntry.workspacePath] : []
-  const exportTargetHasImage = exportTargets.some((path) => entries.find((entry) => entry.workspacePath === path)?.capability === 'image')
-  const exportFormats: readonly AssetExportFormat[] = exportTargetHasImage ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS
+  const exportTargetNeedsOriginal = exportTargets.some((path) => {
+    const capability = entries.find((entry) => entry.workspacePath === path)?.capability
+    return capability === 'image' || capability === 'generated-world'
+  })
+  const exportFormats: readonly AssetExportFormat[] = exportTargetNeedsOriginal ? ORIGINAL_EXPORT_FORMATS : EXPORT_FORMATS
   const exportLabel = selectMode && selectedPaths.size > 0
     ? t('assets.exportSelected', { count: selectedPaths.size })
     : t('assets.export')

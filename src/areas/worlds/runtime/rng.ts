@@ -28,11 +28,6 @@ export function subRng(seed: number, label: string): Rng {
   return mulberry32((seed ^ hashString(label)) >>> 0)
 }
 
-export function pick<T>(rng: Rng, values: readonly T[]): T {
-  if (values.length === 0) throw new Error('Cannot pick from an empty array')
-  return values[Math.floor(rng() * values.length)]
-}
-
 export function range(rng: Rng, min: number, max: number): number {
   return min + rng() * (max - min)
 }
@@ -43,4 +38,3 @@ export function gaussian(rng: Rng, mean = 0, standardDeviation = 1): number {
   const v = rng()
   return mean + standardDeviation * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
 }
-

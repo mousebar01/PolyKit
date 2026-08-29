@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import * as THREE from 'three'
 
 import { DEMO_SPEC } from './demo.ts'
+import { buildTerrainGrass, disposeTerrainGrass } from './grassField.ts'
 import { Noise2D } from './noise.ts'
 import { solvePlacements } from './placement.ts'
 import { buildProceduralGeometry } from './procedural.ts'
@@ -31,6 +33,30 @@ test('demo terrain is local, bounded, and deterministic', () => {
   assert.ok(Number.isFinite(first.waterDistanceAt(0, 0)))
 })
 
+test('terrain grass is deterministic, terrain-aligned, and capped', () => {
+  const terrain = buildTerrain(DEMO_SPEC, { resolution: 32 })
+  const first = buildTerrainGrass(DEMO_SPEC, terrain, { density: 1, maxBlades: 240 })
+  const second = buildTerrainGrass(DEMO_SPEC, terrain, { density: 1, maxBlades: 240 })
+  const firstMatrix = new Float32Array(first.mesh.instanceMatrix.array)
+  const secondMatrix = new Float32Array(second.mesh.instanceMatrix.array)
+
+  assert.ok(first.bladeCount > 0)
+  assert.ok(first.bladeCount <= 240)
+  assert.deepEqual(firstMatrix, secondMatrix)
+  assert.equal(first.mesh.instanceColor?.array.length, second.mesh.instanceColor?.array.length)
+
+  const matrix = new THREE.Matrix4()
+  const position = new THREE.Vector3()
+  for (let index = 0; index < first.bladeCount; index += 1) {
+    first.mesh.getMatrixAt(index, matrix)
+    position.setFromMatrixPosition(matrix)
+    assert.ok(position.y > DEMO_SPEC.seaLevel)
+  }
+
+  disposeTerrainGrass(first)
+  disposeTerrainGrass(second)
+})
+
 test('placement output is deterministic and terrain aligned', () => {
   const terrain = buildTerrain(DEMO_SPEC, { resolution: 64 })
   const first = solvePlacements(DEMO_SPEC, terrain)
@@ -53,4 +79,3 @@ test('procedural prototypes are normalized and deterministic', () => {
   first.dispose()
   second.dispose()
 })
-

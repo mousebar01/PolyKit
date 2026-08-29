@@ -44,8 +44,11 @@ import {
   type AssetsOpenPanel,
   type AssetLibrarySortMode,
 } from './assetLibraryUi'
+import { loadWorld } from '@areas/worlds/worldApi'
+import { useWorldStore } from '@areas/worlds/worldStore'
 
 const Viewer3D = lazy(() => import('./components/Viewer3D'))
+const WorldAssetViewer = lazy(() => import('@areas/worlds/components/WorldAssetViewer'))
 
 function AssetsLoading({ label }: { label: string }): JSX.Element {
   return (
@@ -509,6 +512,7 @@ export default function AssetsPage(): JSX.Element {
   const [libraryDeleteTargets, setLibraryDeleteTargets] = useState<ProjectedAssetLibraryEntry[] | null>(null)
   const [librarySortMode, setLibrarySortMode] = useState<AssetLibrarySortMode>('date')
   const [libraryCollapsedSectionKeys, setLibraryCollapsedSectionKeys] = useState<string[]>(() => getDefaultAssetLibraryCollapsedSectionKeys())
+  const [activeWorldEntryId, setActiveWorldEntryId] = useState<string | null>(null)
   const [gizmoMode, setGizmoMode] = useState<'translate' | 'rotate' | 'scale' | null>(null)
   const dragging = useRef(false)
   const gizmoUndoRef = useRef<(() => boolean) | null>(null)
@@ -521,6 +525,7 @@ export default function AssetsPage(): JSX.Element {
   const showError = useAppStore((state) => state.showError)
   const updateCurrentJob = useAppStore((state) => state.updateCurrentJob)
   const setCurrentJob = useAppStore((state) => state.setCurrentJob)
+  const replaceWorldDocument = useWorldStore((state) => state.replaceDocument)
   const meshStats = useAppStore((state) => state.meshStats)
   const meshSelected = useAppStore((state) => state.meshSelected)
   const pushMeshUrl = useAppStore((state) => state.pushMeshUrl)
@@ -590,6 +595,12 @@ export default function AssetsPage(): JSX.Element {
     void loadLibraryEntries()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only when a new output is complete
   }, [currentJob?.id, currentJob?.outputUrl, currentJob?.status, libraryLoaded, libraryLoading])
+
+  useEffect(() => {
+    if (activeWorldEntryId && !libraryEntries.some((entry) => entry.id === activeWorldEntryId)) {
+      setActiveWorldEntryId(null)
+    }
+  }, [activeWorldEntryId, libraryEntries])
 
   function handleExportAssets(workspacePaths: string[], format: AssetExportFormat) {
     const safePaths = [...new Set(workspacePaths.map((workspacePath) => workspacePath.replace(/\\/g, '/').trim()))]
@@ -757,6 +768,14 @@ export default function AssetsPage(): JSX.Element {
         return
       }
       const target = resolveAssetLibraryOpenTarget(result.entry)
+      if (target.kind === 'world') {
+        const document = await loadWorld(target.worldId)
+        replaceWorldDocument(document)
+        setActiveWorldEntryId(result.entry.id)
+        setCurrentJob(null)
+        setGizmoMode(null)
+        return
+      }
       const selection = createAssetLibraryOpenJob(target)
       if (!selection) {
         setLibraryError(describeAssetLibraryOpenability(result.entry))
@@ -764,6 +783,7 @@ export default function AssetsPage(): JSX.Element {
       }
       setLibraryEntries((currentEntries) => currentEntries.map((entry) => entry.id === result.entry.id ? result.entry : entry))
       setLibrarySelectedEntryId(result.entry.id)
+      setActiveWorldEntryId(null)
       setCurrentJob(selection.job)
       if ((target.kind === 'self' && target.assetKind === 'mesh') || target.kind === 'linked-source') {
         pushMeshUrl(selection.historyUrl)
@@ -873,7 +893,7 @@ export default function AssetsPage(): JSX.Element {
       {/* Keep the viewport as one clipped surface so its toolbar, canvas, and
           overlays share the same rounded outer corners. */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-lg bg-background">
-        <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-divider bg-card/65 px-2.5 py-1">
+        {!activeWorldEntryId && <div className="flex h-10 shrink-0 items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-divider bg-card/65 px-2.5 py-1">
           <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={undoMesh} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo">
             <Undo2 className="h-4 w-4" />
           </Button>
@@ -952,11 +972,15 @@ export default function AssetsPage(): JSX.Element {
               <LightPopover settings={lightSettings} onChange={setLightSettings} onClose={() => setOpenPanel(null)} />
             </Popover>
           </div>
-        </div>
+        </div>}
 
         {/* Keep the viewer surface stable while the lazy Three.js canvas mounts. */}
         <div className="relative flex-1 overflow-hidden bg-card">
-          {hasImage && currentJob?.outputUrl ? (
+          {activeWorldEntryId ? (
+            <Suspense fallback={<AssetsLoading label="Loading scene viewer…" />}>
+              <WorldAssetViewer onClose={() => setActiveWorldEntryId(null)} />
+            </Suspense>
+          ) : hasImage && currentJob?.outputUrl ? (
             <AssetImageViewer apiUrl={apiUrl} outputUrl={currentJob.outputUrl} alt={currentJob.imageFile || 'Generated image'} />
           ) : (
             <Suspense fallback={<AssetsLoading label="Loading 3D viewer…" />}>

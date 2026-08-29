@@ -15,8 +15,7 @@ nodes and owns durable artifacts.
 - An Agent can save a paper-derived `agent_plan`, record stage progress, submit
   local asset work, and attach the resulting workspace mesh through the MCP
   world tools described in `docs/world-agent.md`.
-- A workspace concept image can still be bound to an existing editable workflow
-  via `runWorldHero()` and `/workflow-runs/execute`.
+- The Agent submits local asset work through the canonical workflow-run API.
 - Editable world documents are stored as
   `WORKSPACE_DIR/Workflows/<id>.world.json` and can be loaded again without
   persisting derived heightfields or Three.js objects.
@@ -34,11 +33,14 @@ stage and can be implemented behind the canonical workflow-run API later.
 | Concern | PolyKit location |
 | --- | --- |
 | Seeded noise, terrain, placement, procedural geometry | `src/areas/worlds/runtime/` |
-| World preview | `src/areas/worlds/components/WorldCanvas.tsx` |
-| Editable world state and API adapter | `src/areas/worlds/worldStore.ts`, `worldApi.ts` |
-| Existing workflow bridge | `src/areas/worlds/worldWorkflow.ts` |
+| Generated-scene viewer and inspector | `src/areas/worlds/components/WorldAssetViewer.tsx`, `WorldCanvas.tsx` |
+| Editable scene state and API adapter | `src/areas/worlds/worldStore.ts`, `worldApi.ts` |
 | World persistence | `api/services/world_store.py`, `api/routers/workspace_worlds.py` |
 | Agent planning + MCP tools | `api/services/world_agent.py`, `api/mcp_server.py`, `docs/world-agent.md` |
+
+The asset library is the single user-facing entry point for generated scenes;
+there is no separate Worlds page. The Agent preview remains a contextual view
+of the latest scene while this viewer is used to inspect a saved scene asset.
 
 The external project is kept as a reference checkout outside this repository.
 The PolyKit runtime reimplements the deterministic parts instead of copying

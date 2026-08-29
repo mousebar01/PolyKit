@@ -149,11 +149,3 @@ export interface Instance {
   scale: number
   regionId: string | null
 }
-
-/** Optional metadata a future local workflow may attach to a generated asset. */
-export interface AssetArtifact {
-  protoId: string
-  imageUrl?: string
-  meshUrl?: string
-  procedural: boolean
-}

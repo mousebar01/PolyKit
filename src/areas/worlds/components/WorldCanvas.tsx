@@ -8,6 +8,7 @@ import type { AssetProtoSpec, Instance, WorldSpec } from '../runtime/types'
 import { buildProceduralGeometry, proceduralMaterial } from '../runtime/procedural'
 import type { WorldAssetArtifact } from '../types'
 import { workspaceUrl } from '../worldApi'
+import TerrainGrass from './TerrainGrass'
 
 interface WorldCanvasProps {
   spec: WorldSpec
@@ -17,6 +18,8 @@ interface WorldCanvasProps {
   artifacts?: Record<string, WorldAssetArtifact>
   backgroundColor?: string
 }
+
+export const WORLD_VIEWER_BACKGROUND_COLOR = '#151b23'
 
 const FALLBACK_COLORS = ['#77869b', '#8e9f74', '#b4966a', '#526f63', '#7b7b75']
 
@@ -188,6 +191,7 @@ function WorldScene({ spec, terrain, instances, selectedProtoId, artifacts = {},
       <ambientLight color={spec.sky.ambientColor} intensity={spec.sky.ambientIntensity * 1.2} />
       <directionalLight position={sun} color={spec.sky.sunColor} intensity={spec.sky.sunIntensity} castShadow />
       <TerrainMesh spec={spec} terrain={terrain} />
+      <TerrainGrass spec={spec} terrain={terrain} />
       <Water spec={spec} />
       {spec.assets.map((asset) => {
         const prototype = prototypes.get(asset.id)
