@@ -45,7 +45,7 @@ test('Settings sections route user-facing copy through i18n', async () => {
     'settings.agentSubtitle',
     'settings.agentRuntime',
     'settings.agentEnabled',
-    'settings.agentToolProfile',
+    'settings.agentStatus',
   ]) {
     const count = i18n.split(`'${key}'`).length - 1
     assert.equal(count, 2, `${key} must exist in both en-US and zh-CN dictionaries`)
