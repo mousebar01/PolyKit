@@ -63,6 +63,7 @@ class WorldStoreTests(unittest.TestCase):
 
     def test_allows_terrain_coordinate_arrays_named_path(self) -> None:
         body = self._world()
+        body["world_id"] = "terrain-path"
         body["spec"]["rivers"] = [
             {
                 "id": "river",

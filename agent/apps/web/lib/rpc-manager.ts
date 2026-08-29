@@ -90,6 +90,9 @@ export interface RpcSessionStartOptions {
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const MCP_CONFIG_PATH = process.env.POLYKIT_MCP_CONFIG?.trim()
+  ? resolve(process.env.POLYKIT_MCP_CONFIG)
+  : undefined;
 // Bump only when a hot-reloaded wrapper would retain incompatible server-side
 // behavior. Existing wrappers are intentionally global so ordinary HMR does
 // not interrupt active sessions.
@@ -133,6 +136,10 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
     .filter((name) => !codingToolNames.has(name));
 
   return [...new Set([...toolNames, ...extensionToolNames])];
+}
+
+function mcpExtensionFlagValues(): Map<string, string> | undefined {
+  return MCP_CONFIG_PATH ? new Map([["mcp-config", MCP_CONFIG_PATH]]) : undefined;
 }
 
 // ============================================================================
@@ -1246,6 +1253,7 @@ export async function startRpcSession(
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
+      ...(mcpExtensionFlagValues() ? { extensionFlagValues: mcpExtensionFlagValues() } : {}),
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(

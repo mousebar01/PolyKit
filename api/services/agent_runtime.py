@@ -83,7 +83,7 @@ class AgentRuntime:
             "PI_CODING_AGENT_SESSION_DIR": str(session_root),
         })
         process = subprocess.Popen(
-            ["node", str(jiti), str(server)],
+            ["node", str(jiti), str(server), "--mcp-config", str(root / ".mcp.json")],
             cwd=str(root),
             env=env,
             stdin=subprocess.DEVNULL,
