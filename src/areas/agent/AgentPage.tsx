@@ -22,7 +22,6 @@ interface AgentSessionRecord {
   archived?: boolean
 }
 
-const ACTIVE_SESSION_STORAGE_KEY = 'polykit-agent:active-session-id'
 const SESSION_HISTORY_COLLAPSED_STORAGE_KEY = 'polykit-agent:session-history-collapsed'
 const PREVIEW_WIDTH_STORAGE_KEY = 'polykit-agent:scene-preview-width'
 const DEFAULT_PREVIEW_WIDTH = 42
@@ -52,23 +51,6 @@ function previewWidthBounds(containerWidth: number): { min: number; max: number 
 function clampPreviewWidth(value: number, containerWidth: number): number {
   const { min, max } = previewWidthBounds(containerWidth)
   return Math.min(max, Math.max(min, value))
-}
-
-function readActiveSessionId(): string | null {
-  try {
-    return window.localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-function writeActiveSessionId(id: string | null): void {
-  try {
-    if (id) window.localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, id)
-    else window.localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
-  } catch {
-    // Local storage can be unavailable in private browsing; server history remains the source of truth.
-  }
 }
 
 function readSessionHistoryCollapsed(): boolean {
@@ -450,15 +432,10 @@ export default function AgentPage(): JSX.Element {
 
       if (!initialSelectionDone.current) {
         initialSelectionDone.current = true
-        const storedId = readActiveSessionId()
-        const initial = next.find((session) => session.id === storedId) ?? next[0]
-        if (initial) {
-          setSelectedSession(initial)
-          writeActiveSessionId(initial.id)
-          setSessionKey((key) => key + 1)
-        } else {
-          writeActiveSessionId(null)
-        }
+        // Opening the Agent is an explicit request for a fresh conversation.
+        // Session history remains available in the sidebar, but never silently
+        // reopens the last conversation.
+        setSelectedSession(null)
       } else {
         setSelectedSession((current) => {
           if (!current) return current
@@ -482,7 +459,6 @@ export default function AgentPage(): JSX.Element {
   const handleSelectSession = useCallback((session: AgentSessionRecord) => {
     initialSelectionDone.current = true
     setSelectedSession(session)
-    writeActiveSessionId(session.id)
     setSessionKey((key) => key + 1)
   }, [])
 
@@ -490,7 +466,6 @@ export default function AgentPage(): JSX.Element {
     if (!workspaceDir) return
     initialSelectionDone.current = true
     setSelectedSession(null)
-    writeActiveSessionId(null)
     setSessionKey((key) => key + 1)
   }, [workspaceDir])
 
@@ -502,7 +477,6 @@ export default function AgentPage(): JSX.Element {
     }
     initialSelectionDone.current = true
     setSelectedSession(created)
-    writeActiveSessionId(created.id)
     void loadSessions()
   }, [loadSessions])
 
@@ -512,7 +486,6 @@ export default function AgentPage(): JSX.Element {
       if (!created) return
       initialSelectionDone.current = true
       setSelectedSession(created)
-      writeActiveSessionId(created.id)
       setSessionKey((key) => key + 1)
     })
   }, [loadSessions])

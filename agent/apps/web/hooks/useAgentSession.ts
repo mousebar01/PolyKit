@@ -157,6 +157,56 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+const NEW_SESSION_PREFERENCES_STORAGE_KEY = "polykit-agent:new-session-preferences";
+
+interface NewSessionPreferences {
+  model?: SelectedModel;
+  thinkingLevel?: ThinkingLevelOption;
+}
+
+const THINKING_LEVEL_OPTIONS = new Set<ThinkingLevelOption>([
+  "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
+]);
+
+function isSelectedModel(value: unknown): value is SelectedModel {
+  if (!value || typeof value !== "object") return false;
+  const model = value as Partial<SelectedModel>;
+  return typeof model.provider === "string" && model.provider.length > 0
+    && typeof model.modelId === "string" && model.modelId.length > 0;
+}
+
+function readNewSessionPreferences(): NewSessionPreferences | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(NEW_SESSION_PREFERENCES_STORAGE_KEY) ?? "null") as {
+      model?: unknown;
+      thinkingLevel?: unknown;
+    } | null;
+    if (!value || typeof value !== "object") return null;
+    const preferences: NewSessionPreferences = {};
+    if (isSelectedModel(value.model)) preferences.model = value.model;
+    if (typeof value.thinkingLevel === "string" && THINKING_LEVEL_OPTIONS.has(value.thinkingLevel as ThinkingLevelOption)) {
+      preferences.thinkingLevel = value.thinkingLevel as ThinkingLevelOption;
+    }
+    return Object.keys(preferences).length > 0 ? preferences : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistNewSessionPreferences(patch: NewSessionPreferences): void {
+  if (typeof window === "undefined") return;
+  try {
+    const current = readNewSessionPreferences() ?? {};
+    window.localStorage.setItem(
+      NEW_SESSION_PREFERENCES_STORAGE_KEY,
+      JSON.stringify({ ...current, ...patch }),
+    );
+  } catch {
+    // Local storage is optional; the current session remains fully usable.
+  }
+}
+
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
 const USER_SCROLL_INTENT_MS = 1200;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
@@ -340,6 +390,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
+  const [storedNewSessionPreferences] = useState<NewSessionPreferences | null>(readNewSessionPreferences);
+  const initialNewSessionModel = isNew
+    ? storedNewSessionPreferences?.model ?? opts.initialModel ?? null
+    : opts.initialModel ?? null;
+  const initialNewSessionThinkingLevel = isNew
+    ? storedNewSessionPreferences?.thinkingLevel ?? opts.initialThinkingLevel ?? "auto"
+    : opts.initialThinkingLevel ?? "auto";
 
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -357,10 +414,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(opts.initialModel ?? null);
+  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(initialNewSessionModel);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>(opts.initialToolPreset ?? "default");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>(opts.initialThinkingLevel ?? "auto");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>(initialNewSessionThinkingLevel);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
@@ -404,9 +461,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
-  const newSessionModelOverrideRef = useRef<SelectedModel | null>(opts.initialModel ?? null);
+  const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialNewSessionModel);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(
-    opts.initialThinkingLevel && opts.initialThinkingLevel !== "auto" ? opts.initialThinkingLevel : null,
+    initialNewSessionThinkingLevel !== "auto" ? initialNewSessionThinkingLevel : null,
   );
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
@@ -1424,8 +1481,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+    const selectedModel = { provider, modelId };
+    persistNewSessionPreferences({ model: selectedModel });
     if (isNew) {
-      const selectedModel = { provider, modelId };
       newSessionModelOverrideRef.current = selectedModel;
       setNewSessionModel(selectedModel);
       setPendingModel(selectedModel);
@@ -1661,6 +1719,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
+    persistNewSessionPreferences({ thinkingLevel: level });
     if (isNew && !sessionIdRef.current) {
       thinkingLevelOverrideRef.current = level === "auto" ? null : level;
     }
