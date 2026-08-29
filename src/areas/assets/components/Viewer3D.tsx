@@ -30,6 +30,7 @@ const SELECTION_OUTLINE_EDGE_STRENGTH = 2.5
 const SELECTION_OUTLINE_BLUR = false
 const SELECTION_OUTLINE_MULTISAMPLING = 0
 const SELECTION_OUTLINE_RESOLUTION_SCALE = 0.5
+const VIEWER_BACKGROUND_COLOR = '#25272b'
 // Loading a very large GLB into the browser can block the main thread while
 // GLTFLoader parses buffers and WebGL uploads them. Keep the viewer responsive
 // and let the server-side decimator handle these files instead.
@@ -187,7 +188,7 @@ function ModelLoadError(): JSX.Element {
   const { t } = useI18n()
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#303030] px-6 text-muted-foreground">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#25272b] px-6 text-muted-foreground">
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <circle cx="12" cy="12" r="10" />
         <line x1="15" y1="9" x2="9" y2="15" />
@@ -1297,7 +1298,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
       fallback={<ModelLoadError />}
     >
       <div
-        className="relative h-full w-full bg-[#303030] focus-within:ring-1 focus-within:ring-ring/60"
+        className="relative h-full w-full bg-[#25272b] focus-within:ring-1 focus-within:ring-ring/60"
         onPointerDown={(event) => {
           if (event.target instanceof HTMLCanvasElement) event.currentTarget.querySelector<HTMLElement>('[data-viewport-canvas]')?.focus()
         }}
@@ -1338,7 +1339,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
           }}
         >
           {/* Blender-style neutral graphite viewport; the app chrome stays near-black. */}
-          {modelUrl && <color attach="background" args={['#303030']} />}
+          {modelUrl && <color attach="background" args={[VIEWER_BACKGROUND_COLOR]} />}
           <CanvasCapture domRef={canvasRef} />
           <ambientLight intensity={lightSettings.ambientIntensity ?? DEFAULT_LIGHT_SETTINGS.ambientIntensity} />
           <Environment background={false}>
@@ -1401,9 +1402,11 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             dampingFactor={0.05}
           />
 
-          <GizmoHelper alignment="top-right" margin={[72, 72]} renderPriority={2}>
-            <GizmoBubbles />
-          </GizmoHelper>
+          {modelUrl && (
+            <GizmoHelper alignment="top-right" margin={[72, 72]} renderPriority={2}>
+              <GizmoBubbles />
+            </GizmoHelper>
+          )}
         </Canvas>
         )}
 

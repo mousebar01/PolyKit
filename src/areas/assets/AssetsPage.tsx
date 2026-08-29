@@ -49,7 +49,7 @@ const Viewer3D = lazy(() => import('./components/Viewer3D'))
 
 function AssetsLoading({ label }: { label: string }): JSX.Element {
   return (
-    <div className="flex flex-1 items-center justify-center bg-[#303030]" role="status" aria-live="polite">
+    <div className="flex flex-1 items-center justify-center bg-[#25272b]" role="status" aria-live="polite">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <LoaderCircle className="h-4 w-4 animate-spin" />
         {label}
@@ -955,7 +955,7 @@ export default function AssetsPage(): JSX.Element {
         </div>
 
         {/* Keep the viewer surface stable while the lazy Three.js canvas mounts. */}
-        <div className="relative flex-1 overflow-hidden bg-[#303030]">
+        <div className="relative flex-1 overflow-hidden bg-[#25272b]">
           {hasImage && currentJob?.outputUrl ? (
             <AssetImageViewer apiUrl={apiUrl} outputUrl={currentJob.outputUrl} alt={currentJob.imageFile || 'Generated image'} />
           ) : (
