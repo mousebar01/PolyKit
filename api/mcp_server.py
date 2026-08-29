@@ -108,7 +108,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "collection": {
                         "type": "string",
-                        "description": "Workspace collection for the transparent PNG; default: Illustrations.",
+                        "description": "Workspace collection for the transparent PNG; default: Workflows.",
                     },
                     "workflow_id": {
                         "type": "string",
@@ -141,7 +141,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "collection": {
                         "type": "string",
-                        "description": "Workspace collection; default: Illustrations.",
+                        "description": "Workspace collection; default: Workflows.",
                     },
                     "workflow_id": {
                         "type": "string",
@@ -441,7 +441,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
                 },
             },
             "output_node_id": "output",
-            "collection": str(args.get("collection") or "Illustrations"),
+            "collection": str(args.get("collection") or "Workflows"),
         }
         response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
         response.raise_for_status()
@@ -473,7 +473,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
                 },
             },
             "output_node_id": "output",
-            "collection": str(args.get("collection") or "Illustrations"),
+            "collection": str(args.get("collection") or "Workflows"),
         }
         response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
         response.raise_for_status()

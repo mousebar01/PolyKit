@@ -126,7 +126,7 @@ async def create_run_from_image(
     background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     model_id: str = Form(""),
-    collection: str = Form("Default"),
+    collection: str = Form("Workflows"),
     remesh: str = Form("quad"),
     enable_texture: bool = Form(False),
     texture_resolution: int = Form(1024),

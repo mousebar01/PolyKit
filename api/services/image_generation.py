@@ -98,7 +98,7 @@ async def run_generation(
     job_id: str,
     image_bytes: bytes,
     params: dict,
-    collection: str = "Default",
+    collection: str = "Workflows",
     model_id: str | None = None,
 ) -> None:
     job = run_coordinator.jobs[job_id]

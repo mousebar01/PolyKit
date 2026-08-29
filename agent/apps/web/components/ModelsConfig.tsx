@@ -1110,7 +1110,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     setLoginState({ phase: "connecting" });
     setInputValue("");
 
-    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
+    const es = new EventSource(agentApiPath(`/auth/login/${encodeURIComponent(provider.id)}`));
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
@@ -1157,9 +1157,19 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   }, [provider.id, onRefresh]);
 
   const handleLogout = useCallback(async () => {
-    await fetch(agentApiPath(`/auth/logout/${encodeURIComponent(provider.id)}`), { method: "POST" });
-    setLoginState({ phase: "idle" });
-    onRefresh();
+    setLoginState({ phase: "progress", message: "Disconnecting…" });
+    try {
+      const res = await fetch(agentApiPath(`/auth/logout/${encodeURIComponent(provider.id)}`), { method: "POST" });
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok || body.error) {
+        setLoginState({ phase: "error", message: body.error ?? `Server error ${res.status}` });
+        return;
+      }
+      setLoginState({ phase: "idle" });
+      onRefresh();
+    } catch (error) {
+      setLoginState({ phase: "error", message: error instanceof Error ? error.message : "Network error" });
+    }
   }, [provider.id, onRefresh]);
 
   const submitCode = useCallback(async (token: string, code: string) => {

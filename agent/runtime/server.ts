@@ -35,6 +35,7 @@ import { readMcpConfig, writeProjectMcpEnabled } from "../apps/web/lib/mcp-confi
 import { collectProviderListingInputs } from "../apps/web/lib/provider-listing-runtime";
 import { buildApiKeyProviderList, buildOAuthProviderList } from "../apps/web/lib/provider-listing";
 import { removeStoredCredentialIfType, storeProviderCredential } from "../apps/web/lib/provider-credential-store";
+import { configureHttpDispatcher } from "../apps/web/lib/http-dispatcher";
 
 const PORT = Number(process.env.POLYKIT_AGENT_PORT ?? "0");
 const TOKEN = process.env.POLYKIT_AGENT_INTERNAL_TOKEN ?? "";
@@ -42,6 +43,20 @@ const WORKSPACE_ROOT = resolve(process.env.POLYKIT_WORKSPACE_DIR ?? process.cwd(
 const SESSION_DIR = resolve(process.env.PI_CODING_AGENT_SESSION_DIR ?? resolve(getAgentDir(), "sessions"));
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+type PendingAuthInput = {
+  provider: string;
+  resolve: (value: string) => void;
+  reject: (error: Error) => void;
+};
+
+const pendingAuthInputs = new Map<string, PendingAuthInput>();
+
+// The embedded sidecar does not pass through the Agent CLI entry point, so it
+// must install the same undici proxy dispatcher explicitly. Without this,
+// provider OAuth/API requests use Node's direct fetch path and ignore the
+// proxy configured for the server process.
+configureHttpDispatcher();
 
 function isWithinRoot(target: string, root: string): boolean {
   const rel = relative(root, target);
@@ -288,6 +303,182 @@ async function providerListings(): Promise<{
   };
 }
 
+function authToken(provider: string): string {
+  return `${provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function authSseHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  };
+}
+
+function sendAuthEvent(res: ServerResponse, payload: unknown): void {
+  if (res.writableEnded || res.destroyed) return;
+  sse(res, payload);
+}
+
+function authLogin(providerId: string, req: IncomingMessage, res: ServerResponse): void {
+  res.writeHead(200, authSseHeaders());
+  const abort = new AbortController();
+  const activeTokens = new Set<string>();
+  let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
+  let finished = false;
+
+  const createInputRequest = () => {
+    const token = authToken(providerId);
+    activeTokens.add(token);
+    const promise = new Promise<string>((resolveInput, rejectInput) => {
+      pendingAuthInputs.set(token, {
+        provider: providerId,
+        resolve: resolveInput,
+        reject: rejectInput,
+      });
+    });
+    return { token, promise };
+  };
+
+  const getManualInputRequest = () => {
+    if (!pendingManualRequest) {
+      pendingManualRequest = createInputRequest();
+      pendingManualRequest.promise
+        .finally(() => { pendingManualRequest = undefined; })
+        .catch(() => {});
+    }
+    return pendingManualRequest;
+  };
+
+  const cleanup = () => {
+    for (const token of activeTokens) {
+      pendingAuthInputs.get(token)?.reject(new Error("Login cancelled"));
+      pendingAuthInputs.delete(token);
+    }
+    activeTokens.clear();
+  };
+
+  const abortOnDisconnect = () => {
+    if (!finished) abort.abort();
+  };
+  res.on("close", abortOnDisconnect);
+
+  void (async () => {
+    try {
+      const services = await createAgentSessionServices({ cwd: WORKSPACE_ROOT, agentDir: getAgentDir() });
+      const modelRuntime = services.modelRuntime;
+      const provider = modelRuntime.getProvider(providerId);
+      if (!provider?.auth.oauth) {
+        sendAuthEvent(res, { type: "error", message: `Unknown provider: ${providerId}` });
+        return;
+      }
+
+      await modelRuntime.login(providerId, "oauth", {
+        prompt: async (prompt) => {
+          const request = prompt.type === "manual_code"
+            ? getManualInputRequest()
+            : createInputRequest();
+          if (prompt.type === "select") {
+            sendAuthEvent(res, {
+              type: "select_request",
+              message: prompt.message,
+              options: prompt.options,
+              token: request.token,
+            });
+          } else {
+            sendAuthEvent(res, {
+              type: "prompt_request",
+              message: prompt.message,
+              placeholder: prompt.placeholder ?? null,
+              token: request.token,
+            });
+          }
+          return request.promise;
+        },
+        notify: (event) => {
+          if (event.type === "auth_url") {
+            const request = getManualInputRequest();
+            sendAuthEvent(res, {
+              type: "auth",
+              url: event.url,
+              instructions: event.instructions ?? null,
+              token: request.token,
+            });
+          } else if (event.type === "device_code") {
+            sendAuthEvent(res, {
+              type: "device_code",
+              userCode: event.userCode,
+              verificationUri: event.verificationUri,
+              intervalSeconds: event.intervalSeconds ?? null,
+              expiresInSeconds: event.expiresInSeconds ?? null,
+            });
+          } else {
+            sendAuthEvent(res, { type: "progress", message: event.message });
+          }
+        },
+        signal: abort.signal,
+      });
+      sendAuthEvent(res, { type: "success" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message !== "Login cancelled" && !abort.signal.aborted) {
+        sendAuthEvent(res, { type: "error", message });
+      } else if (!abort.signal.aborted) {
+        sendAuthEvent(res, { type: "cancelled" });
+      }
+    } finally {
+      finished = true;
+      cleanup();
+      res.end();
+    }
+  })();
+}
+
+async function authLoginInput(providerId: string, req: IncomingMessage): Promise<unknown> {
+  const body = await readJson(req);
+  const token = typeof body.token === "string" ? body.token : "";
+  const code = typeof body.code === "string" ? body.code : "";
+  if (!token || !code) throw Object.assign(new Error("token and code required"), { statusCode: 400 });
+  if (!token.startsWith(`${providerId}-`)) throw Object.assign(new Error("Token does not match provider"), { statusCode: 400 });
+  const callback = pendingAuthInputs.get(token);
+  if (!callback || callback.provider !== providerId) throw Object.assign(new Error("No pending login for token"), { statusCode: 404 });
+  pendingAuthInputs.delete(token);
+  callback.resolve(code);
+  return { ok: true, provider: providerId };
+}
+
+async function authApiKeyLogin(providerId: string, req: IncomingMessage): Promise<unknown> {
+  const body = await readJson(req);
+  const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  if (!apiKey) throw Object.assign(new Error("apiKey is required"), { statusCode: 400 });
+
+  const abort = new AbortController();
+  req.on("aborted", () => abort.abort());
+  const services = await createAgentSessionServices({ cwd: WORKSPACE_ROOT, agentDir: getAgentDir() });
+  const apiKeyAuth = services.modelRuntime.getProvider(providerId)?.auth.apiKey;
+  if (!apiKeyAuth?.login) throw new Error(`${providerId} does not support API key login`);
+
+  let keySubmitted = false;
+  const credential = await apiKeyAuth.login({
+    signal: abort.signal,
+    notify: () => {},
+    prompt: async (prompt) => {
+      if (prompt.type === "select") {
+        const keyOption = prompt.options.find((option) => option.id === "api-key" || option.id === "bearer-token");
+        if (keyOption) return keyOption.id;
+        throw new Error(`${providerId} requires interactive authentication setup`);
+      }
+      if (!keySubmitted && prompt.type === "secret") {
+        keySubmitted = true;
+        return apiKey;
+      }
+      throw new Error(`${providerId} requires additional authentication settings`);
+    },
+  });
+  await storeProviderCredential(providerId, credential);
+  return { success: true };
+}
+
 async function sessions(includeArchived: boolean): Promise<unknown> {
   const archived = getSessionArchiveRecords();
   const hidden = getHiddenWorkspaceRecords();
@@ -509,6 +700,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
     if (req.method === "GET" && url.pathname === "/auth/providers") return json(res, 200, { providers: (await providerListings()).providers });
     if (req.method === "GET" && url.pathname === "/auth/all-providers") return json(res, 200, { providers: (await providerListings()).apiKeyProviders });
+    if (req.method === "GET" && parts[0] === "auth" && parts[1] === "login" && parts[2]) {
+      return authLogin(decodeId(parts[2]), req, res);
+    }
+    if (req.method === "POST" && parts[0] === "auth" && parts[1] === "login" && parts[2]) {
+      return json(res, 200, await authLoginInput(decodeId(parts[2]), req));
+    }
+    if (req.method === "POST" && parts[0] === "auth" && parts[1] === "logout" && parts[2]) {
+      const providerId = decodeId(parts[2]);
+      const provider = (await createAgentSessionServices({ cwd: WORKSPACE_ROOT, agentDir: getAgentDir() })).modelRuntime.getProvider(providerId);
+      if (!provider?.auth.oauth) return json(res, 400, { error: `Unknown provider: ${providerId}` });
+      const result = await removeStoredCredentialIfType(providerId, "oauth");
+      if (result.status === "type_mismatch") {
+        return json(res, 409, { error: `${providerId} is authenticated with an API key, not OAuth` });
+      }
+      return json(res, 200, { ok: true, ...result });
+    }
     if (req.method === "GET" && parts[0] === "auth" && parts[1] === "api-key" && parts[2]) {
       const services = await createAgentSessionServices({ cwd: WORKSPACE_ROOT, agentDir: getAgentDir() });
       const provider = services.modelRuntime.getProvider(decodeId(parts[2]));
@@ -521,9 +728,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         models: provider ? services.modelRuntime.getModels(provider.id).length : 0,
       });
     }
+    if (req.method === "POST" && parts[0] === "auth" && parts[1] === "api-key" && parts[2]) {
+      return json(res, 200, await authApiKeyLogin(decodeId(parts[2]), req));
+    }
     if (req.method === "DELETE" && parts[0] === "auth" && parts[1] === "api-key" && parts[2]) {
       const result = await removeStoredCredentialIfType(decodeId(parts[2]), "api_key");
-      return json(res, result.status === "type_mismatch" ? 409 : 200, { success: true, ...result });
+      if (result.status === "type_mismatch") {
+        return json(res, 409, { error: `${decodeId(parts[2])} is authenticated with OAuth, not an API key` });
+      }
+      return json(res, 200, { success: true, ...result });
     }
     if (req.method === "GET" && url.pathname === "/skills") return json(res, 200, await skills(url.searchParams.get("cwd")));
     if (req.method === "PATCH" && url.pathname === "/skills") return json(res, 200, await toggleSkill(await readJson(req)));

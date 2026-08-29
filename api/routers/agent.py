@@ -58,9 +58,12 @@ async def _upstream(request: Request) -> tuple[httpx.AsyncClient, httpx.Response
     accept = request.headers.get("accept")
     if accept:
         headers["accept"] = accept
+    is_event_stream = request.url.path.endswith("/events") or (
+        request.method == "GET" and request.url.path.startswith("/agent/auth/login/")
+    )
     client = httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{port}",
-        timeout=None if request.url.path.endswith("/events") else 120,
+        timeout=None if is_event_stream else 120,
         trust_env=False,
     )
     try:
@@ -73,7 +76,7 @@ async def _upstream(request: Request) -> tuple[httpx.AsyncClient, httpx.Response
         )
         response = await client.send(
             upstream_request,
-            stream=request.url.path.endswith("/events"),
+            stream=is_event_stream,
         )
     except httpx.HTTPError as exc:
         await client.aclose()

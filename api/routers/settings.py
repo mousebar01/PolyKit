@@ -175,6 +175,12 @@ async def update_proxy(body: ProxyUpdate):
         bypass=body.bypass,
     )
     set_proxy_config(proxy)
+    # The embedded Agent captures proxy environment variables at process
+    # start. Restart it lazily after a proxy edit so the next OAuth/API call
+    # uses the setting just saved instead of a stale dispatcher snapshot.
+    from services.agent_runtime import agent_runtime
+
+    await agent_runtime.stop()
     return proxy.to_dict()
 
 

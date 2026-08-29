@@ -112,6 +112,7 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["prompt"]["image"]["class_type"], "polykit.image")
         self.assertEqual(payload["prompt"]["cutout"]["class_type"], "image-background-remover/remove-background")
         self.assertEqual(payload["prompt"]["cutout"]["inputs"]["params"], {"model": "isnet-anime"})
+        self.assertEqual(payload["collection"], "Workflows")
         self.assertEqual(payload["prompt"]["output"]["inputs"]["image"], ["cutout", "image"])
 
     def test_workspace_image_reference_rejects_paths_outside_workspace(self) -> None:
