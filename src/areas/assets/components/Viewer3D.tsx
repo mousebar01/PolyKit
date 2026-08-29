@@ -624,45 +624,6 @@ function GizmoBubbles() {
   )
 }
 
-// Keep the empty viewer useful instead of presenting a dead canvas. This is a
-// lightweight Blender-style starter scene: a perspective grid, origin axes,
-// and the familiar cube/camera/light silhouettes that establish scale and
-// communicate that the viewport is ready for inspection.
-function DefaultViewportScene(): JSX.Element {
-  return (
-    <>
-      {/* Use the same native Three grid as the loaded-model path. It is
-          reliable in the empty scene too, without Drei's infinite-grid
-          shader depending on a model or camera update. */}
-      <gridHelper args={[50, 50, '#474747', '#363636']} />
-
-      <mesh position={[0, 0.5, 0]} castShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#8d8d8d" roughness={0.72} metalness={0.04} />
-      </mesh>
-
-      <group position={[3.1, 2.3, 2.9]} rotation={[-0.35, 0.7, 0.18]}>
-        <mesh>
-          <boxGeometry args={[0.8, 0.5, 0.42]} />
-          <meshBasicMaterial color="#131313" wireframe toneMapped={false} />
-        </mesh>
-        <mesh position={[0, 0, -0.3]} rotation={[Math.PI / 2, 0, 0]}>
-          <coneGeometry args={[0.22, 0.38, 4]} />
-          <meshBasicMaterial color="#131313" wireframe toneMapped={false} />
-        </mesh>
-      </group>
-
-      <group position={[-2.3, 3.1, 1.2]}>
-        <mesh>
-          <sphereGeometry args={[0.22, 12, 8]} />
-          <meshBasicMaterial color="#171717" wireframe toneMapped={false} />
-        </mesh>
-        <pointLight intensity={0.8} distance={10} />
-      </group>
-    </>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Transform gizmos — custom move / rotate / scale handles (shared style)
 // ---------------------------------------------------------------------------
@@ -1321,7 +1282,7 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
         ) : null}
 
         {/* Mesh path → the interactive Canvas scene */}
-        {!isSplat && (
+        {modelUrl && !isSplat && (
         <Canvas
           data-viewport-canvas="true"
           tabIndex={0}
@@ -1348,10 +1309,8 @@ export default function Viewer3D({ lightSettings = DEFAULT_LIGHT_SETTINGS, gizmo
             <Lightformer intensity={0.3 * (lightSettings.envIntensity ?? DEFAULT_LIGHT_SETTINGS.envIntensity)} position={[4, 1, -4]} scale={6} />
           </Environment>
 
-          {modelUrl ? <gridHelper args={[10, 20, '#474747', '#383838']} /> : <DefaultViewportScene />}
-          {/* Keep the floor-plane axes visible for loaded models. The empty
-              starter scene also shows the vertical axis to establish depth. */}
-          <axesHelper args={[5]} scale={modelUrl ? [1, 0, 1] : [1, 1, 1]} />
+          <gridHelper args={[10, 20, '#474747', '#383838']} />
+          <axesHelper args={[5]} scale={[1, 0, 1]} />
 
           {canRenderMesh && modelUrl && currentJob ? (
             <Selection enabled={selected}>
