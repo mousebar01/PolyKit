@@ -48,6 +48,10 @@ const PACKS = [
     id: 'image-background-remover/remove-background', nodePackId: 'image-background-remover', nodePackName: 'Image Background Remover', nodePackAuthor: 'PolyKit', nodeId: 'remove-background', name: 'Remove Background', description: '',
     input: 'image', output: 'image', params: [{ id: 'model', label: 'Segmentation Model', type: 'select', default: 'isnet-anime' }], builtin: true, type: 'process',
   },
+  {
+    id: 'scene-composer/compose', nodePackId: 'scene-composer', nodePackName: 'Scene Composer', nodePackAuthor: 'PolyKit', nodeId: 'compose', name: 'Compose Meshes', description: '',
+    input: 'mesh', output: 'mesh', batchInput: 'mesh', params: [{ id: 'output_name', label: 'Output Name', type: 'string', default: 'scene' }], builtin: true, type: 'process',
+  },
 ]
 const node = (id, type, params = {}, nodePackId) =>
   ({ id, type, position: { x: 0, y: 0 }, data: { enabled: true, ...(nodePackId ? { nodePackId } : {}), params } })
@@ -233,6 +237,25 @@ test('text → Anima → cutout → Trellis.2 → texture → mesh output compil
   assert.deepEqual(res.ok && res.payload.prompt.refine.inputs.mesh, ['trellis', 'mesh'])
   assert.equal(res.ok && res.payload.prompt.refine.inputs.params.texture_size, 2048)
   assert.deepEqual(res.ok && res.payload.prompt.out.inputs.mesh, ['refine', 'mesh'])
+})
+
+test('batch mesh input preserves every connected asset reference', async () => {
+  const lamp = node('lamp', 'meshNode', { source: 'file', filePath: 'Workflows/lamp.glb', fileName: 'lamp.glb' })
+  const table = node('table', 'meshNode', { source: 'file', filePath: 'Workflows/table.glb', fileName: 'table.glb' })
+  const composer = node('compose', 'nodePackNode', {}, 'scene-composer/compose')
+  const result = out()
+  const res = await compileServerWorkflow(
+    wf(
+      [lamp, table, composer, result],
+      [edge('lamp', 'compose', 'input-0'), edge('table', 'compose', 'input-0'), edge('compose', 'out')],
+    ),
+    PACKS,
+  )
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.ok && res.payload.prompt.compose.inputs.mesh, [
+    ['lamp', 'mesh'],
+    ['table', 'mesh'],
+  ])
 })
 
 test('running to an intermediate node adds a transient typed output sink', async () => {

@@ -1,0 +1,42 @@
+{
+  "templateId": "scene-composition",
+  "nodePackId": "scene-composer",
+  "requires": ["scene-composer"],
+  "name": "Compose Mesh Scene",
+  "description": "Combine several workspace meshes into one placed GLB while keeping each source object name.",
+  "nodes": [
+    {
+      "id": "mesh-a",
+      "type": "meshNode",
+      "position": { "x": 80, "y": 120 },
+      "data": { "enabled": true, "params": { "source": "file" } }
+    },
+    {
+      "id": "mesh-b",
+      "type": "meshNode",
+      "position": { "x": 80, "y": 320 },
+      "data": { "enabled": true, "params": { "source": "file" } }
+    },
+    {
+      "id": "compose",
+      "type": "nodePackNode",
+      "position": { "x": 420, "y": 220 },
+      "data": {
+        "nodePackId": "scene-composer/compose",
+        "enabled": true,
+        "params": { "output_name": "scene" }
+      }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 760, "y": 220 },
+      "data": { "enabled": true, "params": {} }
+    }
+  ],
+  "edges": [
+    { "id": "mesh-a-to-compose", "source": "mesh-a", "target": "compose", "targetHandle": "input-0" },
+    { "id": "mesh-b-to-compose", "source": "mesh-b", "target": "compose", "targetHandle": "input-0" },
+    { "id": "compose-to-output", "source": "compose", "sourceHandle": "output", "target": "scene-output" }
+  ]
+}

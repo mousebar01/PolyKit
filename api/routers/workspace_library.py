@@ -19,13 +19,14 @@ from pydantic import BaseModel, Field
 from services.asset_names import output_name
 from services.gltf_skin import has_skin_metadata
 from services.runtime_paths import runtime_paths
+from services.scene_assets import find_asset_candidates
 from services.workspace_paths import normalize_collection, resolve_workspace_path
 
 router = APIRouter(prefix="/workspace-library", tags=["workspace-library"])
 _ROOTS = {"Workflows"}
 _SKIP_DIRS = {"tmp", "temp", "cache", "thumbnails"}
 # Sidecar files that belong to a mesh and should move/delete with it.
-_SIDECAR_SUFFIXES = (".landmarks.v1.json", ".world.json", ".scene.json")
+_SIDECAR_SUFFIXES = (".landmarks.v1.json", ".world.json", ".scene.json", ".asset.json")
 _TEXT_EXTENSIONS = {"json", "txt", "md"}
 _MESH_EXTENSIONS = {"glb", "gltf", "obj", "stl", "ply", "splat"}
 _MOTION_EXTENSIONS = {"bvh", "npz"}
@@ -48,6 +49,13 @@ class LibraryExportRequest(BaseModel):
 class LibraryRenameRequest(BaseModel):
     workspacePath: str = Field(min_length=1)
     newName: str = Field(min_length=1)
+
+
+class LibrarySearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    category: Optional[str] = Field(default=None, max_length=120)
+    limit: int = Field(default=5, ge=1, le=50)
+    meshesOnly: bool = True
 
 
 def _safe_path(raw: str) -> tuple[str, Path]:
@@ -278,6 +286,22 @@ async def list_library():
     # Cards use the static thumbnail URL. Do not prewarm interactive GLBs here:
     # listing the library should stay cheap and must not trigger hidden 3D work.
     return {"success": True, "entries": entries}
+
+
+@router.post("/search")
+async def search_library(request: LibrarySearchRequest):
+    """Find workspace assets by semantic names, aliases, and sidecar metadata."""
+
+    try:
+        matches = find_asset_candidates(
+            request.query,
+            category=request.category,
+            limit=request.limit,
+            meshes_only=request.meshesOnly,
+        )
+        return {"success": True, "matches": matches}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/read")

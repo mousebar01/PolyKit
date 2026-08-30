@@ -74,6 +74,7 @@ class NodeDefinition:
     node_id: Optional[str] = None
     pack_dir: Optional[str] = None
     entry: Optional[str] = None
+    batch_input: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -144,6 +145,7 @@ def _model_definitions() -> List[NodeDefinition]:
                 input_labels=node.get("input_labels") or node.get("inputLabels") or manifest.get("input_labels"),
                 outputs=[str(node.get("output", manifest.get("output", "mesh")))],
                 params_schema=node.get("params_schema", manifest.get("params_schema", [])),
+                batch_input=(str(node.get("batch_input")) if node.get("batch_input") else None),
                 builtin=is_official(pack_dir),
                 i18n=node.get("i18n", {}) if isinstance(node.get("i18n", {}), dict) else {},
                 pack_i18n=manifest.get("i18n", {}) if isinstance(manifest.get("i18n", {}), dict) else {},
@@ -176,6 +178,7 @@ def _process_definitions() -> List[NodeDefinition]:
                 input_labels=node.get("input_labels") or node.get("inputLabels"),
                 outputs=[str(node.get("output", "mesh"))],
                 params_schema=node.get("params_schema", []),
+                batch_input=(str(node.get("batch_input")) if node.get("batch_input") else None),
                 builtin=is_official(pack_dir),
                 i18n=node.get("i18n", {}) if isinstance(node.get("i18n", {}), dict) else {},
                 pack_i18n=manifest.get("i18n", {}) if isinstance(manifest.get("i18n", {}), dict) else {},

@@ -5,8 +5,10 @@ import { Button } from '@shared/components/ui/button'
 import { useAppStore } from '@shared/stores/appStore'
 import { useI18n } from '@shared/i18n'
 import WorldCanvas from '@areas/worlds/components/WorldCanvas'
+import ScenePlanCanvas from '@areas/worlds/components/ScenePlanCanvas'
 import { buildTerrain, type BuiltTerrain } from '@areas/worlds/runtime/terrain'
 import { solvePlacements } from '@areas/worlds/runtime/placement'
+import { isRenderableScenePlan } from '@areas/worlds/runtime/scenePlan'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
@@ -100,6 +102,12 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
 
   const stage = useMemo(() => currentStage(document), [document])
   const renderable = document && terrain && isRenderableWorldSpec(document.spec)
+  const scenePlan = document?.scene_plan ?? (
+    document?.spec && typeof document.spec === 'object' && 'scene_plan' in document.spec
+      ? (document.spec as { scene_plan?: unknown }).scene_plan
+      : undefined
+  )
+  const renderableScenePlan = isRenderableScenePlan(scenePlan)
 
   return (
     <aside
@@ -147,6 +155,8 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
           <>
             <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
           </>
+        ) : renderableScenePlan ? (
+          <ScenePlanCanvas plan={scenePlan} artifacts={document?.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : document ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Sparkles className="size-7 text-primary/75" strokeWidth={1.5} aria-hidden="true" />

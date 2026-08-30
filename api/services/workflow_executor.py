@@ -162,21 +162,30 @@ def validate_prompt_links(
             defn_cache[class_type] = get_node_definition(class_type)
         return defn_cache[class_type]
 
+    def _references(value: Any) -> list[list[str]]:
+        if is_reference(value):
+            return [value]
+        if isinstance(value, list):
+            refs: list[list[str]] = []
+            for item in value:
+                refs.extend(_references(item))
+            return refs
+        return []
+
     for node_id, node in prompt.items():
         for input_name, value in node.inputs.items():
-            if not is_reference(value):
-                continue
-            ref_node_id = value[0]
-            if ref_node_id not in prompt:
-                continue
-            upstream_def = _definition(prompt[ref_node_id].class_type)
-            upstream_outputs = upstream_def.outputs if upstream_def else []
-            upstream_type = upstream_outputs[0] if upstream_outputs else None
-            if input_name in {"image", "mesh", "text"} and upstream_type and upstream_type != input_name:
-                raise WorkflowError(
-                    f"Node '{node_id}' input '{input_name}' expects '{input_name}' but "
-                    f"node '{ref_node_id}' outputs '{upstream_type}'"
-                )
+            for reference in _references(value):
+                ref_node_id = reference[0]
+                if ref_node_id not in prompt:
+                    continue
+                upstream_def = _definition(prompt[ref_node_id].class_type)
+                upstream_outputs = upstream_def.outputs if upstream_def else []
+                upstream_type = upstream_outputs[0] if upstream_outputs else None
+                if input_name in {"image", "mesh", "text"} and upstream_type and upstream_type != input_name:
+                    raise WorkflowError(
+                        f"Node '{node_id}' input '{input_name}' expects '{input_name}' but "
+                        f"node '{ref_node_id}' outputs '{upstream_type}'"
+                    )
 
 
 def _file_identity(path: Path) -> dict[str, Any]:
@@ -551,9 +560,12 @@ async def _run_process_node(
 ) -> Dict[str, Any]:
     class_type = node.class_type
     mesh_value = node.inputs.get("mesh")
-    if mesh_value is not None and isinstance(resolve(mesh_value), list):
+    process = process_node_pack(class_type)
+    batch_input = str((process[2] if process is not None else {}).get("batch_input") or "")
+    resolved_mesh = resolve(mesh_value) if mesh_value is not None else None
+    if isinstance(resolved_mesh, list) and batch_input != "mesh":
         outputs = []
-        for item in resolve(mesh_value):
+        for item in resolved_mesh:
             item_node = WorkflowExecutionNode(
                 class_type=class_type,
                 inputs={**node.inputs, "mesh": item},
@@ -570,7 +582,6 @@ async def _run_process_node(
             outputs.append(out.get("mesh"))
         return {"mesh": outputs}
 
-    process = process_node_pack(class_type)
     if process is None:
         raise WorkflowError(f"Unknown process node '{class_type}'")
     pack_dir, process_manifest, node_manifest = process
@@ -587,8 +598,18 @@ async def _run_process_node(
             input_data["filePath"] = str(img_path)
 
     if mesh_value is not None:
-        resolved = resolve(mesh_value)
-        if isinstance(resolved, Path):
+        resolved = resolved_mesh
+        if batch_input == "mesh" and isinstance(resolved, list):
+            paths: list[str] = []
+            for item in resolved:
+                if isinstance(item, Path):
+                    paths.append(str(item))
+                elif isinstance(item, str) and item.strip():
+                    paths.append(item)
+                else:
+                    raise WorkflowError(f"Process node '{class_type}' received a non-file mesh item")
+            input_data["filePaths"] = paths
+        elif isinstance(resolved, Path):
             input_data["filePath"] = str(resolved)
         elif isinstance(resolved, str):
             input_data["filePath"] = resolved

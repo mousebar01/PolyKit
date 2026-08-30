@@ -1,4 +1,5 @@
 import type { Instance, WorldSpec } from './runtime/types'
+import type { ScenePlan } from './runtime/scenePlan'
 import type { WorldAgentPlan } from './worldPlan'
 
 export interface WorldMeshArtifact {
@@ -29,6 +30,8 @@ export interface WorldDocument {
   spec: WorldSpec
   instances: Instance[]
   artifacts: Record<string, WorldAssetArtifact>
+  /** EmbodiedGen-style indoor plan, when this document is not an outdoor WorldSpec. */
+  scene_plan?: ScenePlan
   agent_plan?: WorldAgentPlan
 }
 

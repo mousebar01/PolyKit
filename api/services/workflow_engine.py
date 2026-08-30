@@ -335,7 +335,13 @@ class WorkflowEngine:
             persist()
 
             def _resolve(value: Any) -> Any:
-                return resolve_reference(value, outputs) if is_reference(value) else value
+                if is_reference(value):
+                    return resolve_reference(value, outputs)
+                if isinstance(value, list):
+                    return [_resolve(item) for item in value]
+                if isinstance(value, dict):
+                    return {key: _resolve(item) for key, item in value.items()}
+                return value
 
             def _resolve_legacy(value: Any) -> Any:
                 return unwrap_image_value(unwrap_mesh_value(_resolve(value)))

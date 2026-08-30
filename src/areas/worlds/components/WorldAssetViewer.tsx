@@ -5,7 +5,9 @@ import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitl
 import { useAppStore } from '@shared/stores/appStore'
 import { useI18n } from '@shared/i18n'
 import { isRenderableWorldSpec } from '../runtime/types'
+import { isRenderableScenePlan } from '../runtime/scenePlan'
 import WorldCanvas, { WORLD_VIEWER_BACKGROUND_COLOR } from './WorldCanvas'
+import ScenePlanCanvas from './ScenePlanCanvas'
 import { useWorldStore } from '../worldStore'
 
 function formatNumber(value: number): string {
@@ -30,6 +32,13 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
   } = useWorldStore()
   const [infoOpen, setInfoOpen] = useState(false)
   const renderable = Boolean(document && terrain && isRenderableWorldSpec(document.spec))
+  const scenePlan = document?.scene_plan ?? (
+    document?.spec && typeof document.spec === 'object' && 'scene_plan' in document.spec
+      ? (document.spec as { scene_plan?: unknown }).scene_plan
+      : undefined
+  )
+  const renderableScenePlan = isRenderableScenePlan(scenePlan)
+  const scenePlanPrompt = renderableScenePlan ? scenePlan.prompt : undefined
   const heroCount = useMemo(
     () => document && renderable ? document.spec.assets.filter((asset) => asset.tier === 'hero').length : 0,
     [document, renderable],
@@ -58,6 +67,8 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
             artifacts={document.artifacts}
             backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR}
           />
+        ) : renderableScenePlan ? (
+          <ScenePlanCanvas plan={scenePlan} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Sparkles className="size-7 text-primary/75" strokeWidth={1.5} aria-hidden="true" />
@@ -105,7 +116,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
           <div className="absolute right-3 top-12 z-20 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <p className="truncate font-medium text-foreground">{document.name}</p>
             <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document.id}</p>
-            {renderable && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
+            {(renderable || renderableScenePlan) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
           </div>
         )}
       </div>
@@ -114,7 +125,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{t('worlds.scene')}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{document.spec.logline || document.name}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{(renderable ? document.spec.logline : scenePlanPrompt) || document.name}</p>
           </div>
           <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => void save()} disabled={saving || !apiUrl}>
             {saving ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Save className="size-3.5" aria-hidden="true" />}
@@ -176,6 +187,32 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
                     </button>
                   )
                 })}
+              </CardContent>
+            </Card>
+          </>
+        ) : renderableScenePlan ? (
+          <>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm"><Layers3 className="size-4 text-primary" aria-hidden="true" /> {t('worlds.snapshot')}</CardTitle>
+                <CardDescription>{scenePlan.sceneKind || 'indoor'} · semantic scene plan</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">Bounds</span><span className="font-mono text-foreground">{scenePlan.bounds.width} × {scenePlan.bounds.depth} m</span></div>
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">Objects</span><span className="font-mono text-foreground">{formatNumber(scenePlan.objects.length)}</span></div>
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">Instances</span><span className="font-mono text-foreground">{formatNumber(scenePlan.instances.length)}</span></div>
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">Seed</span><span className="font-mono text-foreground">{scenePlan.seed ?? 0}</span></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3"><CardTitle className="text-sm">Scene objects</CardTitle></CardHeader>
+              <CardContent className="space-y-1.5">
+                {scenePlan.objects.map((object) => (
+                  <div key={object.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs">
+                    <span className="flex min-w-0 items-center gap-2"><Sparkles className="size-3.5 shrink-0" aria-hidden="true" /><span className="truncate">{object.name}</span></span>
+                    <span className="font-mono text-[11px] text-muted-foreground">{object.role}</span>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </>

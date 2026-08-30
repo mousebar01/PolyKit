@@ -18,6 +18,7 @@ export interface NodeDefinition {
   inputs:            string[]
   input_labels:      string[] | null
   outputs:           string[]
+  batch_input?:      string | null
   params_schema:     ParamSchema[]
   builtin:           boolean
   i18n?:             Record<string, LocaleText>
@@ -74,6 +75,7 @@ function toWorkflowNodePack(def: NodeDefinition): WorkflowNodePack | null {
       return def.i18n?.[language]?.inputLabels ?? def.input_labels ?? undefined
     },
     output: toNodeType(def.outputs[0]) === 'image' ? 'image' : (def.outputs[0] as WorkflowNodePack['output']) ?? 'mesh',
+    ...(def.batch_input ? { batchInput: toNodeType(def.batch_input) } : {}),
     params: localizeParamSchema(def.params_schema),
     builtin: def.builtin,
     type: def.category === 'model' ? 'model' : 'process',

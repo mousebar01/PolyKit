@@ -2,12 +2,18 @@
 
 PolyKit 的 World 不是另一个云端生成器。Agent 是世界导演，负责把用户的
 开放式描述拆成可执行的世界计划；FastAPI 负责本地工作流、任务状态和工作区
-资产；Three.js 负责把计划和已生成资产呈现出来。
+资产；Three.js 负责交互预览；需要高质量离线画面或 Blender 原生场景能力时，
+可以把官方 Blender MCP 作为受控后端调用。
 
 这套分层参考 [WorldClaw: Agentic 3D Open-World Generation at Scale](https://arxiv.org/abs/2608.05248)：
 论文将生成过程组织为意图分析、场景规划、全局地形、区域资产与空间放置，最后
-通过渲染反馈进行细化。论文里的模型和 Blender/MCP 调用在 PolyKit 中替换为
-本地 Agent + FastAPI 工作流，不把请求发往 fal 或其他托管 API。
+通过渲染反馈进行细化。论文里的模型和 Blender/MCP 调用在 PolyKit 中由本地
+Agent + FastAPI 工作流编排；Blender MCP 只作为可选的构建/渲染执行器，不把
+请求发往 fal 或其他托管 API。
+
+EmbodiedGen V2 的能力边界和逐项落点见 [EmbodiedGen 能力复刻边界](./embodiedgen-capability-matrix.md)。
+这份映射明确哪些能力可以复刻、哪些只保留接口，以及哪些暂不属于 PolyKit 的目标，
+避免为了追求参考项目的完整功能而改变现有运行时。
 
 ## 阶段契约
 
@@ -198,6 +204,10 @@ Agent 都可以使用：
 - `polykit_world_generate_asset`：为某个原型提交本地 image-to-3D 任务。
 - `polykit_get_generation_status`：轮询服务端任务，直到拿到 `scene_candidate.workspace_path`。
 - `polykit_world_attach_asset`：把完成的 workspace 相对路径写回原型，不复制二进制文件。
+- `polykit_world_compile_scene`：将 EmbodiedGen 风格的对象/关系计划编译成可复现的实例变换，并写回 `WorldDocument`。
+- `polykit_world_find_assets`：按名称、别名和类别检索已有 workspace 网格，返回可复用的相对路径。
+- `polykit_world_compose_scene`：把已解析的对象 Mesh 按 ScenePlan 变换合成为一个可展示 GLB。
+- `polykit_generate_text_asset`：把“文生图 → 透明抠图 → 图生 3D → 贴图”提交成一个 canonical workflow run。
 
 `polykit_generate_image` 内部提交的 DAG 等价于：
 
@@ -218,15 +228,29 @@ Agent 都可以使用：
    `polykit_generate_from_image` 或 `polykit_world_generate_asset`，并在需要时开启贴图精修。
 4. 轮询任务，完成后将输出的 `scene_candidate.workspace_path` 传给
    `polykit_world_attach_asset`，再更新 `assets` 和 `refine`。
+5. 所有对象资产齐备后调用 `polykit_world_compose_scene`，把 ScenePlan 的变换落成一个
+   可下载、可在 Three.js 中打开的 GLB；这个合成任务仍通过 `/workflow-runs/*` 执行。
 
 世界文档中的所有 `workspace_path` 都必须是工作区相对路径，例如
 `Workflows/Worlds/observatory.glb`。绝对路径只允许作为本地生成工具的输入，不能
 进入可持久化的世界清单。
+
+## Blender MCP 与 Three.js 的边界
+
+官方 Blender MCP 适合执行 Infinigen/Blender 场景构建、材质、灯光、截图、离线渲染
+和 GLB/GLTF 导出。项目 `.mcp.json` 已把它作为 Agent 的可选交互工具接入；它不是
+PolyKit 的第二个持久化运行时。凡是要成为产品资产的结果，仍应回写 workspace 并
+登记到 `WorldDocument.artifacts`，正式的批处理/可重连任务再由 FastAPI workflow run
+托管。
+
+Three.js 仍然用于浏览器中的快速交互预览；它不需要复刻 Blender 的 Cycles/Eevee
+渲染器。这样 Infinigen 可以负责室内结构，3DGS 可以负责背景/远景，而 GLB 资产仍
+保持可编辑、可替换和可下载。
 
 ## 当前 Three.js 边界
 
 `src/areas/worlds/runtime/` 仍然提供无模型、无网络的确定性预览：它根据 seed 生成
 高度场和程序化散布。它不是 Agent 的规划器，也不是第二个任务运行时。Agent 计划
 和服务器资产可用时，Three.js 读取同一个世界文档；没有资产时，程序化原型只作为
-预览和兜底。这样可以先验证论文里的编排契约，再逐步增加本地 terrain/material/VLM
-节点包。
+预览和兜底。Blender MCP 的正式接入应新增 FastAPI worker 和验证节点，而不是把
+Blender subprocess 放进 React；这能同时支持 Infinigen、3DGS 和 Blender 渲染结果。

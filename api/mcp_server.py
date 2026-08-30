@@ -152,6 +152,32 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="polykit_generate_text_asset",
+            description=(
+                "Submit one canonical local workflow for text → stylized illustration → transparent cutout "
+                "→ 3D mesh → optional texture refinement. Returns a server run ID."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Single-object asset description."},
+                    "image_model_id": {"type": "string", "description": "Text-to-image node; default anima/generate."},
+                    "mesh_model_id": {"type": "string", "description": "Image-to-3D node; default trellis2/generate."},
+                    "enable_texture": {"type": "boolean", "description": "Run Trellis texture refinement; default true."},
+                    "enable_optimize": {"type": "boolean", "description": "Reduce the final mesh for real-time use; default true."},
+                    "target_faces": {"type": "integer", "description": "Triangle budget after optimization; default 100000."},
+                    "collection": {"type": "string", "description": "Workspace collection; default Workflows."},
+                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
+                    "world_id": {"type": "string", "description": "Optional world id for provenance."},
+                    "proto_id": {"type": "string", "description": "Optional planned object id for provenance."},
+                    "image_params": {"type": "object", "description": "Optional text-to-image params."},
+                    "mesh_params": {"type": "object", "description": "Optional image-to-3D params."},
+                    "texture_params": {"type": "object", "description": "Optional texture params."},
+                },
+                "required": ["prompt"],
+            },
+        ),
+        Tool(
             name="polykit_get_generation_status",
             description="Poll a PolyKit server run. Call repeatedly until status is 'done', 'cancelled', or 'error'.",
             inputSchema={
@@ -277,6 +303,74 @@ async def list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["world_id", "document"],
+            },
+        ),
+        Tool(
+            name="polykit_world_compile_scene",
+            description=(
+                "Compile an EmbodiedGen-style semantic scene plan into deterministic object instances "
+                "and persist it on an existing PolyKit world. Before calling, translate the user's "
+                "natural-language request into two passes: (1) stable object ids, roles, aliases, "
+                "dimensions and asset intents; (2) a shallow relation tree using floor/on/inside or "
+                "near/beside/away_from/overlooking. The server performs validation, optional workspace "
+                "asset lookup, collision-aware placement, and persists diagnostics; it does not call an "
+                "LLM or replace the existing workflow runtime."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "Existing PolyKit world id."},
+                    "plan": {
+                        "type": "object",
+                        "description": "Scene plan with objects, relations, bounds, seed, and optional asset refs.",
+                    },
+                    "solve": {
+                        "type": "boolean",
+                        "description": "Run deterministic placement; default true.",
+                    },
+                    "resolve_assets": {
+                        "type": "boolean",
+                        "description": "Resolve missing object assets from the workspace library; default false.",
+                    },
+                },
+                "required": ["world_id", "plan"],
+            },
+        ),
+        Tool(
+            name="polykit_world_find_assets",
+            description=(
+                "Search the server-owned workspace asset library by semantic name, aliases, category, "
+                "and optional asset sidecar metadata. Returns exact workspace paths for reuse."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Object name or natural-language asset description."},
+                    "category": {"type": "string", "description": "Optional category such as prop, structure, or vegetation."},
+                    "limit": {"type": "integer", "description": "Maximum number of matches; default 5."},
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="polykit_world_compose_scene",
+            description=(
+                "Compose the resolved mesh assets in an existing ScenePlan into one GLB through the "
+                "canonical workflow runtime. The server preserves the plan's object transforms and "
+                "returns a run id; it does not replace the editable scene graph."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "world_id": {"type": "string", "description": "Existing world id with a compiled scene_plan."},
+                    "collection": {"type": "string", "description": "Workspace collection; default Scenes."},
+                    "output_name": {"type": "string", "description": "Output GLB name; default scene."},
+                    "allow_missing": {
+                        "type": "boolean",
+                        "description": "Compose available assets while skipping unresolved objects; default false.",
+                    },
+                },
+                "required": ["world_id"],
             },
         ),
         Tool(
@@ -503,6 +597,31 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             "Use polykit_get_generation_status with this ID to track progress."
         )
 
+    if name == "polykit_generate_text_asset":
+        prompt = _required_text(args.get("prompt"), "prompt")
+        payload = {
+            "prompt": prompt,
+            "image_model_id": str(args.get("image_model_id") or "anima/generate"),
+            "mesh_model_id": str(args.get("mesh_model_id") or "trellis2/generate"),
+            "enable_texture": _as_bool(args.get("enable_texture", True)),
+            "enable_optimize": _as_bool(args.get("enable_optimize", True)),
+            "target_faces": max(100, min(int(args.get("target_faces", 100000)), 1000000)),
+            "collection": str(args.get("collection") or "Workflows"),
+            "workflow_id": str(args.get("workflow_id") or "").strip() or None,
+            "world_id": str(args.get("world_id") or "").strip() or None,
+            "proto_id": str(args.get("proto_id") or "").strip() or None,
+            "image_params": dict(args.get("image_params")) if isinstance(args.get("image_params"), Mapping) else {},
+            "mesh_params": dict(args.get("mesh_params")) if isinstance(args.get("mesh_params"), Mapping) else {},
+            "texture_params": dict(args.get("texture_params")) if isinstance(args.get("texture_params"), Mapping) else {},
+        }
+        response = await client.post(f"{API_BASE}/workflow-runs/text-to-asset", json=payload, timeout=30.0)
+        response.raise_for_status()
+        run_id = response.json()["run_id"]
+        return (
+            f"Text-to-3D asset workflow started. Run ID: {run_id}\n"
+            "Use polykit_get_generation_status with this ID to track progress."
+        )
+
     if name == "polykit_get_generation_status":
         run_id = args["job_id"]
         response = await client.get(f"{API_BASE}/workflow-runs/{run_id}")
@@ -591,6 +710,60 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=payload)
         response.raise_for_status()
         return f"World '{world_id}' saved: {_json_text(response.json())}"
+
+    if name == "polykit_world_compile_scene":
+        world_id = _safe_world_id(args.get("world_id"))
+        plan = args.get("plan")
+        if not isinstance(plan, Mapping):
+            raise WorldStoreError("plan must be a JSON object")
+        payload = {
+            "plan": dict(plan),
+            "solve": _as_bool(args.get("solve", True)),
+            "resolve_assets": _as_bool(args.get("resolve_assets", False)),
+        }
+        response = await client.post(
+            f"{API_BASE}/workspace-library/worlds/{world_id}/scene-plan",
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        scene_plan = data.get("scene_plan", {}) if isinstance(data, Mapping) else {}
+        count = len(scene_plan.get("instances", [])) if isinstance(scene_plan, Mapping) else 0
+        return f"World '{world_id}' scene plan compiled with {count} instance(s): {_json_text(data)}"
+
+    if name == "polykit_world_find_assets":
+        query = _required_text(args.get("query"), "query")
+        payload = {
+            "query": query,
+            "category": str(args.get("category") or "").strip() or None,
+            "limit": max(1, min(int(args.get("limit", 5)), 50)),
+            "meshesOnly": True,
+        }
+        response = await client.post(f"{API_BASE}/workspace-library/search", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        matches = data.get("matches", []) if isinstance(data, Mapping) else []
+        return _json_text(matches) if matches else "No high-confidence workspace asset matches found."
+
+    if name == "polykit_world_compose_scene":
+        world_id = _safe_world_id(args.get("world_id"))
+        payload = {
+            "collection": str(args.get("collection") or "Scenes"),
+            "output_name": str(args.get("output_name") or "scene"),
+            "allow_missing": _as_bool(args.get("allow_missing", False)),
+        }
+        response = await client.post(
+            f"{API_BASE}/workspace-library/worlds/{world_id}/compose",
+            json=payload,
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        run_id = data.get("run_id", "?") if isinstance(data, Mapping) else "?"
+        return (
+            f"Scene composition started for world '{world_id}'. Run ID: {run_id}\n"
+            "Use polykit_get_generation_status with this ID to track the GLB output."
+        )
 
     if name == "polykit_world_update_stage":
         world_id = _safe_world_id(args.get("world_id"))

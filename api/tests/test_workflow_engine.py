@@ -99,6 +99,27 @@ class ValidatePromptLinksTests(unittest.TestCase):
             get_definition.side_effect = fake_definition
             validate_prompt_links(request)
 
+    def test_batch_links_validate_each_nested_reference(self) -> None:
+        request = WorkflowExecutionRequest(
+            prompt={
+                "mesh": _node("polykit.mesh", {"mesh": _image_payload()}),
+                "image": _node("polykit.image", {"image": _image_payload()}),
+                "compose": _node("scene-composer/compose", {"mesh": [["mesh", "mesh"], ["image", "image"]]}),
+            }
+        )
+
+        with mock.patch("services.workflow_executor.get_node_definition") as get_definition:
+            def fake_definition(class_type):
+                if class_type == "polykit.image":
+                    return SimpleNamespace(outputs=["image"])
+                if class_type == "polykit.mesh":
+                    return SimpleNamespace(outputs=["mesh"])
+                return SimpleNamespace(outputs=["mesh"])
+
+            get_definition.side_effect = fake_definition
+            with self.assertRaises(WorkflowError):
+                validate_prompt_links(request)
+
 
 class _FakeGen:
     def __init__(self, outputs_dir: Path) -> None:

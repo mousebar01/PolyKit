@@ -71,7 +71,15 @@ function wireNodePackInputs(
     if (!name) continue
     const source = workflow.nodes.find((node) => node.id === edge.source)
     if (!source) continue
-    inputs[name] = [edge.source, outputNameOf(source, allNodePacks)]
+    const reference: [string, string] = [edge.source, outputNameOf(source, allNodePacks)]
+    if (nodePack.batchInput === name) {
+      const current = inputs[name]
+      inputs[name] = Array.isArray(current) && current.length > 0 && Array.isArray(current[0])
+        ? [...current, reference]
+        : [reference]
+    } else {
+      inputs[name] = reference
+    }
   }
   return inputs
 }

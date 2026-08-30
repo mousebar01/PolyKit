@@ -35,6 +35,7 @@ export interface WorkflowNodePack {
   inputs?:         ('image' | 'text' | 'mesh' | 'audio')[]   // multi-input; overrides input when set
   inputLabels?:    string[]                                  // display labels per input slot
   output:          'image' | 'text' | 'mesh' | 'audio'
+  batchInput?:     'image' | 'text' | 'mesh' | 'audio'
   params:          ParamSchema[]
   builtin:         boolean
   type:            'model' | 'process'
@@ -98,6 +99,7 @@ function pushNodePack<T extends ModelNodePack | ProcessNodePack>(
         return node.i18n?.[language]?.inputLabels ?? node.inputLabels
       },
       output: node.output,
+      batchInput: node.batchInput,
       params: prepareParams(node.paramsSchema as ParamSchema[], node.paramDefaults),
       builtin: ext.builtin,
       type,

@@ -24,3 +24,8 @@ class WorkflowExecutionRequest(BaseModel):
     output_node_id: Optional[str] = None
     target_node_ids: Optional[List[str]] = None
     collection: str = "Workflows"
+    # Optional server-side provenance for Agent orchestration.  It is kept
+    # outside the node graph so existing editable workflow documents remain
+    # unchanged; the run store exposes it as metadata for later attachment to
+    # a world/prototype.
+    metadata: Dict[str, Any] = Field(default_factory=dict)

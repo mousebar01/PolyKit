@@ -36,10 +36,14 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
                 "polykit_world_create",
                 "polykit_world_get",
                 "polykit_world_save",
+                "polykit_world_compile_scene",
+                "polykit_world_find_assets",
+                "polykit_world_compose_scene",
                 "polykit_world_update_stage",
                 "polykit_world_list_workflows",
                 "polykit_world_generate_asset",
                 "polykit_generate_image",
+                "polykit_generate_text_asset",
                 "polykit_generate_from_image",
                 "polykit_remove_background",
                 "polykit_world_attach_asset",
@@ -48,6 +52,43 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
 
         result = await _on_list_tools(None, None)
         self.assertEqual({tool.name for tool in result.tools}, names)
+
+    async def test_world_compile_scene_dispatches_to_server_planner(self) -> None:
+        client = _Client()
+        message = await _dispatch(
+            client,
+            "polykit_world_compile_scene",
+            {
+                "world_id": "cabin",
+                "plan": {"objects": [{"id": "room", "name": "Cabin", "role": "room"}]},
+            },
+        )
+        self.assertIn("scene plan compiled", message)
+        url, kwargs = client.payload
+        self.assertTrue(url.endswith("/workspace-library/worlds/cabin/scene-plan"))
+        self.assertEqual(kwargs["json"]["plan"]["objects"][0]["id"], "room")
+
+    async def test_world_find_assets_dispatches_to_workspace_search(self) -> None:
+        client = _Client()
+        # The generic fake response is sufficient to verify the API boundary;
+        # the search route owns ranking and result validation.
+        message = await _dispatch(client, "polykit_world_find_assets", {"query": "stove"})
+        self.assertIn("No high-confidence", message)
+        url, kwargs = client.payload
+        self.assertTrue(url.endswith("/workspace-library/search"))
+        self.assertEqual(kwargs["json"]["query"], "stove")
+
+    async def test_world_compose_scene_dispatches_to_canonical_run(self) -> None:
+        client = _Client()
+        message = await _dispatch(
+            client,
+            "polykit_world_compose_scene",
+            {"world_id": "cabin", "output_name": "cabin", "allow_missing": True},
+        )
+        self.assertIn("Scene composition started", message)
+        url, kwargs = client.payload
+        self.assertTrue(url.endswith("/workspace-library/worlds/cabin/compose"))
+        self.assertEqual(kwargs["json"], {"collection": "Scenes", "output_name": "cabin", "allow_missing": True})
 
     async def test_world_create_dispatches_to_server_allocator(self) -> None:
         client = _Client()
@@ -74,6 +115,18 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
         payload = kwargs["json"]
         self.assertEqual(payload["prompt"]["image"]["class_type"], "anima/generate")
         self.assertEqual(payload["prompt"]["output"]["class_type"], "polykit.image_output")
+
+    async def test_generate_text_asset_dispatches_one_canonical_workflow(self) -> None:
+        client = _Client()
+        message = await _dispatch(
+            client,
+            "polykit_generate_text_asset",
+            {"prompt": "single stylized wood stove", "enable_texture": False},
+        )
+        self.assertIn("Text-to-3D asset workflow started", message)
+        url, kwargs = client.payload
+        self.assertTrue(url.endswith("/workflow-runs/text-to-asset"))
+        self.assertEqual(kwargs["json"]["enable_texture"], False)
 
     async def test_generate_from_image_forwards_texture_and_collection_options(self) -> None:
         client = _Client()

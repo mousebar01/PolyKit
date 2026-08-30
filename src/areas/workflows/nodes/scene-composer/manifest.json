@@ -1,0 +1,56 @@
+{
+  "id": "scene-composer",
+  "name": "Scene Composer",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Combines multiple mesh assets into one GLB while keeping source names and transforms.",
+  "i18n": {
+    "zh-CN": {
+      "name": "场景组合",
+      "description": "将多个网格资产合并为一个 GLB，并保留来源名称和变换。"
+    },
+    "en-US": {
+      "name": "Scene Composer",
+      "description": "Combines multiple mesh assets into one GLB while keeping source names and transforms."
+    }
+  },
+  "nodes": [
+    {
+      "id": "compose",
+      "name": "Compose Meshes",
+      "input": "mesh",
+      "output": "mesh",
+      "batch_input": "mesh",
+      "i18n": {
+        "zh-CN": { "name": "组合网格" },
+        "en-US": { "name": "Compose Meshes" }
+      },
+      "params_schema": [
+        {
+          "id": "output_name",
+          "label": "Output Name",
+          "type": "string",
+          "default": "scene",
+          "tooltip": "Name used for the composed scene asset.",
+          "i18n": { "zh-CN": { "label": "输出名称", "tooltip": "组合场景资产使用的名称。" } }
+        },
+        {
+          "id": "placements",
+          "label": "Placements (JSON)",
+          "type": "string",
+          "default": "",
+          "tooltip": "Optional JSON map by file name: {\"lighthouse.glb\":{\"position\":[2,0,0],\"rotation\":[0,0.78,0],\"size\":[1,2,1],\"scale\":1.2}}. Position is a ground contact point; rotation uses radians.",
+          "i18n": {
+            "zh-CN": {
+              "label": "摆放（JSON）",
+              "tooltip": "可选 JSON，按文件名设置位置、旋转、目标尺寸和缩放。position 是接触地面的点，旋转单位为弧度。"
+            },
+            "en-US": { "label": "Placements (JSON)" }
+          }
+        }
+      ]
+    }
+  ]
+}

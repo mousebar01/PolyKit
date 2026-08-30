@@ -5,10 +5,10 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from schemas.generation import JobStatus
-from schemas.workflow import WorkflowExecutionRequest
+from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 from services.image_generation import enqueue_generation_job, texture_refiner_id, workspace_url
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
@@ -121,6 +121,97 @@ class WorkflowRunStatus(BaseModel):
     meta: Optional[dict] = None
 
 
+class TextToAssetRequest(BaseModel):
+    """Convenience compiler for the reference project's text-to-asset chain."""
+
+    prompt: str = Field(min_length=1, max_length=20_000)
+    image_model_id: str = "anima/generate"
+    mesh_model_id: str = "trellis2/generate"
+    enable_texture: bool = True
+    enable_optimize: bool = True
+    target_faces: int = Field(default=100_000, ge=100, le=1_000_000)
+    collection: str = "Workflows"
+    workflow_id: Optional[str] = None
+    world_id: Optional[str] = None
+    proto_id: Optional[str] = None
+    image_params: dict = Field(default_factory=dict)
+    mesh_params: dict = Field(default_factory=dict)
+    texture_params: dict = Field(default_factory=dict)
+
+
+def build_text_to_asset_workflow(request: TextToAssetRequest) -> WorkflowExecutionRequest:
+    """Build a typed DAG without executing or hiding any model decisions."""
+
+    image_params = dict(request.image_params)
+    image_params.setdefault("filename_stem", "scene-asset")
+    mesh_params = dict(request.mesh_params)
+    mesh_params.setdefault("remesh", "none")
+    mesh_params.setdefault("enable_texture", False)
+    nodes = {
+        "text": WorkflowExecutionNode(
+            class_type="polykit.text",
+            inputs={"text": request.prompt},
+        ),
+        "image": WorkflowExecutionNode(
+            class_type=request.image_model_id,
+            inputs={"text": ["text", "text"], "params": image_params},
+        ),
+        "cutout": WorkflowExecutionNode(
+            class_type="image-background-remover/remove-background",
+            inputs={
+                "image": ["image", "image"],
+                "params": {"model": "isnet-anime"},
+            },
+        ),
+        "mesh": WorkflowExecutionNode(
+            class_type=request.mesh_model_id,
+            inputs={"image": ["cutout", "image"], "params": mesh_params},
+        ),
+    }
+    final_node_id = "mesh"
+    if request.enable_texture:
+        texture_params = dict(request.texture_params)
+        texture_params.setdefault("texture_resolution", 1024)
+        texture_params.setdefault("texture_size", 2048)
+        texture_params.setdefault("texture_steps", 12)
+        nodes["texture"] = WorkflowExecutionNode(
+            class_type="trellis2/refine",
+            inputs={
+                "image": ["cutout", "image"],
+                "mesh": ["mesh", "mesh"],
+                "params": texture_params,
+            },
+        )
+        final_node_id = "texture"
+    if request.enable_optimize:
+        nodes["optimize"] = WorkflowExecutionNode(
+            class_type="mesh-optimizer/optimize",
+            inputs={
+                "mesh": [final_node_id, "mesh"],
+                "params": {"target_faces": request.target_faces},
+            },
+        )
+        final_node_id = "optimize"
+    nodes["output"] = WorkflowExecutionNode(
+        class_type="polykit.output",
+        inputs={"mesh": [final_node_id, "mesh"]},
+    )
+    return WorkflowExecutionRequest(
+        workflow_id=request.workflow_id,
+        prompt=nodes,
+        output_node_id="output",
+        collection=request.collection,
+        metadata={
+            key: value
+            for key, value in {
+                "world_id": request.world_id,
+                "proto_id": request.proto_id,
+            }.items()
+            if isinstance(value, str) and value.strip()
+        },
+    )
+
+
 @router.post("/from-image")
 async def create_run_from_image(
     background_tasks: BackgroundTasks,
@@ -220,7 +311,15 @@ async def execute_workflow(
         job_id=job_id,
         status="pending",
         progress=0,
-        meta={"workflow_id": request.workflow_id, "collection": collection},
+        meta={
+            "workflow_id": request.workflow_id,
+            "collection": collection,
+            **(
+                {"workflow_metadata": dict(request.metadata)}
+                if request.metadata
+                else {}
+            ),
+        },
     )
     run_coordinator.register(job)
     model_runtime_registry.begin_generation(job_id)
@@ -231,6 +330,17 @@ async def execute_workflow(
         "workflow_id": request.workflow_id,
         "queued_nodes": len(execution_prompt),
     }
+
+
+@router.post("/text-to-asset")
+async def create_text_to_asset_run(
+    request: TextToAssetRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Submit text → illustration → cutout → mesh → texture as one DAG."""
+
+    workflow = build_text_to_asset_workflow(request)
+    return await execute_workflow(workflow, background_tasks)
 
 
 @router.get("", response_model=list[WorkflowRunStatus])

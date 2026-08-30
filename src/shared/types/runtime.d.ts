@@ -18,6 +18,7 @@ export interface NodePackNode {
   inputs?:          ('image' | 'text' | 'mesh' | 'audio')[]   // multi-input nodes; overrides input when set
   inputLabels?:     string[]   // display labels per input slot (e.g. positive/negative)
   output:           'image' | 'text' | 'mesh' | 'audio'
+  batchInput?:      'image' | 'text' | 'mesh' | 'audio' // accepts multiple edges on one input
   paramsSchema:     ParamSchema[]
   paramDefaults?:   Record<string, number | string>
   hfRepo?:          string

@@ -1,8 +1,15 @@
 import unittest
 from pathlib import Path
+from fastapi import BackgroundTasks
 from unittest.mock import patch
 
-from routers.workflow_runs import _require_known_class_type, list_runs
+from routers.workflow_runs import (
+    TextToAssetRequest,
+    _require_known_class_type,
+    build_text_to_asset_workflow,
+    create_text_to_asset_run,
+    list_runs,
+)
 from schemas.generation import JobStatus
 from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 from services.run_coordinator import run_coordinator
@@ -70,6 +77,52 @@ def _texture_pair_request() -> WorkflowExecutionRequest:
 
 
 class ServerWorkflowValidationTests(unittest.TestCase):
+    def test_text_to_asset_builder_matches_reference_chain(self) -> None:
+        request = build_text_to_asset_workflow(
+            TextToAssetRequest(
+                prompt="single stylized wood stove",
+                workflow_id="wf-text-asset",
+                world_id="cabin",
+                proto_id="stove",
+                image_params={"seed": 7},
+                texture_params={"texture_steps": 8},
+                target_faces=50000,
+            )
+        )
+        order = topological_order(request.prompt)
+        self.assertEqual(order, ["text", "image", "cutout", "mesh", "texture", "optimize", "output"])
+        self.assertEqual(request.prompt["image"].inputs["params"]["seed"], 7)
+        self.assertEqual(request.prompt["texture"].inputs["params"]["texture_steps"], 8)
+        self.assertEqual(request.prompt["optimize"].inputs["params"]["target_faces"], 50000)
+        self.assertEqual(request.prompt["output"].inputs["mesh"], ["optimize", "mesh"])
+        self.assertEqual(request.metadata, {"world_id": "cabin", "proto_id": "stove"})
+
+    def test_text_to_asset_builder_can_skip_texture_stage(self) -> None:
+        request = build_text_to_asset_workflow(
+            TextToAssetRequest(prompt="single stylized chair", enable_texture=False, enable_optimize=False)
+        )
+        self.assertNotIn("texture", request.prompt)
+        self.assertEqual(request.prompt["output"].inputs["mesh"], ["mesh", "mesh"])
+
+
+class TextToAssetRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_route_delegates_to_canonical_execute_endpoint(self) -> None:
+        captured = {}
+
+        async def fake_execute(workflow, _background_tasks):
+            captured["workflow"] = workflow
+            return {"run_id": "route-run", "status": "pending"}
+
+        with patch("routers.workflow_runs.execute_workflow", side_effect=fake_execute):
+            result = await create_text_to_asset_run(
+                TextToAssetRequest(prompt="single low-poly lantern", enable_texture=False),
+                BackgroundTasks(),
+            )
+
+        self.assertEqual(result["run_id"], "route-run")
+        self.assertEqual(captured["workflow"].prompt["output"].class_type, "polykit.output")
+        self.assertNotIn("texture", captured["workflow"].prompt)
+
     def test_texture_pair_is_a_valid_acyclic_dag(self) -> None:
         request = _texture_pair_request()
         order = topological_order(request.prompt)
