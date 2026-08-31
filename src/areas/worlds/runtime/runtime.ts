@@ -3,21 +3,6 @@ import type { Instance, WorldSpec } from './types'
 
 export const WORLD_RUNTIME_VERSION = 1 as const
 
-export const WORLD_RUNTIME_STAGE_IDS = [
-  'intent',
-  'blockout',
-  'structure',
-  'environment',
-  'assets',
-  'materials',
-  'lighting',
-  'gameplay',
-  'optimization',
-] as const
-
-export type WorldRuntimeStageId = (typeof WORLD_RUNTIME_STAGE_IDS)[number]
-export type WorldRuntimeStageStatus = 'locked' | 'ready' | 'running' | 'passed' | 'failed'
-
 export const WORLD_RUNTIME_GATE_IDS = ['construction', 'visual', 'gameplay'] as const
 export type WorldRuntimeGateId = (typeof WORLD_RUNTIME_GATE_IDS)[number]
 export type WorldRuntimeGateStatus = 'pending' | 'pass' | 'needs_review' | 'fail'
@@ -39,16 +24,14 @@ export interface WorldRuntimeGateState {
   checked_at?: string
 }
 
-export interface WorldRuntimeStage {
-  id: WorldRuntimeStageId
-  status: WorldRuntimeStageStatus
-  note?: string
-  updated_at?: string
-}
-
-export interface WorldRuntimeState {
-  stages: WorldRuntimeStage[]
-  gates: Record<WorldRuntimeGateId, WorldRuntimeGateState>
+/**
+ * Derived facts about the current world. Workflow progress deliberately does
+ * not live here; AgentWorkflowSession owns task/stage state.
+ */
+export interface WorldRuntimeQuality {
+  construction: WorldRuntimeGateState
+  visual: WorldRuntimeGateState
+  gameplay: WorldRuntimeGateState
   updated_at?: string
 }
 
@@ -77,9 +60,9 @@ export interface BuildingSpec {
 }
 
 /**
- * Authoring/build contract.  Environment generation and construction rules
- * live here; semantic scene relationships remain in ScenePlan and gameplay
- * stays in GameSpec.
+ * Authoring/build contract. Environment generation and construction rules live
+ * here; semantic scene relationships remain in ScenePlan and gameplay stays in
+ * GameSpec.
  */
 export interface BuildSpec {
   kind: 'polykit.build-spec'
@@ -138,8 +121,8 @@ export interface WorldRuntime {
   }
   /** Runtime/gameplay contract consumed by the browser game layer. */
   game: GameSpec
-  /** Resumable Agent pass state and explicit quality gates. */
-  state: WorldRuntimeState
+  /** Derived world facts; never workflow/task progress. */
+  quality: WorldRuntimeQuality
 }
 
 export function createDefaultBuildSpec(): BuildSpec {
@@ -180,25 +163,10 @@ export function createInitialRuntime(prompt = ''): WorldRuntime {
     scene: null,
     compiled: { instances: [] },
     game: createDefaultGameSpec(),
-    state: {
-      stages: WORLD_RUNTIME_STAGE_IDS.map((id, index) => ({
-        id,
-        status: index === 0 ? 'ready' : 'locked',
-      })),
-      gates: {
-        construction: pendingGate(),
-        visual: pendingGate(),
-        gameplay: pendingGate(),
-      },
+    quality: {
+      construction: pendingGate(),
+      visual: pendingGate(),
+      gameplay: pendingGate(),
     },
   }
-}
-
-export function currentRuntimeStage(state: WorldRuntimeState): WorldRuntimeStage | null {
-  if (state.stages.length === 0) return null
-  return state.stages.find((stage) => stage.status === 'running')
-    ?? state.stages.find((stage) => stage.status === 'failed')
-    ?? state.stages.find((stage) => stage.status === 'ready')
-    ?? state.stages.find((stage) => stage.status === 'locked')
-    ?? state.stages[state.stages.length - 1]
 }
