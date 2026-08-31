@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
@@ -31,8 +31,9 @@ from services.agent_workflow_runtime import (  # noqa: E402
 from services.runtime_paths import runtime_paths  # noqa: E402
 
 
-def _json(value: Any, *, stream=sys.stdout) -> None:
-    print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), file=stream)
+def _json(value: Any, *, stream: TextIO | None = None) -> None:
+    target = stream if stream is not None else sys.stdout
+    print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True), file=target)
 
 
 def _metadata(value: str | None) -> dict[str, Any]:
