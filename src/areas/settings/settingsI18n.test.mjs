@@ -10,17 +10,15 @@ async function read(path) {
 }
 
 test('Settings sections route user-facing copy through i18n', async () => {
-  const [about, agent, integrations, mcp, storage, layout, i18n] = await Promise.all([
+  const [about, integrations, storage, layout, i18n] = await Promise.all([
     read('./components/AboutSection.tsx'),
-    read('./components/AgentSection.tsx'),
     read('./components/IntegrationsSection.tsx'),
-    read('./components/McpSection.tsx'),
     read('./components/StorageSection.tsx'),
     read('./components/SettingsLayout.tsx'),
     readFile(new URL('src/shared/i18n.ts', repoRoot), 'utf8'),
   ])
 
-  const ui = [about, agent, integrations, mcp, storage, layout].join('\n')
+  const ui = [about, integrations, storage, layout].join('\n')
   for (const literal of [
     'title="About"',
     'title="Integrations"',
@@ -29,8 +27,6 @@ test('Settings sections route user-facing copy through i18n', async () => {
     '>Saved<',
     '>Clear cache<',
     '>Please wait…<',
-    'title="Copy"',
-    'aria-label="Copy configuration"',
   ]) {
     assert.equal(ui.includes(literal), false, `Settings UI still hardcodes ${literal}`)
   }
@@ -38,33 +34,25 @@ test('Settings sections route user-facing copy through i18n', async () => {
   for (const key of [
     'settings.aboutSubtitle',
     'settings.integrationsSubtitle',
-    'settings.externalAgents',
     'settings.browse',
     'settings.storageSubtitle',
     'settings.existingStorageItems',
-    'settings.agentSubtitle',
-    'settings.agentRuntime',
-    'settings.agentEnabled',
-    'settings.agentStatus',
   ]) {
     const count = i18n.split(`'${key}'`).length - 1
     assert.equal(count, 2, `${key} must exist in both en-US and zh-CN dictionaries`)
   }
 })
 
-test('technical product and protocol names remain stable', async () => {
-  const [integrations, mcp] = await Promise.all([
-    read('./components/IntegrationsSection.tsx'),
-    read('./components/McpSection.tsx'),
-  ])
-  for (const technicalName of ['Hugging Face Hub', 'MCP Server', 'Claude Desktop', 'Codex CLI', 'OpenCode']) {
-    assert.match(`${integrations}\n${mcp}`, new RegExp(technicalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  }
+test('technical product names remain stable', async () => {
+  const integrations = await read('./components/IntegrationsSection.tsx')
+  assert.match(integrations, /Hugging Face Hub/)
 })
 
-test('Agent settings keep the migrated management sections', async () => {
-  const agent = await read('./components/AgentSection.tsx')
-  for (const section of ['runtime', 'models', 'skills', 'plugins', 'mcp', 'archives']) {
-    assert.match(agent, new RegExp(`id: '${section}'`), `${section} settings section is missing`)
+test('retired embedded Agent settings do not return', async () => {
+  const settingsPage = await read('./SettingsPage.tsx')
+  const integrations = await read('./components/IntegrationsSection.tsx')
+  const combined = `${settingsPage}\n${integrations}`
+  for (const retired of ['AgentSection', 'McpSection', '/settings/agent', 'api/mcp_server.py']) {
+    assert.equal(combined.includes(retired), false, `Retired Agent settings surface returned: ${retired}`)
   }
 })
