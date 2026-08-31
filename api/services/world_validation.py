@@ -9,6 +9,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from services.runtime_paths import runtime_paths
+from services.visual_validation import (
+    load_visual_validation_report,
+    validate_visual_validation_report,
+)
 from services.world_runtime import refresh_runtime_quality
 from services.world_store import WorldStoreError
 
@@ -17,6 +22,7 @@ WORLD_VALIDATION_CAPABILITIES = {
     "world.spec.validate",
     "world.blockout.validate",
     "world.construction.validate",
+    "world.visual.validate",
     "world.gameplay.validate",
     "world.final.validate",
 }
@@ -198,6 +204,129 @@ def _validate_construction(
     )
 
 
+def _visual_report_reference(
+    world: Mapping[str, Any],
+    run: Mapping[str, Any] | None,
+) -> tuple[Any | None, str | None, str]:
+    runtime = _runtime(world)
+    quality = runtime.get("quality")
+    visual = quality.get("visual") if isinstance(quality, Mapping) else None
+    if isinstance(visual, Mapping):
+        value = visual.get("report_ref") or visual.get("report")
+        if value:
+            return value, None, "world-quality"
+
+    metadata = _workflow_metadata(run)
+    if isinstance(metadata, Mapping):
+        value = metadata.get("visual_validation_report")
+        if value:
+            expected_run_id = run.get("run_id") if isinstance(run, Mapping) and isinstance(run.get("run_id"), str) else None
+            return value, expected_run_id, "workflow-run"
+    return None, None, "missing"
+
+
+def _validate_visual(
+    world_id: str,
+    world: Mapping[str, Any],
+    run: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    report_ref, expected_run_id, source = _visual_report_reference(world, run)
+    run_status = run.get("status") if isinstance(run, Mapping) else None
+    metadata = _workflow_metadata(run)
+
+    if source == "workflow-run":
+        if run_status != "done":
+            issues.append(_issue(
+                "visual-run-incomplete",
+                "error",
+                "Visual validation evidence must come from a completed Workflow Run.",
+            ))
+        run_world_id = metadata.get("world_id") if isinstance(metadata, Mapping) else None
+        if run_world_id != world_id:
+            issues.append(_issue(
+                "visual-run-world-mismatch",
+                "error",
+                "Workflow Run visual evidence does not belong to this world.",
+            ))
+
+    if report_ref is None:
+        issues.append(_issue(
+            "visual-report-missing",
+            "error",
+            "Visual validation requires an explicit VisualValidationReport evidence artifact.",
+        ))
+        return _report(
+            world_id,
+            "world.visual.validate",
+            "visual-validation-report",
+            issues,
+            ref_suffix="runtime/quality/visual",
+            details={"report_source": source, "run_id": expected_run_id},
+        )
+
+    validation: dict[str, Any] | None = None
+    try:
+        report = load_visual_validation_report(report_ref, workspace_root=runtime_paths.workspace)
+        validation = validate_visual_validation_report(
+            report,
+            world_id=world_id,
+            run_id=expected_run_id,
+            workspace_root=runtime_paths.workspace,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        issues.append(_issue(
+            "visual-report-unreadable",
+            "error",
+            f"Visual validation report could not be read: {exc}",
+        ))
+    except Exception as exc:  # keep validation failures fail-closed at the domain boundary
+        issues.append(_issue(
+            "visual-report-invalid",
+            "error",
+            f"Visual validation report is invalid: {exc}",
+        ))
+
+    if validation is not None:
+        for raw_issue in validation.get("issues", []):
+            if not isinstance(raw_issue, Mapping):
+                continue
+            severity = str(raw_issue.get("severity") or "warning")
+            issues.append(_issue(
+                str(raw_issue.get("code") or "visual-report-issue"),
+                severity if severity in {"warning", "error"} else "warning",
+                str(raw_issue.get("message") or "Visual validation issue"),
+                subject_id=raw_issue.get("subject_id") if isinstance(raw_issue.get("subject_id"), str) else None,
+            ))
+        if validation.get("status") == "fail" and not any(item.get("severity") == "error" for item in issues):
+            issues.append(_issue(
+                "visual-validation-failed",
+                "error",
+                "Required visual checks failed.",
+            ))
+        elif validation.get("status") == "needs_review" and not any(item.get("severity") in {"warning", "error"} for item in issues):
+            issues.append(_issue(
+                "visual-validation-needs-review",
+                "warning",
+                "Visual validation has unresolved required checks.",
+            ))
+
+    return _report(
+        world_id,
+        "world.visual.validate",
+        "visual-validation-report",
+        issues,
+        ref_suffix="runtime/quality/visual",
+        details={
+            "report_source": source,
+            "run_id": expected_run_id,
+            "validation_status": validation.get("status") if validation else "fail",
+            "summary": validation.get("summary", {}) if validation else {},
+            "earliest_failure": validation.get("earliest_failure") if validation else None,
+        },
+    )
+
+
 def _gameplay_issues(runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     scene, object_ids = _scene_objects(runtime)
@@ -266,23 +395,16 @@ def _validate_final(
     run: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     construction = _validate_construction(world_id, world, run)
+    visual = _validate_visual(world_id, world, run)
     gameplay = _validate_gameplay(world_id, world)
-    runtime = _runtime(world)
-    quality = runtime.get("quality")
-    visual = quality.get("visual") if isinstance(quality, Mapping) else None
-    visual_status = visual.get("status") if isinstance(visual, Mapping) else "pending"
 
     issues: list[dict[str, Any]] = []
     if construction["status"] != "pass":
         issues.append(_issue("final-construction-not-pass", "error", "Construction validation has not passed."))
+    if visual["status"] != "pass":
+        issues.append(_issue("final-visual-not-pass", "error", "Visual validation has not passed."))
     if gameplay["status"] != "pass":
         issues.append(_issue("final-gameplay-not-pass", "error", "Gameplay validation has not passed."))
-    if visual_status != "pass":
-        issues.append(_issue(
-            "final-visual-evidence-missing",
-            "warning",
-            "Final validation cannot pass until visual quality has explicit passing evidence.",
-        ))
 
     return _report(
         world_id,
@@ -292,8 +414,9 @@ def _validate_final(
         ref_suffix="runtime/quality",
         details={
             "construction": construction["status"],
+            "visual": visual["status"],
             "gameplay": gameplay["status"],
-            "visual": visual_status,
+            "visual_earliest_failure": visual.get("details", {}).get("earliest_failure"),
         },
     )
 
@@ -316,6 +439,8 @@ def validate_world(
         return _validate_blockout(world_id, world)
     if key == "world.construction.validate":
         return _validate_construction(world_id, world, run)
+    if key == "world.visual.validate":
+        return _validate_visual(world_id, world, run)
     if key == "world.gameplay.validate":
         return _validate_gameplay(world_id, world)
     return _validate_final(world_id, world, run)
