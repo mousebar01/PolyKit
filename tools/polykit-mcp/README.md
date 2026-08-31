@@ -82,8 +82,10 @@ A real Agent is useful only for the last step: checking whether the model unders
 - Tools should map directly to existing FastAPI capabilities.
 - `polykit_workflow_inspect` is read-only and must never advance, retry, or resume a run.
 - World validators report quality facts/evidence; they do not return Agent transitions.
+- `polykit_world_compile_repair` is a pure proxy to the ProductionRecipe compiler. It may return `ready`, `blocked`, or `no_workflow`, but it never starts the returned workflow.
+- Local repair scope widening remains explicit: callers must opt in with `allow_scope_expansion` before the server may compile a broader fallback.
 - Long-running work returns canonical `WorkflowRun` ids.
 - Do not add Agent session/task state to this adapter.
-- Do not move Workflow Engine or Node Pack logic into MCP handlers.
+- Do not move Workflow Engine, validation, ProductionRecipe, or Node Pack logic into MCP handlers.
 
-The current surface includes server health/model discovery, WorkflowRun list/status/inspect/cancel/execute, text-to-asset, mesh processing, and the schema-v2 World domain operations.
+The current surface includes server health/model discovery, WorkflowRun list/status/inspect/cancel/execute, text-to-asset, mesh processing, schema-v2 World operations, evidence-first visual/spatial validation, and ProductionRecipe repair compilation.
