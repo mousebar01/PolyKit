@@ -7,6 +7,7 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR_PATH = REPO_ROOT / "node-packs" / "trellis2" / "generator.py"
+TRELLIS_VENDOR_IMPL = REPO_ROOT / "node-packs" / "trellis2" / "vendor" / "generator_impl.py"
 
 
 def _load_generator_module():
@@ -41,6 +42,8 @@ def _legacy_refine_extra_rotation(vertices: np.ndarray) -> np.ndarray:
 class TrellisOrientationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if not TRELLIS_VENDOR_IMPL.is_file():
+            raise unittest.SkipTest("TRELLIS vendor implementation is not present in this checkout")
         cls.generator = _load_generator_module()
 
     def test_geometry_export_maps_native_basis_to_y_up_front_plus_z(self) -> None:
