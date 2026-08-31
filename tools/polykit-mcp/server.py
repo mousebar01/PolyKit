@@ -99,10 +99,30 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="polykit_workflow_inspect",
             description=(
-                "Read the persisted node/event/artifact/evidence timeline for one WorkflowRun. "
+                "Read the persisted node/event/artifact/evidence timeline and durable execution steps for one WorkflowRun. "
                 "This tool is strictly read-only: it never advances, retries, resumes, or mutates a run."
             ),
             inputSchema=_object_schema({"run_id": _string("WorkflowRun id.")}, ["run_id"]),
+        ),
+        Tool(
+            name="polykit_workflow_signal",
+            description=(
+                "Deliver the expected external signal to a waiting WorkflowRun. "
+                "PolyKit validates the durable interrupt gate and resumes the same run_id; this tool never creates a new run."
+            ),
+            inputSchema=_object_schema({
+                "run_id": _string("Waiting WorkflowRun id."),
+                "name": _string("Signal name expected by the current interrupt gate."),
+                "payload": {"description": "Optional JSON-compatible signal payload."},
+            }, ["run_id", "name"]),
+        ),
+        Tool(
+            name="polykit_workflow_retry",
+            description=(
+                "Retry one failed or interrupted WorkflowRun from its durable completed-node checkpoints. "
+                "The same run_id is resumed; this tool never submits a replacement WorkflowRun."
+            ),
+            inputSchema=_object_schema({"run_id": _string("Failed or interrupted WorkflowRun id.")}, ["run_id"]),
         ),
         Tool(
             name="polykit_workflow_cancel",
@@ -315,6 +335,18 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
     if name == "polykit_workflow_inspect":
         run_id = _id_path(_required_text(args, "run_id"))
         return await _request_json("GET", f"/workflow-runs/{run_id}/inspect")
+
+    if name == "polykit_workflow_signal":
+        run_id = _id_path(_required_text(args, "run_id"))
+        signal_name = _required_text(args, "name")
+        return await _request_json("POST", f"/workflow-runs/{run_id}/signals", {
+            "name": signal_name,
+            "payload": args.get("payload"),
+        })
+
+    if name == "polykit_workflow_retry":
+        run_id = _id_path(_required_text(args, "run_id"))
+        return await _request_json("POST", f"/workflow-runs/{run_id}/retry")
 
     if name == "polykit_workflow_cancel":
         run_id = _id_path(_required_text(args, "run_id"))
