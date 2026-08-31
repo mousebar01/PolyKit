@@ -28,7 +28,7 @@ class _Client:
 
 
 class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
-    async def test_world_tools_are_advertised_by_the_current_mcp_server(self) -> None:
+    async def test_world_tools_are_advertised_without_workflow_stage_mutation(self) -> None:
         tools = await list_tools()
         names = {tool.name for tool in tools}
         self.assertTrue(
@@ -39,7 +39,6 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
                 "polykit_world_compile_scene",
                 "polykit_world_find_assets",
                 "polykit_world_compose_scene",
-                "polykit_world_update_stage",
                 "polykit_world_list_workflows",
                 "polykit_world_generate_asset",
                 "polykit_generate_image",
@@ -49,6 +48,7 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
                 "polykit_world_attach_asset",
             }.issubset(names)
         )
+        self.assertNotIn("polykit_world_update_stage", names)
 
         result = await _on_list_tools(None, None)
         self.assertEqual({tool.name for tool in result.tools}, names)
@@ -70,8 +70,6 @@ class McpWorldToolsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_world_find_assets_dispatches_to_workspace_search(self) -> None:
         client = _Client()
-        # The generic fake response is sufficient to verify the API boundary;
-        # the search route owns ranking and result validation.
         message = await _dispatch(client, "polykit_world_find_assets", {"query": "stove"})
         self.assertIn("No high-confidence", message)
         url, kwargs = client.payload
