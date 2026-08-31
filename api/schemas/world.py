@@ -1,8 +1,7 @@
-"""Strict schema-v2 vocabulary for server-owned world runtimes.
+"""Strict schema-v2 vocabulary for server-owned world documents.
 
-A world has one runtime contract. Build authoring input, semantic scene data,
-compiled transforms, gameplay and Agent quality state are all nested under
-``runtime`` and are never mirrored as legacy top-level fields.
+A world stores product/domain state only. Agent workflow progress is persisted in
+``AgentWorkflowSession`` and must never be mirrored into ``WorldDocument``.
 """
 from __future__ import annotations
 
@@ -15,31 +14,10 @@ WORLD_SCHEMA_VERSION = 2
 WORLD_KIND = "polykit.world"
 WORLD_RUNTIME_VERSION = 1
 
-WorldStageId = Literal[
-    "intent",
-    "blockout",
-    "structure",
-    "environment",
-    "assets",
-    "materials",
-    "lighting",
-    "gameplay",
-    "optimization",
-]
-WorldStageStatus = Literal["locked", "ready", "running", "passed", "failed"]
 WorldGateStatus = Literal["pending", "pass", "needs_review", "fail"]
 
 
-class WorldRuntimeStage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: WorldStageId
-    status: WorldStageStatus
-    note: str | None = None
-    updated_at: str | None = None
-
-
-class WorldRuntimeIssue(BaseModel):
+class WorldQualityIssue(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
@@ -49,19 +27,20 @@ class WorldRuntimeIssue(BaseModel):
     message: str
 
 
-class WorldRuntimeGateState(BaseModel):
+class WorldQualityGateState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: WorldGateStatus = "pending"
-    issues: list[WorldRuntimeIssue] = Field(default_factory=list)
+    issues: list[WorldQualityIssue] = Field(default_factory=list)
     checked_at: str | None = None
 
 
-class WorldRuntimeState(BaseModel):
+class WorldRuntimeQuality(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stages: list[WorldRuntimeStage]
-    gates: dict[str, WorldRuntimeGateState]
+    construction: WorldQualityGateState
+    visual: WorldQualityGateState
+    gameplay: WorldQualityGateState
     updated_at: str | None = None
 
 
@@ -170,7 +149,7 @@ class WorldRuntime(BaseModel):
     scene: dict[str, Any] | None = None
     compiled: WorldRuntimeCompiled
     game: WorldGameSpec
-    state: WorldRuntimeState
+    quality: WorldRuntimeQuality
 
 
 class WorldDocument(BaseModel):
