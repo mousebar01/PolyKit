@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.web.json",
     "check": "npm run lint && npm run typecheck && npm test",
     "prepare": "node scripts/setup-hooks.mjs",
+    "mcp:smoke": "uv run python scripts/mcp_smoke.py",
     "test": "npm run test:py && npm run test:cli && npm run test:node",
     "test:py": "node scripts/run-pytests.mjs",
     "test:cli": "node scripts/run-cli-tests.mjs",
