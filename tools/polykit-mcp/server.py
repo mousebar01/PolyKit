@@ -60,6 +60,33 @@ async def list_tools() -> list[Tool]:
             }),
         ),
         Tool(
+            name="polykit_skill_list",
+            description=(
+                "List metadata for bundled Agent Skills without loading their instruction bodies. "
+                "This is read-only discovery and never executes a skill or script."
+            ),
+            inputSchema=_object_schema({}),
+        ),
+        Tool(
+            name="polykit_skill_get",
+            description=(
+                "Load one bundled Agent Skill's full SKILL.md instructions after selecting it. "
+                "Reading a skill does not authorize tools, execute scripts, or start a WorkflowRun."
+            ),
+            inputSchema=_object_schema({"name": _string("Agent Skill name.")}, ["name"]),
+        ),
+        Tool(
+            name="polykit_skill_read_resource",
+            description=(
+                "Read one bounded UTF-8 Agent Skill resource under scripts/, references/, or assets/. "
+                "Script files are returned only as text and are never executed by PolyKit."
+            ),
+            inputSchema=_object_schema({
+                "name": _string("Agent Skill name."),
+                "path": _string("Resource path relative to the skill, such as references/guide.md."),
+            }, ["name", "path"]),
+        ),
+        Tool(
             name="polykit_workflow_list",
             description="List saved editable PolyKit workflow definitions.",
             inputSchema=_object_schema({}),
@@ -243,6 +270,10 @@ def _id_path(value: str) -> str:
     return quote(value.strip(), safe="")
 
 
+def _relative_resource_path(value: str) -> str:
+    return quote(value.strip(), safe="/")
+
+
 async def _request_json(method: str, path: str, payload: Any | None = None, *, timeout: float = DEFAULT_TIMEOUT) -> Any:
     async with httpx.AsyncClient(base_url=API_BASE, timeout=timeout) as client:
         response = await client.request(method, path, json=payload)
@@ -261,6 +292,18 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         if args.get("downloaded_only") and isinstance(models, list):
             return [item for item in models if isinstance(item, dict) and item.get("downloaded")]
         return models
+
+    if name == "polykit_skill_list":
+        return await _request_json("GET", "/agent-skills")
+
+    if name == "polykit_skill_get":
+        skill_name = _id_path(_required_text(args, "name"))
+        return await _request_json("GET", f"/agent-skills/{skill_name}")
+
+    if name == "polykit_skill_read_resource":
+        skill_name = _id_path(_required_text(args, "name"))
+        resource_path = _relative_resource_path(_required_text(args, "path"))
+        return await _request_json("GET", f"/agent-skills/{skill_name}/resources/{resource_path}")
 
     if name == "polykit_workflow_list":
         return await _request_json("GET", "/workflow-definitions")
