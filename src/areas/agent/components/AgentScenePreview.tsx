@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Info, LoaderCircle, RefreshCw, Sparkles } from 'lucide-react'
 
 import { Button } from '@shared/components/ui/button'
@@ -9,7 +9,7 @@ import ScenePlanCanvas from '@areas/worlds/components/ScenePlanCanvas'
 import { buildTerrain, type BuiltTerrain } from '@areas/worlds/runtime/terrain'
 import { solvePlacements } from '@areas/worlds/runtime/placement'
 import { isRenderableScenePlan } from '@areas/worlds/runtime/scenePlan'
-import { currentRuntimeStage, type WorldRuntimeStageStatus } from '@areas/worlds/runtime/runtime'
+import type { WorldRuntimeGateStatus } from '@areas/worlds/runtime/runtime'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
@@ -22,12 +22,11 @@ interface AgentScenePreviewProps {
   width: number
 }
 
-function stageLabel(status: WorldRuntimeStageStatus | undefined, zh: boolean): string {
-  if (status === 'passed') return zh ? '已通过' : 'Passed'
-  if (status === 'running') return zh ? '进行中' : 'Running'
-  if (status === 'failed') return zh ? '未通过' : 'Failed'
-  if (status === 'ready') return zh ? '可执行' : 'Ready'
-  return zh ? '锁定' : 'Locked'
+function qualityLabel(status: WorldRuntimeGateStatus | undefined, zh: boolean): string {
+  if (status === 'pass') return zh ? '结构检查通过' : 'Construction checks passed'
+  if (status === 'needs_review') return zh ? '结构需要复核' : 'Construction needs review'
+  if (status === 'fail') return zh ? '结构检查未通过' : 'Construction checks failed'
+  return zh ? '等待世界数据' : 'Waiting for world data'
 }
 
 export default function AgentScenePreview({ width }: AgentScenePreviewProps): JSX.Element {
@@ -95,10 +94,6 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
     return () => window.clearInterval(interval)
   }, [refresh])
 
-  const stage = useMemo(
-    () => document ? currentRuntimeStage(document.runtime.state) : null,
-    [document],
-  )
   const environmentSpec = document?.runtime.build.environment
   const scenePlan = document?.runtime.scene
   const renderableEnvironment = Boolean(document && terrain && isRenderableWorldSpec(environmentSpec))
@@ -154,8 +149,8 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Sparkles className="size-7 text-primary/75" strokeWidth={1.5} aria-hidden="true" />
             <div>
-              <p className="text-sm font-medium text-foreground">{zh ? '正在构建世界' : 'Building world'}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{stage ? `${stage.id} · ${stageLabel(stage.status, zh)}` : (zh ? '等待 Agent 写入 runtime spec' : 'Waiting for the Agent to write the runtime spec')}</p>
+              <p className="text-sm font-medium text-foreground">{zh ? '世界数据已创建' : 'World data created'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{qualityLabel(document.runtime.quality.construction.status, zh)}</p>
             </div>
             <p className="max-w-xs break-all font-mono text-[10px] text-muted-foreground/70">{document.id}</p>
           </div>
