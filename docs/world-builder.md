@@ -82,6 +82,11 @@ The Spatial Judge can prove bounded facts such as BuildSpec contact tolerances, 
 
 See `docs/visual-validation.md` and `docs/spatial-validation.md`.
 
+Reusable Blender construction and finishing operations (openings, stairs,
+curves, assemblies, surfacing, lighting, deformation, simulation setup, NPR,
+and factual geometry reports) are available as official process nodes. See
+`docs/blender-production.md`.
+
 ## Repair scopes and production recipes
 
 Validators also derive advisory `polykit.repair-scope` v1 records. These identify the smallest trustworthy causal area—such as an attachment relationship, P0 object, camera composition issue, or missing evidence—without performing a repair.

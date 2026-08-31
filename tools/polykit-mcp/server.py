@@ -43,6 +43,22 @@ def _string(description: str) -> dict[str, str]:
     return {"type": "string", "description": description}
 
 
+def _json_value(description: str) -> dict[str, Any]:
+    """Describe the arbitrary JSON value accepted by an API field."""
+
+    return {
+        "description": description,
+        "anyOf": [
+            {"type": "object", "additionalProperties": True},
+            {"type": "array"},
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "null"},
+        ],
+    }
+
+
 async def list_tools() -> list[Tool]:
     """Return the stable MCP surface exposed to external clients."""
 
@@ -113,7 +129,7 @@ async def list_tools() -> list[Tool]:
             inputSchema=_object_schema({
                 "run_id": _string("Waiting WorkflowRun id."),
                 "name": _string("Signal name expected by the current interrupt gate."),
-                "payload": {"description": "Optional JSON-compatible signal payload."},
+                "payload": _json_value("Optional JSON-compatible signal payload."),
             }, ["run_id", "name"]),
         ),
         Tool(

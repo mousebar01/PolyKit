@@ -120,6 +120,14 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("same run_id", retry_description)
         self.assertIn("never submits a replacement WorkflowRun", retry_description)
 
+    def test_workflow_signal_payload_schema_accepts_json_values(self) -> None:
+        tools = {tool.name: tool for tool in asyncio.run(server_module.list_tools())}
+        payload_schema = tools["polykit_workflow_signal"].input_schema["properties"]["payload"]
+        self.assertEqual(
+            {entry["type"] for entry in payload_schema["anyOf"]},
+            {"object", "array", "string", "number", "boolean", "null"},
+        )
+
     def test_world_validate_only_proxies_domain_validation(self) -> None:
         request = AsyncMock(return_value={"status": "pass", "issues": []})
         with patch.object(server_module, "_request_json", request):

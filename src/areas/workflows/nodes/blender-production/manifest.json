@@ -1,0 +1,166 @@
+{
+  "id": "blender-production",
+  "name": "Blender Production Tools",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Structured Blender production operations for openings, repetition, curves, assemblies, surfacing, lighting, deformation, simulation setup, NPR and geometry reports.",
+  "i18n": {
+    "zh-CN": {
+      "name": "Blender 制作工具",
+      "description": "提供开孔、阵列、曲线、装配、材质、灯光、变形、模拟预设、NPR 和几何检查。"
+    },
+    "en-US": {
+      "name": "Blender Production Tools",
+      "description": "Structured Blender operations for common production tasks."
+    }
+  },
+  "nodes": [
+    {
+      "id": "opening",
+      "name": "Architectural Opening",
+      "output": "mesh",
+      "description": "Cuts a door or window opening with a Boolean cutter and adds a semantic frame.",
+      "params_schema": [
+        { "id": "opening_type", "label": "Opening Type", "type": "select", "default": "door", "options": [{ "value": "door", "label": "Door" }, { "value": "window", "label": "Window" }] },
+        { "id": "wall_width", "label": "Wall Width", "type": "float", "default": 6.0, "min": 1.0, "max": 40.0 },
+        { "id": "wall_height", "label": "Wall Height", "type": "float", "default": 3.2, "min": 1.5, "max": 20.0 },
+        { "id": "wall_thickness", "label": "Wall Thickness", "type": "float", "default": 0.24, "min": 0.05, "max": 2.0 },
+        { "id": "opening_width", "label": "Opening Width", "type": "float", "default": 0.9, "min": 0.2, "max": 8.0 },
+        { "id": "opening_height", "label": "Opening Height", "type": "float", "default": 2.1, "min": 0.3, "max": 12.0 },
+        { "id": "opening_sill", "label": "Sill Height", "type": "float", "default": 0.0, "min": 0.0, "max": 8.0 },
+        { "id": "frame_depth", "label": "Frame Depth", "type": "float", "default": 0.12, "min": 0.02, "max": 0.8 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "array-stairs",
+      "name": "Array Stairs",
+      "output": "mesh",
+      "description": "Builds a parametric stair flight using an Array modifier and semantic rail parts.",
+      "params_schema": [
+        { "id": "steps", "label": "Steps", "type": "int", "default": 12, "min": 2, "max": 200 },
+        { "id": "run", "label": "Run", "type": "float", "default": 0.28, "min": 0.05, "max": 3.0 },
+        { "id": "rise", "label": "Rise", "type": "float", "default": 0.18, "min": 0.03, "max": 1.0 },
+        { "id": "width", "label": "Width", "type": "float", "default": 1.2, "min": 0.2, "max": 10.0 },
+        { "id": "railings", "label": "Add Railings", "type": "boolean", "default": true },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "curve-profile",
+      "name": "Curve Profile",
+      "output": "mesh",
+      "description": "Creates a beveled curve from a JSON point path for cables, trim or railings.",
+      "params_schema": [
+        { "id": "points", "label": "Points (JSON)", "type": "string", "default": "[[0,0,0],[1,0,0],[2,0.5,0.4],[3,0.5,0.4]]" },
+        { "id": "profile", "label": "Profile", "type": "select", "default": "round", "options": [{ "value": "round", "label": "Round" }, { "value": "square", "label": "Square" }] },
+        { "id": "radius", "label": "Radius", "type": "float", "default": 0.06, "min": 0.005, "max": 1.0 },
+        { "id": "resolution", "label": "Resolution", "type": "int", "default": 3, "min": 0, "max": 12 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "geometry-nodes",
+      "name": "Procedural Geometry Nodes",
+      "output": "mesh",
+      "description": "Creates a reusable instance-based Geometry Nodes strip for modular repetition and scattering.",
+      "params_schema": [
+        { "id": "count", "label": "Instance Count", "type": "int", "default": 12, "min": 1, "max": 500 },
+        { "id": "spacing", "label": "Spacing", "type": "float", "default": 0.8, "min": 0.05, "max": 20.0 },
+        { "id": "size", "label": "Instance Size", "type": "float", "default": 0.35, "min": 0.02, "max": 10.0 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "assembly",
+      "name": "Semantic Assembly",
+      "output": "mesh",
+      "description": "Places independent parts with connector metadata, seams and explicit tolerances.",
+      "params_schema": [
+        { "id": "part_count", "label": "Part Count", "type": "int", "default": 3, "min": 2, "max": 24 },
+        { "id": "part_width", "label": "Part Width", "type": "float", "default": 1.0, "min": 0.1, "max": 10.0 },
+        { "id": "part_depth", "label": "Part Depth", "type": "float", "default": 0.6, "min": 0.1, "max": 10.0 },
+        { "id": "part_height", "label": "Part Height", "type": "float", "default": 0.3, "min": 0.05, "max": 5.0 },
+        { "id": "gap", "label": "Assembly Gap", "type": "float", "default": 0.01, "min": 0.0, "max": 0.2 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "surface",
+      "name": "Material Surface",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Applies a calibrated production material preset to every imported mesh object.",
+      "params_schema": [
+        { "id": "surface", "label": "Surface", "type": "select", "default": "wood", "options": [{ "value": "wood", "label": "Wood" }, { "value": "metal", "label": "Metal" }, { "value": "concrete", "label": "Concrete" }, { "value": "glass", "label": "Glass" }, { "value": "water", "label": "Water" }, { "value": "fabric", "label": "Fabric" }] },
+        { "id": "roughness", "label": "Roughness", "type": "float", "default": 0.55, "min": 0.02, "max": 1.0 },
+        { "id": "scale", "label": "Texture Scale", "type": "float", "default": 3.0, "min": 0.1, "max": 50.0 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "lighting",
+      "name": "Studio Lighting",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Adds accountable key/fill/rim lights and an inspection camera around an asset.",
+      "params_schema": [
+        { "id": "preset", "label": "Lighting Preset", "type": "select", "default": "three-point", "options": [{ "value": "three-point", "label": "Three Point" }, { "value": "daylight", "label": "Daylight" }, { "value": "dramatic", "label": "Dramatic" }] },
+        { "id": "exposure", "label": "Exposure", "type": "float", "default": 0.0, "min": -8.0, "max": 8.0 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "deform",
+      "name": "Controlled Deform",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Applies a bounded Simple Deform modifier with explicit axis and angle.",
+      "params_schema": [
+        { "id": "mode", "label": "Mode", "type": "select", "default": "BEND", "options": [{ "value": "BEND", "label": "Bend" }, { "value": "TWIST", "label": "Twist" }, { "value": "TAPER", "label": "Taper" }] },
+        { "id": "axis", "label": "Axis", "type": "select", "default": "Z", "options": [{ "value": "X", "label": "X" }, { "value": "Y", "label": "Y" }, { "value": "Z", "label": "Z" }] },
+        { "id": "angle_deg", "label": "Angle (deg)", "type": "float", "default": 25.0, "min": -180.0, "max": 180.0 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "simulation-setup",
+      "name": "Simulation Setup",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Configures a cloth or rigid-body simulation without hiding the durable WorkflowRun state.",
+      "params_schema": [
+        { "id": "simulation", "label": "Simulation", "type": "select", "default": "cloth", "options": [{ "value": "cloth", "label": "Cloth" }, { "value": "rigid", "label": "Rigid Body" }] },
+        { "id": "quality", "label": "Quality", "type": "int", "default": 5, "min": 1, "max": 20 },
+        { "id": "bake", "label": "Bake", "type": "boolean", "default": false },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "npr",
+      "name": "NPR Toon Surface",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Configures a renderer-native toon material and an editable inverted-hull outline.",
+      "params_schema": [
+        { "id": "renderer", "label": "Renderer", "type": "select", "default": "eevee", "options": [{ "value": "eevee", "label": "Eevee" }, { "value": "cycles", "label": "Cycles" }] },
+        { "id": "outline_width", "label": "Outline Width", "type": "float", "default": 0.018, "min": 0.001, "max": 0.2 },
+        { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
+      ]
+    },
+    {
+      "id": "geometry-report",
+      "name": "Geometry Validation Report",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Returns factual topology and transform findings; it never decides the caller's next action.",
+      "params_schema": [
+        { "id": "check_non_manifold", "label": "Check Non-Manifold", "type": "boolean", "default": true },
+        { "id": "check_loose", "label": "Check Loose Geometry", "type": "boolean", "default": true },
+        { "id": "check_normals", "label": "Check Normals", "type": "boolean", "default": true }
+      ]
+    }
+  ]
+}

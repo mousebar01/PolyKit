@@ -620,6 +620,10 @@ async def _run_process_node(
 
     params_value = resolve(node.inputs.get("params", {}))
     params = dict(params_value) if isinstance(params_value, dict) else {}
+    # A process pack may expose multiple bounded nodes through one entry point.
+    # Keep the node id server-owned and explicit; user params remain unchanged
+    # at the API boundary while the subprocess can dispatch its manifest node.
+    params["_node_id"] = str(node_manifest.get("id") or "")
 
     def _run() -> Dict[str, Any]:
         return run_processor(
@@ -645,7 +649,11 @@ async def _run_process_node(
             output["metadata"] = dict(raw_metadata)
         return output
     if out_kind == "text" and result.get("text") is not None:
-        return {"text": str(result["text"])}
+        output = {"text": str(result["text"])}
+        raw_metadata = result.get("metadata")
+        if isinstance(raw_metadata, dict):
+            output["metadata"] = dict(raw_metadata)
+        return output
     raise WorkflowError(f"Process node '{class_type}' produced no {out_kind} output")
 
 def os_cache_enabled() -> bool:
