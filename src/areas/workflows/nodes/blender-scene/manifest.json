@@ -2,18 +2,18 @@
   "id": "blender-scene",
   "name": "Blender Scene Builder",
   "type": "process",
-  "entry": "processor_v2.py",
-  "version": "2.0.0",
+  "entry": "processor.py",
+  "version": "2.1.0",
   "author": "PolyKit",
-  "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export.",
+  "description": "Builds parameterized scenes with stable BuildSpec provenance and supports bounded part repairs.",
   "i18n": {
     "zh-CN": {
       "name": "Blender 场景构建",
-      "description": "按 BuildSpec 锚点参数化构建小屋，并在导出前校验结构接触关系。"
+      "description": "按 BuildSpec 参数化构建场景，写入稳定部件来源，并支持受限局部修复。"
     },
     "en-US": {
       "name": "Blender Scene Builder",
-      "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export."
+      "description": "Builds parameterized scenes with stable BuildSpec provenance and supports bounded part repairs."
     }
   },
   "nodes": [
@@ -110,6 +110,38 @@
           "default": 512,
           "min": 240,
           "max": 1200
+        },
+        {
+          "id": "blender_host",
+          "label": "Blender Host",
+          "type": "string",
+          "default": ""
+        },
+        {
+          "id": "blender_port",
+          "label": "Blender Port",
+          "type": "int",
+          "default": 9876,
+          "min": 1,
+          "max": 65535
+        }
+      ]
+    },
+    {
+      "id": "repair-parts",
+      "name": "Repair BuildSpec Parts",
+      "input": "mesh",
+      "output": "mesh",
+      "i18n": {
+        "zh-CN": { "name": "修复 BuildSpec 部件" },
+        "en-US": { "name": "Repair BuildSpec Parts" }
+      },
+      "params_schema": [
+        {
+          "id": "render_preview",
+          "label": "Render Preview",
+          "type": "boolean",
+          "default": true
         },
         {
           "id": "blender_host",
