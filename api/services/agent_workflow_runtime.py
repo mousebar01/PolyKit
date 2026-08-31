@@ -10,6 +10,8 @@ from schemas.agent_workflow import (
     AgentWorkflowEvidence,
     AgentWorkflowSession,
     AgentWorkflowStep,
+    AgentWorkflowTransitionRecord,
+    AgentWorkflowWait,
 )
 from services.agent_workflow_registry import get_agent_workflow
 from services.agent_workflow_store import load_agent_workflow_session, save_agent_workflow_session
@@ -176,12 +178,12 @@ def complete_agent_workflow_step(
         session.current_step = None
         return _save(session)
 
-    session.history.append({
-        "from_step": step.id,
-        "outcome": outcome,
-        "to_step": target,
-        "at": timestamp,
-    })
+    session.history.append(AgentWorkflowTransitionRecord(
+        from_step=step.id,
+        outcome=outcome,
+        to_step=target,
+        at=timestamp,
+    ))
 
     if target == "$complete":
         session.status = "completed"
@@ -223,7 +225,7 @@ def wait_agent_workflow_session(
     if kind not in {"user", "run"}:
         raise AgentWorkflowStateError("Wait kind must be 'user' or 'run'")
     session.status = "waiting_for_user" if kind == "user" else "waiting_for_run"
-    session.wait = {"kind": kind, "ref": ref, "reason": reason}
+    session.wait = AgentWorkflowWait(kind=kind, ref=ref, reason=reason)
     return _save(session)
 
 
