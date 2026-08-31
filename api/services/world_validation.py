@@ -7,9 +7,10 @@ evidence reference. They do not choose conversational actions or mutate task sta
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from services.repair_scope import attach_repair_scope, derive_repair_scopes
 from services.runtime_paths import runtime_paths
 from services.spatial_validation import build_world_spatial_bundle
 from services.visual_validation import (
@@ -61,17 +62,33 @@ def _report(
     *,
     ref_suffix: str,
     details: Mapping[str, Any] | None = None,
+    repair_checks: Sequence[Mapping[str, Any]] | None = None,
+    repair_scopes: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     status = _status(issues)
     summary = f"{capability}: {status}"
     if issues:
         summary += f" ({len(issues)} issue{'s' if len(issues) != 1 else ''})"
+
+    scopes = (
+        [dict(item) for item in repair_scopes if isinstance(item, Mapping)]
+        if repair_scopes is not None
+        else derive_repair_scopes(capability, issues, checks=repair_checks)
+    )
+    details_value = dict(details or {})
+    if isinstance(details_value.get("earliest_failure"), Mapping):
+        details_value["earliest_failure"] = attach_repair_scope(
+            details_value["earliest_failure"],
+            scopes,
+        )
+
     return {
         "world_id": world_id,
         "capability": capability,
         "status": status,
         "issues": issues,
-        "details": dict(details or {}),
+        "repair_scopes": scopes,
+        "details": details_value,
         "evidence": {
             "kind": evidence_kind,
             "ref": f"world://{world_id}/{ref_suffix.lstrip('/')}",
@@ -248,12 +265,15 @@ def _validate_spatial(
         target=target,
         workspace_root=runtime_paths.workspace,
     )
+    checks = bundle.get("checks")
+    repair_checks = checks if isinstance(checks, list) else None
     return _report(
         world_id,
         "world.spatial.validate",
         "spatial-validation-bundle",
         _spatial_issues(bundle),
         ref_suffix="runtime/quality/spatial",
+        repair_checks=repair_checks,
         details={
             "bundle_status": bundle.get("status"),
             "run_id": bundle.get("run_id"),
@@ -384,12 +404,19 @@ def _validate_visual(
     if spatial is not None:
         issues.extend(_spatial_issues(spatial))
 
+    repair_checks: list[Mapping[str, Any]] = []
+    if validation is not None and isinstance(validation.get("checks"), list):
+        repair_checks.extend(item for item in validation["checks"] if isinstance(item, Mapping))
+    if spatial is not None and isinstance(spatial.get("checks"), list):
+        repair_checks.extend(item for item in spatial["checks"] if isinstance(item, Mapping))
+
     return _report(
         world_id,
         "world.visual.validate",
         "visual-validation-report",
         issues,
         ref_suffix="runtime/quality/visual",
+        repair_checks=repair_checks,
         details={
             "report_source": source,
             "run_id": expected_run_id,
@@ -488,12 +515,19 @@ def _validate_final(
     if gameplay["status"] != "pass":
         issues.append(_issue("final-gameplay-not-pass", "error", "Gameplay validation has not passed."))
 
+    inherited_scopes: list[Mapping[str, Any]] = []
+    for child in (construction, visual, gameplay):
+        raw_scopes = child.get("repair_scopes")
+        if isinstance(raw_scopes, list):
+            inherited_scopes.extend(item for item in raw_scopes if isinstance(item, Mapping))
+
     return _report(
         world_id,
         "world.final.validate",
         "final-report",
         issues,
         ref_suffix="runtime/quality",
+        repair_scopes=inherited_scopes or None,
         details={
             "construction": construction["status"],
             "visual": visual["status"],
