@@ -68,7 +68,16 @@ def extra_tools() -> list[Tool]:
 
 
 async def list_tools() -> list[Tool]:
-    return [*(await base.list_tools()), *extra_tools()]
+    tools = await base.list_tools()
+    normalized = [
+        tool.model_copy(update={
+            "description": "Create a fresh schema-v2 world domain document. Chat, UI, CLI, or an external Agent may call the same World API."
+        })
+        if tool.name == "polykit_world_create"
+        else tool
+        for tool in tools
+    ]
+    return [*normalized, *extra_tools()]
 
 
 def _json_text(value: object) -> str:
