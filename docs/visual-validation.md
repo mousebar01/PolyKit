@@ -9,11 +9,13 @@ Reference / visual target
         ↓
    WorkflowRun
         ↓
- render evidence
+ render evidence + final GLB
         ↓
 VisualValidationReport
         ↓
 world.visual.validate
+        ↓
+authoritative spatial re-check
         ↓
 world.final.validate
 ```
@@ -26,7 +28,7 @@ A visual report combines independent checks from three judge classes:
 
 - `metric`: deterministic image comparison such as aspect ratio, grayscale MAE, edge MAE, grid luminance, and P0 regional metrics.
 - `semantic`: material identity, visual hierarchy, lighting direction, reference identity, wet/dry state, and other visual facts that pixel metrics cannot prove.
-- `spatial`: World/scene/geometry facts such as connectivity, visibility, support, clearance, camera revision, and directional structures.
+- `spatial`: World/scene/geometry facts such as connectivity, support, clearance, camera revision, and directional structures.
 
 A semantic or spatial failure can veto otherwise strong image metrics. Aggregate similarity never compensates for a critical P0, material, camera, or geometry failure.
 
@@ -64,7 +66,8 @@ Missing evidence never becomes `pass`. If no visual report exists yet, `world.vi
     "kind": "reference-image",
     "reference_id": "ref_main",
     "camera_id": "camera_main",
-    "camera_revision": 3
+    "camera_revision": 3,
+    "require_spatial": true
   },
   "candidate": {
     "camera_id": "camera_main",
@@ -100,6 +103,35 @@ Server validation treats evidence as part of the proof, not as decoration:
 
 These rules prevent a numerically good image, a stale render, or an arbitrary local file from being used to manufacture a passing report.
 
+## Authoritative spatial judge
+
+`api/services/spatial_validation.py` independently re-checks geometry when a target sets `require_spatial: true`. This second pass does **not** trust the spatial status written into the VisualValidationReport.
+
+The judge reads the final mesh artifact recorded by WorkflowRun observability and loads the delivered GLB with `trimesh`. It produces a `polykit.spatial-snapshot` containing final geometry nodes and world-space bounds, then crosses that geometry with server-owned World facts.
+
+Current deterministic checks include:
+
+- final WorkflowRun GLB exists, is readable, and contains geometry;
+- compiled `ScenePlan.metadata.layoutQuality` remains passing;
+- P0 observations that name a `world_object_id` have a compiled ScenePlan object and instance;
+- BuildSpec `support` / `flush` attachment anchors can be mapped to final GLB nodes;
+- mapped attachment anchors are measured against the **actual final mesh surface** using trimesh proximity, not only the authored anchor coordinates;
+- attachment distance must remain within its declared BuildSpec tolerance.
+
+`inside` and `passes-through` stay `not_evaluated` until richer volume evidence is available. They are never silently converted to PASS.
+
+This creates two different trust levels:
+
+```text
+report.spatial_status
+    = caller/producer evidence
+
+world.spatial.validate
+    = server recomputation from World + final GLB
+```
+
+When `require_spatial` is enabled, `world.visual.validate` requires both layers to agree. A caller-authored spatial PASS cannot override a failing final-GLB measurement.
+
 ## P0 observations
 
 Reference-guided tasks should mark the visual facts that define target identity as P0. P0 is an importance level, not a request to create geometry. A P0 observation may represent geometry, a doorway or other negative space, material, lighting, atmosphere, or another visual region.
@@ -111,6 +143,7 @@ Example:
   "id": "main-doorway",
   "priority": "P0",
   "production_domain": "spatial_region",
+  "world_object_id": "doorway_main",
   "bbox_normalized": [0.34, 0.18, 0.28, 0.69],
   "required_cues": [
     "tall central opening",
@@ -174,16 +207,19 @@ The validation capability family is:
 world.spec.validate
 world.blockout.validate
 world.construction.validate
+world.spatial.validate
 world.visual.validate
 world.gameplay.validate
 world.final.validate
 ```
+
+`world.spatial.validate` is the standalone deterministic World + final-GLB geometry gate.
 
 `world.visual.validate` accepts either:
 
 - a report reference stored at `runtime.quality.visual.report_ref`; or
 - `workflow_metadata.visual_validation_report` from a completed WorkflowRun for the same world.
 
-A report reference may be an embedded report during tests/automation or a workspace-relative JSON artifact reference in normal production use.
+A report reference may be an embedded report during tests/automation or a workspace-relative JSON artifact reference in normal production use. If that report declares `require_spatial`, the same WorkflowRun must expose a final mesh artifact in observability so the server can reproduce the spatial result.
 
-`world.final.validate` requires visual validation to pass alongside the other required world quality domains. An unreviewed visual result keeps Final at `needs_review`; an explicit visual failure makes Final fail. Validators report facts and evidence only; they do not create a second task state machine.
+`world.final.validate` requires visual validation to pass alongside the other required world quality domains. An unreviewed visual or spatial result keeps Final at `needs_review`; an explicit visual/spatial failure makes Final fail. Validators report facts and evidence only; they do not create a second task state machine.
