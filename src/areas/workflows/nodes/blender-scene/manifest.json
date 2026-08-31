@@ -2,29 +2,29 @@
   "id": "blender-scene",
   "name": "Blender Scene Builder",
   "type": "process",
-  "entry": "processor.py",
-  "version": "1.0.0",
+  "entry": "processor_v2.py",
+  "version": "2.0.0",
   "author": "PolyKit",
-  "description": "Builds a deterministic, spatially validated reference scene through the official Blender MCP bridge.",
+  "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export.",
   "i18n": {
     "zh-CN": {
       "name": "Blender 场景构建",
-      "description": "通过官方 Blender MCP 构建并校验可展示的参考场景。"
+      "description": "按 BuildSpec 锚点参数化构建小屋，并在导出前校验结构接触关系。"
     },
     "en-US": {
       "name": "Blender Scene Builder",
-      "description": "Builds a deterministic, spatially validated reference scene through the official Blender MCP bridge."
+      "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export."
     }
   },
   "nodes": [
     {
       "id": "build",
-      "name": "Build Reference Scene",
+      "name": "Build Validated Cabin",
       "input": "text",
       "output": "mesh",
       "i18n": {
-        "zh-CN": { "name": "构建参考场景" },
-        "en-US": { "name": "Build Reference Scene" }
+        "zh-CN": { "name": "构建校验小屋" },
+        "en-US": { "name": "Build Validated Cabin" }
       },
       "params_schema": [
         {
@@ -32,27 +32,68 @@
           "label": "Preset",
           "type": "select",
           "default": "cabin",
-          "options": [
-            { "value": "cabin", "label": "Winter Cabin" }
-          ],
-          "i18n": {
-            "zh-CN": { "label": "预设", "options": [{ "value": "cabin", "label": "冬日小屋" }] },
-            "en-US": { "label": "Preset" }
-          }
+          "options": [{ "value": "cabin", "label": "Winter Cabin v2" }]
         },
         {
           "id": "scene_name",
           "label": "Scene Name",
           "type": "string",
-          "default": "winter_cabin_reference",
-          "tooltip": "The exported scene name."
+          "default": "winter_cabin_reference"
+        },
+        {
+          "id": "cabin_width",
+          "label": "Cabin Width (m)",
+          "type": "float",
+          "default": 12.0,
+          "min": 4.0,
+          "max": 30.0
+        },
+        {
+          "id": "cabin_depth",
+          "label": "Cabin Depth (m)",
+          "type": "float",
+          "default": 10.0,
+          "min": 4.0,
+          "max": 30.0
+        },
+        {
+          "id": "wall_height",
+          "label": "Wall Height (m)",
+          "type": "float",
+          "default": 5.6,
+          "min": 2.2,
+          "max": 12.0
+        },
+        {
+          "id": "roof_pitch_deg",
+          "label": "Roof Pitch (deg)",
+          "type": "float",
+          "default": 36.0,
+          "min": 15.0,
+          "max": 65.0
+        },
+        {
+          "id": "roof_overhang",
+          "label": "Roof Overhang (m)",
+          "type": "float",
+          "default": 0.45,
+          "min": 0.0,
+          "max": 2.0
+        },
+        {
+          "id": "contact_tolerance",
+          "label": "Contact Tolerance (m)",
+          "type": "float",
+          "default": 0.035,
+          "min": 0.005,
+          "max": 0.2,
+          "tooltip": "Maximum measured mesh/anchor gap before construction fails."
         },
         {
           "id": "render_preview",
           "label": "Render Preview",
           "type": "boolean",
-          "default": true,
-          "tooltip": "Also render a PNG preview and store it beside the GLB."
+          "default": true
         },
         {
           "id": "render_width",
@@ -60,8 +101,7 @@
           "type": "int",
           "default": 768,
           "min": 320,
-          "max": 1600,
-          "tooltip": "Width of the optional Blender preview render."
+          "max": 1600
         },
         {
           "id": "render_height",
@@ -69,15 +109,13 @@
           "type": "int",
           "default": 512,
           "min": 240,
-          "max": 1200,
-          "tooltip": "Height of the optional Blender preview render."
+          "max": 1200
         },
         {
           "id": "blender_host",
           "label": "Blender Host",
           "type": "string",
-          "default": "",
-          "tooltip": "Optional host override. Defaults to POLYKIT_BLENDER_MCP_HOST or BLENDER_MCP_HOST."
+          "default": ""
         },
         {
           "id": "blender_port",
@@ -85,8 +123,7 @@
           "type": "int",
           "default": 9876,
           "min": 1,
-          "max": 65535,
-          "tooltip": "Official Blender MCP TCP port."
+          "max": 65535
         }
       ]
     }
