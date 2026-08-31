@@ -8,10 +8,10 @@ import { Noise2D } from './noise.ts'
 import { solvePlacements } from './placement.ts'
 import { buildProceduralGeometry } from './procedural.ts'
 import { hashString, mulberry32 } from './rng.ts'
-import { createInitialRuntime, currentRuntimeStage, WORLD_RUNTIME_STAGE_IDS } from './runtime.ts'
+import { createInitialRuntime } from './runtime.ts'
 import { buildTerrain } from './terrain.ts'
 
-test('world runtime starts spec-first with locked downstream passes', () => {
+test('world runtime starts with domain state and quality, not workflow progress', () => {
   const runtime = createInitialRuntime('Build a playable winter cabin demo')
   assert.equal(runtime.version, 1)
   assert.equal(runtime.intent.prompt, 'Build a playable winter cabin demo')
@@ -23,11 +23,10 @@ test('world runtime starts spec-first with locked downstream passes', () => {
   })
   assert.equal(runtime.scene, null)
   assert.deepEqual(runtime.compiled.instances, [])
-  assert.deepEqual(runtime.state.stages.map((stage) => stage.id), WORLD_RUNTIME_STAGE_IDS)
-  assert.equal(runtime.state.stages[0].status, 'ready')
-  assert.ok(runtime.state.stages.slice(1).every((stage) => stage.status === 'locked'))
-  assert.equal(currentRuntimeStage(runtime.state)?.id, 'intent')
-  assert.equal(runtime.state.gates.construction.status, 'pending')
+  assert.equal(runtime.quality.construction.status, 'pending')
+  assert.equal(runtime.quality.visual.status, 'pending')
+  assert.equal(runtime.quality.gameplay.status, 'pending')
+  assert.equal('state' in runtime, false)
   assert.equal(runtime.game.player.controller, 'walk')
 })
 
@@ -50,7 +49,7 @@ test('demo terrain is local, bounded, and deterministic', () => {
   assert.ok(first.minHeight < first.maxHeight)
   assert.equal(first.heights.length, 48 * 48)
   assert.ok(first.slopeAt(0, 0) >= 0)
-  assert.ok(first.regionWeightAt(999, 0, 0) === 0)
+  assert.equal(first.regionWeightAt(999, 0, 0), 0)
   assert.ok(Number.isFinite(first.waterDistanceAt(0, 0)))
 })
 
@@ -85,7 +84,7 @@ test('placement output is deterministic and terrain aligned', () => {
   assert.deepEqual(first, second)
   assert.ok(first.length > 0)
   assert.ok(first.every((instance) => Number.isFinite(instance.position[1]) && Number.isFinite(instance.scale)))
-  assert.ok(new Set(first.map((instance) => instance.id)).size === first.length)
+  assert.equal(new Set(first.map((instance) => instance.id)).size, first.length)
 })
 
 test('procedural prototypes are normalized and deterministic', () => {
