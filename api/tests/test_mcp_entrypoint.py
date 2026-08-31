@@ -15,6 +15,9 @@ class McpEntrypointTests(unittest.TestCase):
         self.assertEqual(EXTRA_TOOL_NAMES, {"polykit_world_validate", "polykit_world_build_structure"})
         self.assertTrue(EXTRA_TOOL_NAMES.issubset(names))
         self.assertFalse(any(name.startswith("polykit_agent_workflow_") for name in names))
+        world_create = next(tool for tool in tools if tool.name == "polykit_world_create")
+        self.assertNotIn("Agent Workflow", world_create.description)
+        self.assertIn("World API", world_create.description)
 
     def test_repo_mcp_config_uses_world_domain_entrypoint(self) -> None:
         root = Path(__file__).resolve().parents[2]
