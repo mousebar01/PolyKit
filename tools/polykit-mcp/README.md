@@ -81,6 +81,9 @@ A real Agent is useful only for the last step: checking whether the model unders
 
 - Tools map directly to existing FastAPI capabilities.
 - `polykit_workflow_inspect` is read-only and never advances, retries, or resumes a run.
+- `polykit_workflow_signal` only delivers `{name, payload}` to a server-owned waiting interrupt. FastAPI validates the expected signal and resumes the same `run_id`; MCP does not hold or recreate execution state.
+- `polykit_workflow_retry` only asks FastAPI to resume a failed/interrupted run from its durable completed-node checkpoints. It never submits a replacement WorkflowRun.
+- Waiting/retry lifecycle remains owned by WorkflowRun. MCP does not implement polling loops, checkpoints, retries, or a second pause/resume state machine.
 - `polykit_world_validate` mirrors the server validator surface, including `world.visual.validate` and `world.spatial.validate`.
 - World validators report quality facts/evidence; they do not return Agent transitions.
 - `polykit_world_compile_repair` is a pure proxy to the ProductionRecipe compiler. It may return `ready`, `blocked`, or `no_workflow`, but it never starts the returned workflow.
@@ -90,4 +93,20 @@ A real Agent is useful only for the last step: checking whether the model unders
 - Do not add Agent session/task state to this adapter.
 - Do not move Workflow Engine, validation, ProductionRecipe, or Node Pack logic into MCP handlers.
 
-The current surface includes server health/model discovery, WorkflowRun list/status/inspect/cancel/execute, text-to-asset, mesh processing, schema-v2 World operations, evidence-first visual/spatial validation, and ProductionRecipe repair compilation.
+A durable approval flow now looks like:
+
+```text
+polykit_workflow_inspect
+        ↓
+status = waiting + expected signal
+        ↓
+Agent / human judges evidence
+        ↓
+polykit_workflow_signal
+        ↓
+FastAPI resumes the same WorkflowRun
+        ↓
+polykit_workflow_inspect / status
+```
+
+The current surface includes server health/model discovery, WorkflowRun list/status/inspect/signal/retry/cancel/execute, text-to-asset, mesh processing, schema-v2 World operations, evidence-first visual/spatial validation, and ProductionRecipe repair compilation.
