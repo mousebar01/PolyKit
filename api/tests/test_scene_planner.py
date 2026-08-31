@@ -161,7 +161,8 @@ class ScenePlannerTests(unittest.TestCase):
         self.assertNotIn("scene_plan", updated)
         self.assertNotIn("instances", updated)
         self.assertNotIn("spec", updated)
-        self.assertEqual(updated["runtime"]["state"]["gates"]["construction"]["status"], "pass")
+        self.assertNotIn("state", updated["runtime"])
+        self.assertEqual(updated["runtime"]["quality"]["construction"]["status"], "pass")
 
     def test_runtime_scene_reuses_attached_mesh(self):
         world = self._world()
