@@ -79,12 +79,12 @@ A real Agent is useful only for the last step: checking whether the model unders
 
 ## Tool design rules
 
-- Tools should map directly to existing FastAPI capabilities.
-- `polykit_workflow_inspect` is read-only and must never advance, retry, or resume a run.
+- Tools map directly to existing FastAPI capabilities.
+- `polykit_workflow_inspect` is read-only and never advances, retries, or resumes a run.
 - `polykit_world_validate` mirrors the server validator surface, including `world.visual.validate` and `world.spatial.validate`.
 - World validators report quality facts/evidence; they do not return Agent transitions.
 - `polykit_world_compile_repair` is a pure proxy to the ProductionRecipe compiler. It may return `ready`, `blocked`, or `no_workflow`, but it never starts the returned workflow.
-- A caller that receives `ready` must inspect the result and separately call `polykit_workflow_execute` if it wants to start the returned execution request.
+- A caller that receives `ready` inspects the result and separately calls `polykit_workflow_execute` if it wants to start the returned execution request.
 - Local repair scope widening remains explicit: callers must opt in with `allow_scope_expansion` before the server may compile a broader fallback.
 - Long-running work returns canonical `WorkflowRun` ids.
 - Do not add Agent session/task state to this adapter.
