@@ -1,8 +1,8 @@
-"""Deterministic validation adapters for Agent-owned world workflows.
+"""Deterministic validation for schema-v2 world domain state.
 
-These validators inspect domain state and completed Workflow Run evidence. They
-never mutate AgentWorkflowSession state; callers use the returned ``outcome``
-and evidence with the generic Agent Workflow Protocol.
+Validators inspect WorldDocument data and, where relevant, completed Workflow Run
+evidence. They report facts only: pass/needs_review/fail, issues, details and an
+evidence reference. They do not choose conversational actions or mutate task state.
 """
 from __future__ import annotations
 
@@ -48,7 +48,6 @@ def _report(
     world_id: str,
     capability: str,
     evidence_kind: str,
-    outcome: str,
     issues: list[dict[str, Any]],
     *,
     ref_suffix: str,
@@ -62,7 +61,6 @@ def _report(
         "world_id": world_id,
         "capability": capability,
         "status": status,
-        "outcome": outcome,
         "issues": issues,
         "details": dict(details or {}),
         "evidence": {
@@ -80,17 +78,17 @@ def _scene_objects(runtime: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None
     raw_objects = scene.get("objects")
     if not isinstance(raw_objects, list):
         return scene, set()
-    ids = {
+    return scene, {
         str(item.get("id"))
         for item in raw_objects
         if isinstance(item, Mapping) and isinstance(item.get("id"), str)
     }
-    return scene, ids
 
 
 def _validate_spec(world_id: str, world: Mapping[str, Any]) -> dict[str, Any]:
     runtime = _runtime(world)
     issues: list[dict[str, Any]] = []
+
     intent = runtime.get("intent")
     prompt = intent.get("prompt") if isinstance(intent, Mapping) else None
     if not isinstance(prompt, str) or not prompt.strip():
@@ -112,7 +110,6 @@ def _validate_spec(world_id: str, world: Mapping[str, Any]) -> dict[str, Any]:
         world_id,
         "world.spec.validate",
         "spec-validation",
-        "continue" if _status(issues) == "pass" else "revise-spec",
         issues,
         ref_suffix="runtime",
     )
@@ -124,7 +121,6 @@ def _validate_blockout(world_id: str, world: Mapping[str, Any]) -> dict[str, Any
     issues: list[dict[str, Any]] = []
     if scene is None or not object_ids:
         issues.append(_issue("blockout-missing", "error", "No compiled scene blockout is available."))
-        outcome = "revise-spec"
     else:
         metadata = scene.get("metadata")
         layout = metadata.get("layoutQuality") if isinstance(metadata, Mapping) else None
@@ -135,13 +131,11 @@ def _validate_blockout(world_id: str, world: Mapping[str, Any]) -> dict[str, Any
             issues.append(_issue("layout-needs-review", "warning", "Scene layout quality needs review."))
         elif layout_status not in {"pass", "valid"}:
             issues.append(_issue("layout-evidence-missing", "warning", "Scene has no passing layout-quality evidence."))
-        outcome = "continue" if _status(issues) == "pass" else "retry-step"
 
     return _report(
         world_id,
         "world.blockout.validate",
-        "review-report",
-        outcome,
+        "blockout-report",
         issues,
         ref_suffix="runtime/scene",
     )
@@ -172,9 +166,7 @@ def _validate_construction(
     if isinstance(construction, Mapping):
         raw_issues = construction.get("issues")
         if isinstance(raw_issues, list):
-            for item in raw_issues:
-                if isinstance(item, Mapping):
-                    issues.append(dict(item))
+            issues.extend(dict(item) for item in raw_issues if isinstance(item, Mapping))
     if domain_status == "pending":
         issues.append(_issue("construction-domain-evidence-missing", "error", "BuildSpec has no validated construction evidence."))
 
@@ -190,15 +182,12 @@ def _validate_construction(
     build = runtime.get("build")
     buildings = build.get("buildings") if isinstance(build, Mapping) else None
     if not isinstance(buildings, list) or not buildings:
-        outcome = "revise-spec"
-    else:
-        outcome = "continue" if _status(issues) == "pass" else "retry-step"
+        issues.append(_issue("building-spec-missing", "error", "BuildSpec has no building to validate."))
 
     return _report(
         world_id,
         "world.construction.validate",
         "construction-report",
-        outcome,
         issues,
         ref_suffix="runtime/quality/construction",
         details={
@@ -243,7 +232,7 @@ def _gameplay_issues(runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
 
     objectives = game.get("objectives")
     if not isinstance(objectives, list) or not objectives:
-        issues.append(_issue("objective-missing", "warning", "Playable World Builder output needs at least one objective."))
+        issues.append(_issue("objective-missing", "warning", "Playable world output needs at least one objective."))
     else:
         known_targets = object_ids | interaction_ids
         for index, item in enumerate(objectives):
@@ -262,15 +251,11 @@ def _gameplay_issues(runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _validate_gameplay(world_id: str, world: Mapping[str, Any]) -> dict[str, Any]:
-    runtime = _runtime(world)
-    issues = _gameplay_issues(runtime)
-    status = _status(issues)
     return _report(
         world_id,
         "world.gameplay.validate",
         "gameplay-report",
-        "continue" if status == "pass" else ("retry-step" if status == "needs_review" else "revise-spec"),
-        issues,
+        _gameplay_issues(_runtime(world)),
         ref_suffix="runtime/game",
     )
 
@@ -289,33 +274,20 @@ def _validate_final(
 
     issues: list[dict[str, Any]] = []
     if construction["status"] != "pass":
-        issues.append(_issue("final-construction-not-pass", "error", "Construction review has not passed."))
+        issues.append(_issue("final-construction-not-pass", "error", "Construction validation has not passed."))
     if gameplay["status"] != "pass":
-        issues.append(_issue("final-gameplay-not-pass", "error", "Gameplay review has not passed."))
+        issues.append(_issue("final-gameplay-not-pass", "error", "Gameplay validation has not passed."))
     if visual_status != "pass":
         issues.append(_issue(
             "final-visual-evidence-missing",
             "warning",
-            "Final review cannot pass until visual quality has explicit passing evidence.",
+            "Final validation cannot pass until visual quality has explicit passing evidence.",
         ))
-
-    status = _status(issues)
-    if construction["status"] != "pass":
-        outcome = "retry-structure"
-    elif gameplay["status"] != "pass":
-        outcome = "retry-gameplay"
-    elif status == "pass":
-        outcome = "continue"
-    else:
-        # There is deliberately no silent visual pass. The v1 workflow reaches
-        # final-review and stops here until a visual evidence producer is wired.
-        outcome = "stop"
 
     return _report(
         world_id,
         "world.final.validate",
         "final-report",
-        outcome,
         issues,
         ref_suffix="runtime/quality",
         details={
@@ -333,7 +305,7 @@ def validate_world(
     *,
     run: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run one named world validator and return workflow-compatible evidence."""
+    """Run one named world validator and return domain evidence."""
 
     key = str(capability or "").strip()
     if key not in WORLD_VALIDATION_CAPABILITIES:
