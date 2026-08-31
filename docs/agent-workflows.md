@@ -170,5 +170,29 @@ POST /agent-workflows/sessions/{session_id}/resume
 POST /agent-workflows/sessions/{session_id}/cancel
 ```
 
+## Thin CLI
+
+Deterministic workflow state operations also have a thin JSON CLI at
+`api/tools/agent_workflow.py`. The CLI imports the same runtime functions as the
+HTTP router; it does not implement a second workflow engine.
+
+Examples:
+
+```bash
+python api/tools/agent_workflow.py list
+python api/tools/agent_workflow.py start world-builder world scene-demo
+python api/tools/agent_workflow.py next awf-...
+python api/tools/agent_workflow.py begin awf-...
+python api/tools/agent_workflow.py complete awf-... continue \
+  --evidence world-intent=world://scene-demo/intent
+python api/tools/agent_workflow.py wait awf-... run --ref run-123
+python api/tools/agent_workflow.py resume awf-...
+```
+
+All commands print JSON. `--workspace PATH` can point the CLI at another PolyKit
+workspace for tests or debugging. Long-running GPU/model work is deliberately not
+implemented in this CLI; those operations continue through Workflow Engine and
+Node Packs.
+
 Agent/Skill integration should be layered on top of this protocol rather than
 reimplementing workflow state inside prompts or chat history.
