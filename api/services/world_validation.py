@@ -254,8 +254,8 @@ def _validate_visual(
     if report_ref is None:
         issues.append(_issue(
             "visual-report-missing",
-            "error",
-            "Visual validation requires an explicit VisualValidationReport evidence artifact.",
+            "warning",
+            "Visual validation needs an explicit VisualValidationReport evidence artifact before it can pass.",
         ))
         return _report(
             world_id,
