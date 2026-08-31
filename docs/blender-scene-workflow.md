@@ -10,16 +10,16 @@ Text brief → blender-scene/build → polykit.output → workspace GLB
                                       └─ multi-angle PNG preview sidecars
 ```
 
-`blender-scene/build` sends a fixed, reviewed cabin recipe to the official
-Blender MCP add-on. The text input is recorded as scene metadata
+`blender-scene/build` sends a fixed, reviewed cabin recipe to the Blender
+backend used by the process node. The text input is recorded as scene metadata
 (`polyKitBrief`) for provenance; the first preset is deterministic so layout
 and Three.js loading can be verified before adding more presets. Arbitrary
 Blender Python is not accepted as a node parameter.
 
 ## Running it
 
-1. Enable the official Blender MCP add-on on the Blender machine and listen on
-   the EasyTier address and port (the current setup is `10.144.144.2:9876`).
+1. Make the configured Blender backend available for the `blender-scene` process
+   node in the target environment.
 2. Build the bundled process packs:
 
    ```bash
@@ -55,7 +55,7 @@ semantic zones. Interior props must stay inside the cabin floor plan and above
 the floor; exterior snow and trees must stay outside the cabin boundary; and a
 presentation camera must be present and aimed at the set. A failed check stops
 the node instead of publishing a misleading GLB. The result metadata contains
-the validation report for future workflow stages.
+the validation report for downstream checks.
 
 The saved `.blend` also switches any available 3D Viewport to the presentation
 camera. This is only an inspection convenience—the active render camera is
@@ -75,18 +75,18 @@ misplaced on the other side of the set.
 
 ## Material source policy
 
-The scene prompt should describe the material intent and art direction, not
-embed a texture website URL. During the material stage, the Agent may resolve
-that intent through [Poly Haven Textures](https://polyhaven.com/textures),
-then record the selected asset id, map set, resolution, and real-world UV
-scale in scene provenance. Blender applies the result through shader nodes;
-the source is therefore replaceable without changing object placement or the
-Three.js viewer contract.
+The scene brief should describe material intent and art direction, not embed a
+texture website URL. A caller or future material workflow may resolve that
+intent through [Poly Haven Textures](https://polyhaven.com/textures), then
+record the selected asset id, map set, resolution, and real-world UV scale in
+scene provenance. Blender applies the result through shader nodes; the source
+is therefore replaceable without changing object placement or the Three.js
+viewer contract.
 
-Poly Haven's assets are CC0. If PolyKit uses the live Poly Haven API rather
-than a workspace-cached asset, the UI or asset metadata must credit Poly Haven
-and requests must use a unique User-Agent. This keeps online lookup explicit
-and avoids coupling a generated scene to an unavailable remote URL.
+Poly Haven's assets are CC0. If PolyKit uses the live Poly Haven API rather than
+a workspace-cached asset, the UI or asset metadata must credit Poly Haven and
+requests must use a unique User-Agent. This keeps online lookup explicit and
+avoids coupling a generated scene to an unavailable remote URL.
 
 ## What this proves
 
