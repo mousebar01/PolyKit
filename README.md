@@ -10,11 +10,12 @@ PolyKit 是一个面向本地与远程 GPU 环境的 3D 生成 Web 工作台。�
 - 管理服务端工作区中的模型、缩略图、生成结果和历史记录。
 - 通过 Web、HTTP API 或普通 CLI 使用同一个服务端运行时。
 - 用 schema-v2 World contracts、确定性 validators 和 Workflow Runs 构建可交互 3D 场景。
+- 通过可选的无状态 MCP adapter，把同一套 FastAPI 能力暴露给外部 MCP 客户端。
 
 ## 架构
 
 ```text
-Web / CLI / automation
+Web / CLI / automation / external MCP clients
         │
         ▼
    FastAPI control plane
@@ -31,7 +32,7 @@ Web / CLI / automation
           Blender / local models
 ```
 
-FastAPI 负责执行、工作流定义、任务状态、World domain rules 和持久化资产；浏览器与 CLI 只通过 HTTP API 使用服务端能力。PolyKit 不包含嵌入式 Agent runtime，也没有第二套聊天任务状态机。
+FastAPI 负责执行、工作流定义、任务状态、World domain rules 和持久化资产；浏览器、CLI 和 MCP adapter 都只通过 HTTP API 使用服务端能力。PolyKit 不包含嵌入式 Agent runtime，也没有第二套聊天任务状态机。
 
 ## 文档
 
@@ -40,6 +41,7 @@ FastAPI 负责执行、工作流定义、任务状态、World domain rules 和�
 - [World Builder](docs/world-builder.md)：WorldDocument、validators、WorkflowRun 与 CLI 的边界。
 - [Node Packs & Workflow Templates](docs/node-packs.md)：Node Pack、运行环境和模板约定。
 - [Workflow observability](docs/workflow-observability.md)：运行状态、节点事件和 evidence inspection。
+- [PolyKit MCP Adapter](tools/polykit-mcp/README.md)：外部 MCP client、MCP Inspector 与真实 Agent 验证方式。
 - [Blender MCP](docs/blender-mcp.md)：独立的开发/authoring 集成，不属于产品运行时。
 
 ## 快速开始
@@ -232,6 +234,32 @@ python tools/polykit-cli/polykit.py world attach-asset <world-id> chair Workflow
 
 使用 `--api-url` 或 `POLYKIT_API_URL` 指向远程/headless 服务。
 
+## MCP
+
+`tools/polykit-mcp/server.py` 是给外部 MCP client 使用的无状态 stdio adapter。它只把 MCP tools 翻译成现有 FastAPI 请求，不拥有 Workflow/World 业务状态。
+
+直接运行：
+
+```bash
+npm run mcp:serve
+```
+
+开发调试推荐使用 MCP Inspector，不需要先在 Claude、Codex 或其他 Agent 中安装/调试：
+
+```bash
+npm run mcp:inspect
+```
+
+本地 adapter contract tests：
+
+```bash
+npm run test:mcp
+```
+
+仓库根目录 `.mcp.json` 已注册 `polykit` adapter，支持项目级 MCP 配置的客户端可以直接从仓库启动它。真正的 Agent 主要用于最后一层 smoke test：验证模型是否能根据 tool description 自然选择 `workflow_inspect`、`world_validate`、`world_build_structure` 等正确工具。
+
+详见 [tools/polykit-mcp/README.md](tools/polykit-mcp/README.md)。
+
 ## 常用环境变量
 
 | 变量 | 作用 |
@@ -239,7 +267,7 @@ python tools/polykit-cli/polykit.py world attach-asset <world-id> chair Workflow
 | `POLYKIT_HOST` / `POLYKIT_PORT` | API 监听地址和端口 |
 | `POLYKIT_PYTHON` | Web 一体化启动使用的 Python |
 | `POLYKIT_EXECUTOR` | 执行器：`cuda` 或 `fake` |
-| `POLYKIT_API_URL` | 客户端连接的 FastAPI 地址 |
+| `POLYKIT_API_URL` | Web/CLI/MCP 客户端连接的 FastAPI 地址 |
 | `POLYKIT_WEB_DIR` | FastAPI 托管的 Web 构建目录 |
 | `POLYKIT_CORS_ORIGINS` | 允许访问 API 的来源列表 |
 | `MODELS_DIR` | 模型权重目录 |
@@ -260,6 +288,8 @@ npm run lint
 npm run test:node
 npm run test:py
 npm run test:cli
+npm run test:mcp
+npm run mcp:inspect
 npm test
 npm run check
 npm run web:build
@@ -276,6 +306,7 @@ src/areas/settings/  应用、网络、存储和集成设置
 api/                 FastAPI 服务、路由和执行引擎
 node-packs/          官方 Node Pack 源码
 tools/polykit-cli/   JSON-first 自动化 CLI
+tools/polykit-mcp/   外部 MCP client 的无状态 FastAPI adapter
 docs/                架构、Node Pack、Workflow、World 和部署说明
 ```
 
