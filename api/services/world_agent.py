@@ -1,8 +1,8 @@
-"""Agent-facing helpers for schema-v2 world domain documents.
+"""Helpers for schema-v2 world domain documents.
 
-Workflow/task progress is intentionally absent here. Agent Workflow Protocol owns
-steps, retries and resume state; this module only creates worlds and binds domain
-artifacts.
+Task progression is intentionally absent here. Chat, UI, CLI, or an external
+Agent may call the same World APIs; this module only creates domain documents and
+binds produced artifacts back to semantic world objects.
 """
 from __future__ import annotations
 
