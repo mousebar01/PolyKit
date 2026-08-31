@@ -68,10 +68,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Sparkles className="size-7 text-primary/75" strokeWidth={1.5} aria-hidden="true" />
-            <div>
-              <p className="text-sm font-medium text-foreground">{t('worlds.planningScene')}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{t('worlds.planningSceneDescription')}</p>
-            </div>
+            <p className="text-sm font-medium text-foreground">{t('worlds.planningScene')}</p>
             <p className="max-w-xs break-all font-mono text-[10px] text-muted-foreground/70">{document.id}</p>
           </div>
         )}
