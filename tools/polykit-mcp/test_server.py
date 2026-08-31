@@ -37,6 +37,13 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("world.visual.validate", server_module.WORLD_VALIDATORS)
         self.assertEqual(len(server_module.WORLD_VALIDATORS), len(set(server_module.WORLD_VALIDATORS)))
 
+    def test_compile_repair_tool_description_requires_separate_execution(self) -> None:
+        tools = asyncio.run(server_module.list_tools())
+        compile_tool = next(tool for tool in tools if tool.name == "polykit_world_compile_repair")
+        description = compile_tool.description or ""
+        self.assertIn("never starts a WorkflowRun", description)
+        self.assertIn("polykit_workflow_execute", description)
+
     def test_workflow_inspect_is_a_read_only_get_proxy(self) -> None:
         request = AsyncMock(return_value={"run_id": "run-1", "status": "running"})
         with patch.object(server_module, "_request_json", request):
@@ -88,6 +95,8 @@ class PolyKitMcpTests(unittest.TestCase):
                 "allow_scope_expansion": False,
             },
         )
+        called_path = request.await_args.args[1]
+        self.assertNotIn("/workflow-runs/", called_path)
 
     def test_compile_repair_can_explicitly_forward_scope_expansion(self) -> None:
         request = AsyncMock(return_value={"status": "ready", "scope_expanded": True})
