@@ -1,8 +1,9 @@
-"""Combined PolyKit MCP entrypoint.
+"""PolyKit MCP entrypoint with world-domain bridge tools.
 
-The legacy world/model tools remain implemented by ``mcp_server``. This module
-only adds Agent Workflow Protocol and world workflow bridge tools, all of which
-proxy the authoritative FastAPI control plane rather than mutating state here.
+The base MCP server owns general model, workflow, mesh, and world CRUD tools.
+This adapter only adds domain-level world validation and structure construction,
+proxying the authoritative FastAPI control plane. No Agent-specific task runtime
+or conversation state lives here.
 """
 from __future__ import annotations
 
@@ -19,6 +20,10 @@ import mcp_server as base
 
 
 API_BASE = base.API_BASE
+EXTRA_TOOL_NAMES = {
+    "polykit_world_validate",
+    "polykit_world_build_structure",
+}
 
 
 def _tool(name: str, description: str, properties: dict | None = None, required: list[str] | None = None) -> Tool:
@@ -28,87 +33,11 @@ def _tool(name: str, description: str, properties: dict | None = None, required:
     return Tool(name=name, description=description, inputSchema=schema)
 
 
-_EVIDENCE_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "kind": {"type": "string"},
-            "ref": {"type": "string"},
-            "summary": {"type": "string"},
-        },
-        "required": ["kind", "ref"],
-    },
-}
-
-
-EXTRA_TOOL_NAMES = {
-    "polykit_agent_workflow_list",
-    "polykit_agent_workflow_start",
-    "polykit_agent_workflow_get",
-    "polykit_agent_workflow_next",
-    "polykit_agent_workflow_begin",
-    "polykit_agent_workflow_complete",
-    "polykit_agent_workflow_wait",
-    "polykit_agent_workflow_pause",
-    "polykit_agent_workflow_resume",
-    "polykit_agent_workflow_cancel",
-    "polykit_world_validate",
-    "polykit_world_build_structure",
-}
-
-
 def extra_tools() -> list[Tool]:
-    session = {"session_id": {"type": "string"}}
     return [
-        _tool("polykit_agent_workflow_list", "List durable Agent Workflow definitions."),
-        _tool(
-            "polykit_agent_workflow_start",
-            "Start a durable Agent Workflow session for a domain subject. This does not change normal chat mode.",
-            {
-                "workflow_id": {"type": "string"},
-                "subject_kind": {"type": "string"},
-                "subject_id": {"type": "string"},
-                "metadata": {"type": "object"},
-            },
-            ["workflow_id", "subject_kind", "subject_id"],
-        ),
-        _tool("polykit_agent_workflow_get", "Read one durable Agent Workflow session.", session, ["session_id"]),
-        _tool(
-            "polykit_agent_workflow_next",
-            "Read the next Agent Workflow action without mutating progress. The response includes subject and executor hints.",
-            session,
-            ["session_id"],
-        ),
-        _tool("polykit_agent_workflow_begin", "Explicitly begin the current workflow step.", session, ["session_id"]),
-        _tool(
-            "polykit_agent_workflow_complete",
-            "Complete the current workflow step with an allowed outcome and required evidence.",
-            {
-                "session_id": {"type": "string"},
-                "outcome": {"type": "string"},
-                "evidence": _EVIDENCE_SCHEMA,
-                "diagnostic": {"type": "string"},
-            },
-            ["session_id", "outcome"],
-        ),
-        _tool(
-            "polykit_agent_workflow_wait",
-            "Put the current workflow session into an explicit user/run wait state.",
-            {
-                "session_id": {"type": "string"},
-                "kind": {"type": "string", "enum": ["user", "run"]},
-                "ref": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            ["session_id", "kind"],
-        ),
-        _tool("polykit_agent_workflow_pause", "Pause a durable Agent Workflow session.", session, ["session_id"]),
-        _tool("polykit_agent_workflow_resume", "Resume a paused or waiting Agent Workflow session.", session, ["session_id"]),
-        _tool("polykit_agent_workflow_cancel", "Cancel a durable Agent Workflow session.", session, ["session_id"]),
         _tool(
             "polykit_world_validate",
-            "Run a deterministic World Builder validator and return its evidence plus allowed workflow outcome.",
+            "Validate world domain state and optional Workflow Run evidence. Returns pass/needs_review/fail, issues, and evidence; it does not advance any Agent state machine.",
             {
                 "world_id": {"type": "string"},
                 "capability": {
@@ -118,7 +47,7 @@ def extra_tools() -> list[Tool]:
                         "world.blockout.validate",
                         "world.construction.validate",
                         "world.gameplay.validate",
-                        "world.final.validate"
+                        "world.final.validate",
                     ],
                 },
                 "run_id": {"type": "string"},
@@ -127,7 +56,7 @@ def extra_tools() -> list[Tool]:
         ),
         _tool(
             "polykit_world_build_structure",
-            "Start the real BuildSpec → blender-scene/build → GLB Workflow Run for one world building.",
+            "Start the BuildSpec -> blender-scene/build -> GLB Workflow Run for one world building.",
             {
                 "world_id": {"type": "string"},
                 "building_id": {"type": "string"},
@@ -140,7 +69,21 @@ def extra_tools() -> list[Tool]:
 
 
 async def list_tools() -> list[Tool]:
-    return [*(await base.list_tools()), *extra_tools()]
+    tools = await base.list_tools()
+    # Keep the base server's tool implementation, but remove wording from the
+    # abandoned Agent Workflow experiment before exposing it to clients.
+    normalized: list[Tool] = []
+    for tool in tools:
+        if tool.name == "polykit_world_create":
+            normalized.append(_tool(
+                tool.name,
+                "Create a fresh schema-v2 world domain document. Chat, UI, CLI, or any external Agent may call the same World API.",
+                tool.inputSchema.get("properties", {}),
+                tool.inputSchema.get("required"),
+            ))
+        else:
+            normalized.append(tool)
+    return [*normalized, *extra_tools()]
 
 
 def _json_text(value: object) -> str:
@@ -148,41 +91,7 @@ def _json_text(value: object) -> str:
 
 
 async def _extra_dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
-    if name == "polykit_agent_workflow_list":
-        response = await client.get(f"{API_BASE}/agent-workflows/definitions")
-    elif name == "polykit_agent_workflow_start":
-        response = await client.post(
-            f"{API_BASE}/agent-workflows/sessions",
-            json={
-                "workflow_id": str(args.get("workflow_id") or "world-builder"),
-                "subject_kind": str(args.get("subject_kind") or "world"),
-                "subject_id": str(args.get("subject_id") or ""),
-                "metadata": dict(args.get("metadata")) if isinstance(args.get("metadata"), Mapping) else {},
-            },
-        )
-    elif name == "polykit_agent_workflow_get":
-        response = await client.get(f"{API_BASE}/agent-workflows/sessions/{args.get('session_id', '')}")
-    elif name == "polykit_agent_workflow_next":
-        response = await client.get(f"{API_BASE}/agent-workflows/sessions/{args.get('session_id', '')}/next")
-    elif name in {"polykit_agent_workflow_begin", "polykit_agent_workflow_pause", "polykit_agent_workflow_resume", "polykit_agent_workflow_cancel"}:
-        action = name.removeprefix("polykit_agent_workflow_")
-        response = await client.post(f"{API_BASE}/agent-workflows/sessions/{args.get('session_id', '')}/{action}")
-    elif name == "polykit_agent_workflow_complete":
-        evidence = args.get("evidence") if isinstance(args.get("evidence"), list) else []
-        response = await client.post(
-            f"{API_BASE}/agent-workflows/sessions/{args.get('session_id', '')}/complete",
-            json={
-                "outcome": str(args.get("outcome") or ""),
-                "evidence": [dict(item) for item in evidence if isinstance(item, Mapping)],
-                "diagnostic": args.get("diagnostic"),
-            },
-        )
-    elif name == "polykit_agent_workflow_wait":
-        response = await client.post(
-            f"{API_BASE}/agent-workflows/sessions/{args.get('session_id', '')}/wait",
-            json={"kind": args.get("kind"), "ref": args.get("ref"), "reason": args.get("reason")},
-        )
-    elif name == "polykit_world_validate":
+    if name == "polykit_world_validate":
         world_id = str(args.get("world_id") or "")
         response = await client.post(
             f"{API_BASE}/workspace-library/worlds/{world_id}/validate",
