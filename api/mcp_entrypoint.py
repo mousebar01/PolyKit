@@ -1,9 +1,9 @@
-"""PolyKit MCP entrypoint with world-domain bridge tools.
+"""PolyKit MCP entrypoint with workflow/world domain bridge tools.
 
 The base MCP server owns general model, workflow, mesh, and world CRUD tools.
-This adapter only adds domain-level world validation and structure construction,
-proxying the authoritative FastAPI control plane. No Agent-specific task runtime
-or conversation state lives here.
+This adapter adds read-only Workflow Run inspection plus domain-level world
+validation and structure construction, proxying the authoritative FastAPI
+control plane. No Agent-specific task runtime or conversation state lives here.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import mcp_server as base
 
 API_BASE = base.API_BASE
 EXTRA_TOOL_NAMES = {
+    "polykit_workflow_inspect",
     "polykit_world_validate",
     "polykit_world_build_structure",
 }
@@ -34,6 +35,12 @@ def _tool(name: str, description: str, properties: dict | None = None, required:
 
 def extra_tools() -> list[Tool]:
     return [
+        _tool(
+            "polykit_workflow_inspect",
+            "Read a Workflow Run's structured node states, event timeline, artifacts, evidence, progress, and error without changing the run.",
+            {"run_id": {"type": "string"}},
+            ["run_id"],
+        ),
         _tool(
             "polykit_world_validate",
             "Validate world domain state and optional Workflow Run evidence. Returns pass/needs_review/fail, issues, and evidence; it does not advance any Agent state machine.",
@@ -85,7 +92,12 @@ def _json_text(value: object) -> str:
 
 
 async def _extra_dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
-    if name == "polykit_world_validate":
+    if name == "polykit_workflow_inspect":
+        run_id = str(args.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("run_id is required")
+        response = await client.get(f"{API_BASE}/workflow-runs/{run_id}/inspect")
+    elif name == "polykit_world_validate":
         world_id = str(args.get("world_id") or "")
         response = await client.post(
             f"{API_BASE}/workspace-library/worlds/{world_id}/validate",
