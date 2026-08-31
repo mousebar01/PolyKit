@@ -15,7 +15,7 @@ from routers.workspace_worlds import (
 from services.runtime_paths import runtime_paths
 from services.scene_planner import ScenePlanError, compile_scene_plan, normalize_scene_plan
 from services.scene_assets import find_asset_candidates, resolve_scene_assets
-from services.world_agent import create_world_document
+from services.world_domain import create_world_document
 from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import save_world
 
