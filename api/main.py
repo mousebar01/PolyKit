@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     apply_persisted_proxy()
     apply_persisted_download_sources()
     model_runtime_registry.initialize()
+    await workflow_runs.recover_interrupted_workflow_runs()
     yield
     model_runtime_registry.unload_all(allow_during_generation=True)
 
