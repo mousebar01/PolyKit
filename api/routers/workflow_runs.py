@@ -12,6 +12,13 @@ from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 from services.image_generation import enqueue_generation_job, texture_refiner_id, workspace_url
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
+from services.run_observability import (
+    finalize_workflow_run,
+    init_workflow_observability,
+    inspect_workflow_run,
+    mark_workflow_run_started,
+    observe_workflow_checkpoint,
+)
 from services.node_catalog import is_known
 from services.process_runner import ProcessExecutionError
 from services.workflow_engine import WorkflowEngine
@@ -49,14 +56,19 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
             return
         job = run_coordinator.jobs[job_id]
         job.status = "running"
+        mark_workflow_run_started(job)
         run_coordinator.persist(job)
+
+        def persist_observed() -> None:
+            observe_workflow_checkpoint(job)
+            run_coordinator.persist(job)
 
         engine = WorkflowEngine()
         final_artifact = await engine.run(
             job_id=job_id,
             request=request,
             job=job,
-            persist=lambda: run_coordinator.persist(job),
+            persist=persist_observed,
             cancel_event=cancel_event,
             is_cancelled=lambda: run_coordinator.is_cancelled(job_id),
         )
@@ -70,6 +82,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         job.progress = 100
         job.step = "Workflow complete"
         job.output_url = workspace_url(final_artifact, collection)
+        finalize_workflow_run(job, status="done", output_url=job.output_url)
         run_coordinator.mark_completed(job)
         if (job.meta or {}).get("artifact_kind", "mesh") == "mesh":
             thumbnail_target = final_artifact
@@ -84,6 +97,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         job = run_coordinator.jobs[job_id]
         job.status = "error"
         job.error = str(exc)
+        finalize_workflow_run(job, status="error", error=job.error)
         run_coordinator.mark_completed(job)
     except Exception as exc:
         if run_coordinator.is_cancelled(job_id):
@@ -97,6 +111,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         job = run_coordinator.jobs[job_id]
         job.status = "error"
         job.error = tb.strip()
+        finalize_workflow_run(job, status="error", error=str(exc))
         run_coordinator.mark_completed(job)
     finally:
         run_coordinator.clear_active(job_id)
@@ -321,6 +336,7 @@ async def execute_workflow(
             ),
         },
     )
+    init_workflow_observability(job, request, execution_prompt, order)
     run_coordinator.register(job)
     model_runtime_registry.begin_generation(job_id)
     background_tasks.add_task(_run_workflow_dag, job_id, request)
@@ -378,6 +394,15 @@ async def list_runs(limit: int = 20, workflow_id: Optional[str] = None, collecti
     return runs
 
 
+@router.get("/{run_id}/inspect")
+async def inspect_run(run_id: str):
+    """Return the persisted node/event/artifact timeline for one Workflow Run."""
+    job = run_coordinator.jobs.get(run_id)
+    if not job:
+        raise HTTPException(404, f"Run {run_id} not found")
+    return inspect_workflow_run(job)
+
+
 @router.get("/{run_id}", response_model=WorkflowRunStatus)
 async def get_run(run_id: str):
     job = run_coordinator.jobs.get(run_id)
@@ -402,6 +427,9 @@ async def get_run(run_id: str):
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str):
-    if run_coordinator.cancel(run_id) is None:
+    job = run_coordinator.cancel(run_id)
+    if job is None:
         raise HTTPException(404, f"Run {run_id} not found")
+    finalize_workflow_run(job, status="cancelled")
+    run_coordinator.persist(job)
     return {"cancelled": True}
