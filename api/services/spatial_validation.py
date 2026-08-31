@@ -1,7 +1,7 @@
 """Deterministic spatial judge for World visual validation.
 
 The judge cross-checks server-owned World facts against the final mesh artifact
-published by a WorkflowRun.  It reads the delivered GLB with trimesh instead of
+published by a WorkflowRun. It reads the delivered GLB with trimesh instead of
 parsing Blender files or trusting caller-authored spatial scores.
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ from services.workspace_paths import resolve_workspace_path
 
 SPATIAL_SNAPSHOT_KIND = "polykit.spatial-snapshot"
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_MESH_SUFFIXES = {".glb", ".gltf", ".obj", ".ply", ".stl"}
 
 
 def _tokens(value: Any) -> set[str]:
@@ -75,7 +76,10 @@ def _run_mesh_workspace_path(run: Mapping[str, Any] | None) -> str | None:
             continue
         kind = str(item.get("kind") or "")
         workspace_path = item.get("workspace_path")
-        if kind in {"mesh", "scene", "artifact"} and isinstance(workspace_path, str) and workspace_path.strip():
+        if not isinstance(workspace_path, str) or not workspace_path.strip():
+            continue
+        suffix = Path(workspace_path).suffix.lower()
+        if kind in {"mesh", "scene"} or suffix in _MESH_SUFFIXES:
             return workspace_path.strip()
     return None
 
@@ -166,9 +170,9 @@ def _point_surface_distance(
     best = math.inf
     for node_name in node_names:
         for geometry, transform in geometry_by_node.get(node_name, []):
-            inverse = np.linalg.inv(transform)
-            local_point = trimesh.transform_points(point.reshape(1, 3), inverse)
             try:
+                inverse = np.linalg.inv(transform)
+                local_point = trimesh.transform_points(point.reshape(1, 3), inverse)
                 _closest, distance, _triangle = trimesh.proximity.closest_point_naive(geometry, local_point)
             except (ValueError, TypeError, np.linalg.LinAlgError):
                 continue
@@ -193,11 +197,15 @@ def _attachment_checks(
             continue
         building_id = str(building.get("id") or "building")
         raw_anchors = building.get("anchors")
-        anchors = {
-            str(item.get("id")): item
-            for item in raw_anchors
-            if isinstance(raw_anchors, list) and isinstance(item, Mapping) and isinstance(item.get("id"), str)
-        } if isinstance(raw_anchors, list) else {}
+        anchors = (
+            {
+                str(item.get("id")): item
+                for item in raw_anchors
+                if isinstance(item, Mapping) and isinstance(item.get("id"), str)
+            }
+            if isinstance(raw_anchors, list)
+            else {}
+        )
         attachments = building.get("attachments")
         if not isinstance(attachments, list):
             continue
@@ -421,9 +429,6 @@ def build_world_spatial_bundle(
     if geometry_by_node:
         checks.extend(_attachment_checks(world, geometry_by_node))
 
-    # Until a mesh artifact exists, checks still cite the canonical spatial
-    # evidence id.  Consumers should treat the resulting not_evaluated status as
-    # unresolved; no PASS can be produced from absent geometry.
     if not evidence:
         evidence.append(
             {
