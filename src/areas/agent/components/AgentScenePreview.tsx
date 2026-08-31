@@ -9,6 +9,7 @@ import ScenePlanCanvas from '@areas/worlds/components/ScenePlanCanvas'
 import { buildTerrain, type BuiltTerrain } from '@areas/worlds/runtime/terrain'
 import { solvePlacements } from '@areas/worlds/runtime/placement'
 import { isRenderableScenePlan } from '@areas/worlds/runtime/scenePlan'
+import { currentRuntimeStage, type WorldRuntimeStageStatus } from '@areas/worlds/runtime/runtime'
 import { isRenderableWorldSpec } from '@areas/worlds/runtime/types'
 import type { WorldDocument } from '@areas/worlds/types'
 import { listWorlds, loadWorld, type WorldSummary } from '@areas/worlds/worldApi'
@@ -21,19 +22,12 @@ interface AgentScenePreviewProps {
   width: number
 }
 
-function stageLabel(status: string | undefined, zh: boolean): string {
-  if (status === 'done') return zh ? '已完成' : 'Done'
+function stageLabel(status: WorldRuntimeStageStatus | undefined, zh: boolean): string {
+  if (status === 'passed') return zh ? '已通过' : 'Passed'
   if (status === 'running') return zh ? '进行中' : 'Running'
-  if (status === 'blocked') return zh ? '受阻' : 'Blocked'
-  return zh ? '待处理' : 'Pending'
-}
-
-function currentStage(document: WorldDocument | null): { id: string; status: string } | null {
-  const stages = document?.agent_plan?.stages
-  if (!stages || stages.length === 0) return null
-  return stages.find((stage) => stage.status === 'running')
-    ?? stages.find((stage) => stage.status !== 'done')
-    ?? stages[stages.length - 1]
+  if (status === 'failed') return zh ? '未通过' : 'Failed'
+  if (status === 'ready') return zh ? '可执行' : 'Ready'
+  return zh ? '锁定' : 'Locked'
 }
 
 export default function AgentScenePreview({ width }: AgentScenePreviewProps): JSX.Element {
@@ -43,7 +37,7 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
   const [summary, setSummary] = useState<WorldSummary | null>(null)
   const [document, setDocument] = useState<WorldDocument | null>(null)
   const [terrain, setTerrain] = useState<BuiltTerrain | null>(null)
-  const [instances, setInstances] = useState<WorldDocument['instances']>([])
+  const [instances, setInstances] = useState<WorldDocument['runtime']['compiled']['instances']>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
@@ -75,11 +69,12 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
 
       const nextDocument = await loadWorld(next.id)
       setDocument(nextDocument)
-      if (isRenderableWorldSpec(nextDocument.spec)) {
-        const nextTerrain = buildTerrain(nextDocument.spec, { resolution: 72 })
+      const build = nextDocument.runtime.build
+      if (isRenderableWorldSpec(build)) {
+        const nextTerrain = buildTerrain(build, { resolution: 72 })
         setTerrain(nextTerrain)
-        const nextInstances = Array.isArray(nextDocument.instances) ? nextDocument.instances : []
-        setInstances(nextInstances.length > 0 ? nextInstances : solvePlacements(nextDocument.spec, nextTerrain))
+        const configured = nextDocument.runtime.compiled.instances
+        setInstances(configured.length > 0 ? configured : solvePlacements(build, nextTerrain))
       } else {
         setTerrain(null)
         setInstances([])
@@ -100,14 +95,14 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
     return () => window.clearInterval(interval)
   }, [refresh])
 
-  const stage = useMemo(() => currentStage(document), [document])
-  const renderable = document && terrain && isRenderableWorldSpec(document.spec)
-  const scenePlan = document?.scene_plan ?? (
-    document?.spec && typeof document.spec === 'object' && 'scene_plan' in document.spec
-      ? (document.spec as { scene_plan?: unknown }).scene_plan
-      : undefined
+  const stage = useMemo(
+    () => document ? currentRuntimeStage(document.runtime.state) : null,
+    [document],
   )
-  const renderableScenePlan = isRenderableScenePlan(scenePlan)
+  const buildSpec = document?.runtime.build
+  const scenePlan = document?.runtime.scene
+  const renderableBuild = Boolean(document && terrain && isRenderableWorldSpec(buildSpec))
+  const renderableScene = isRenderableScenePlan(scenePlan)
 
   return (
     <aside
@@ -147,22 +142,20 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
           <div className="absolute right-3 top-12 z-30 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <p className="truncate font-medium text-foreground">{document?.name ?? summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
             <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document?.id ?? summary?.id ?? (zh ? '尚未创建场景' : 'No scene created')}</p>
-            {renderable && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
+            {(renderableBuild || renderableScene) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
           </div>
         )}
 
-        {renderable ? (
-          <>
-            <WorldCanvas spec={document.spec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
-          </>
-        ) : renderableScenePlan ? (
+        {renderableBuild && document && terrain && isRenderableWorldSpec(buildSpec) ? (
+          <WorldCanvas spec={buildSpec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
+        ) : renderableScene ? (
           <ScenePlanCanvas plan={scenePlan} artifacts={document?.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : document ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <Sparkles className="size-7 text-primary/75" strokeWidth={1.5} aria-hidden="true" />
             <div>
-              <p className="text-sm font-medium text-foreground">{zh ? '正在规划场景' : 'Planning scene'}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{stage ? `${stage.id} · ${stageLabel(stage.status, zh)}` : (zh ? '等待 Agent 写入场景方案' : 'Waiting for the Agent to write the scene plan')}</p>
+              <p className="text-sm font-medium text-foreground">{zh ? '正在构建世界' : 'Building world'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{stage ? `${stage.id} · ${stageLabel(stage.status, zh)}` : (zh ? '等待 Agent 写入 runtime spec' : 'Waiting for the Agent to write the runtime spec')}</p>
             </div>
             <p className="max-w-xs break-all font-mono text-[10px] text-muted-foreground/70">{document.id}</p>
           </div>

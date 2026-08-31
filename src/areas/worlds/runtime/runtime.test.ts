@@ -8,7 +8,23 @@ import { Noise2D } from './noise.ts'
 import { solvePlacements } from './placement.ts'
 import { buildProceduralGeometry } from './procedural.ts'
 import { hashString, mulberry32 } from './rng.ts'
+import { createInitialRuntime, currentRuntimeStage, WORLD_RUNTIME_STAGE_IDS } from './runtime.ts'
 import { buildTerrain } from './terrain.ts'
+
+test('world runtime starts spec-first with locked downstream passes', () => {
+  const runtime = createInitialRuntime('Build a playable winter cabin demo')
+  assert.equal(runtime.version, 1)
+  assert.equal(runtime.intent.prompt, 'Build a playable winter cabin demo')
+  assert.equal(runtime.build, null)
+  assert.equal(runtime.scene, null)
+  assert.deepEqual(runtime.compiled.instances, [])
+  assert.deepEqual(runtime.state.stages.map((stage) => stage.id), WORLD_RUNTIME_STAGE_IDS)
+  assert.equal(runtime.state.stages[0].status, 'ready')
+  assert.ok(runtime.state.stages.slice(1).every((stage) => stage.status === 'locked'))
+  assert.equal(currentRuntimeStage(runtime.state)?.id, 'intent')
+  assert.equal(runtime.state.gates.construction.status, 'pending')
+  assert.equal(runtime.game.player.controller, 'walk')
+})
 
 test('seeded random and noise streams are reproducible and independent', () => {
   const first = mulberry32(1234)

@@ -1,8 +1,8 @@
-"""Pydantic vocabulary for server-owned world documents.
+"""Strict schema-v2 vocabulary for server-owned world runtimes.
 
-World documents are intentionally open-ended.  The Web world editor owns the
-shape of the editable ``spec`` and other future fields, while the API owns the
-small amount of metadata that makes a document identifiable and portable.
+A world has one runtime contract.  Outdoor build input, semantic scene data,
+compiled transforms, gameplay and Agent quality state are all nested under
+``runtime`` and are never mirrored as legacy top-level fields.
 """
 from __future__ import annotations
 
@@ -11,47 +11,97 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-WORLD_SCHEMA_VERSION = 1
+WORLD_SCHEMA_VERSION = 2
 WORLD_KIND = "polykit.world"
+WORLD_RUNTIME_VERSION = 1
+
+WorldStageId = Literal[
+    "intent",
+    "blockout",
+    "structure",
+    "environment",
+    "assets",
+    "materials",
+    "lighting",
+    "gameplay",
+    "optimization",
+]
+WorldStageStatus = Literal["locked", "ready", "running", "passed", "failed"]
+WorldGateStatus = Literal["pending", "pass", "needs_review", "fail"]
 
 
-class WorldArtifact(BaseModel):
-    """An optional reference to an artifact in the PolyKit workspace.
+class WorldRuntimeStage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    The world store validates all artifact path spellings (including fields
-    supplied through ``extra``) before writing.  Keeping this model open lets
-    clients add provenance and renderer metadata without requiring a server
-    migration for every new field.
-    """
+    id: WorldStageId
+    status: WorldStageStatus
+    note: str | None = None
+    updated_at: str | None = None
 
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    id: str | None = None
-    workspace_path: str | None = Field(default=None, alias="workspacePath")
-    path: str | None = None
-    kind: str | None = None
+class WorldRuntimeIssue(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    code: str
+    gate: Literal["construction", "visual", "gameplay"]
+    severity: Literal["info", "warning", "error"]
+    message: str
+
+
+class WorldRuntimeGateState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: WorldGateStatus = "pending"
+    issues: list[WorldRuntimeIssue] = Field(default_factory=list)
+    checked_at: str | None = None
+
+
+class WorldRuntimeState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stages: list[WorldRuntimeStage]
+    gates: dict[str, WorldRuntimeGateState]
+    updated_at: str | None = None
+
+
+class WorldRuntimeIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = ""
+
+
+class WorldRuntimeCompiled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    instances: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class WorldRuntime(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = WORLD_RUNTIME_VERSION
+    intent: WorldRuntimeIntent
+    build: dict[str, Any] | None = None
+    scene: dict[str, Any] | None = None
+    compiled: WorldRuntimeCompiled
+    game: dict[str, Any]
+    state: WorldRuntimeState
 
 
 class WorldDocument(BaseModel):
-    """A versioned, JSON-serializable world document.
+    model_config = ConfigDict(extra="forbid")
 
-    ``spec``, ``instances`` and renderer-specific fields remain open-ended on
-    purpose.  ``world_id`` is optional because the URL is the authoritative
-    identifier and small clients may submit only the world payload.
-    """
-
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
-
-    schema_version: Literal[1] = WORLD_SCHEMA_VERSION
-    kind: Literal["polykit.world"] = WORLD_KIND
-    world_id: str | None = Field(default=None, alias="worldId")
-    id: str | None = None
-    spec: Any = None
-    # A world may index artifacts by prototype id (the Web editor's native
-    # shape) or keep a legacy list.  Persistence validates paths separately,
-    # so the envelope stays open to both forms.
-    artifacts: Any = Field(default_factory=dict)
+    schema_version: Literal[2]
+    kind: Literal["polykit.world"]
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+    run_id: str | None = None
+    parent_world_id: str | None = None
+    runtime: WorldRuntime
+    artifacts: dict[str, Any] = Field(default_factory=dict)
 
 
-# A descriptive alias for callers that prefer the wire-level name.
 WorldPayload = WorldDocument

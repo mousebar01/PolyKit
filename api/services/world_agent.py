@@ -1,10 +1,4 @@
-"""Agent-facing world planning helpers.
-
-The language model remains the director: it decides what the world means,
-which regions and prototypes are needed, and which local workflow to call.
-This module only keeps that plan and its workspace-owned artifact references
-in a predictable shape so the MCP tools can be small and auditable.
-"""
+"""Agent-facing helpers for the strict spec-first world runtime."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -14,20 +8,19 @@ from typing import Any
 from services.world_store import WorldStoreError, new_world_id, validate_workspace_relative_path
 
 
-# These stages mirror the coarse-to-fine flow described by WorldClaw: intent
-# and scene planning, a terrain foundation, spatial placement, asset/material
-# work, and a render/critique pass.  ``materials`` is kept explicit because a
-# local PolyKit workflow may complete it independently of asset generation.
-WORLDCLAW_STAGE_IDS = (
+WORLD_STAGE_IDS = (
     "intent",
-    "plan",
-    "terrain",
-    "placement",
+    "blockout",
+    "structure",
+    "environment",
     "assets",
     "materials",
-    "refine",
+    "lighting",
+    "gameplay",
+    "optimization",
 )
-WORLDCLAW_STAGE_STATUSES = ("pending", "running", "done", "blocked")
+WORLD_STAGE_STATUSES = ("locked", "ready", "running", "passed", "failed")
+WORLD_GATE_IDS = ("construction", "visual", "gameplay")
 
 
 def _now() -> str:
@@ -40,71 +33,84 @@ def _require_text(value: Any, label: str) -> str:
     return value.strip()
 
 
+def _default_game_spec() -> dict[str, Any]:
+    return {
+        "kind": "polykit.game-spec",
+        "version": 1,
+        "player": {
+            "controller": "walk",
+            "radius": 0.28,
+            "height": 1.7,
+            "move_speed": 2.8,
+            "spawn": {"mode": "auto"},
+        },
+        "collision": {"mode": "semantic-aabb"},
+        "interactions": [],
+        "objectives": [],
+    }
+
+
+def _initial_runtime(prompt: str, timestamp: str) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "intent": {"prompt": prompt},
+        "build": None,
+        "scene": None,
+        "compiled": {"instances": []},
+        "game": _default_game_spec(),
+        "state": {
+            "stages": [
+                {"id": stage_id, "status": "ready" if index == 0 else "locked"}
+                for index, stage_id in enumerate(WORLD_STAGE_IDS)
+            ],
+            "gates": {
+                gate_id: {"status": "pending", "issues": []}
+                for gate_id in WORLD_GATE_IDS
+            },
+            "updated_at": timestamp,
+        },
+    }
+
+
 def create_world_document(
     *,
     name: str | None = None,
     prompt: str | None = None,
     parent_world_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create the initial record for one Agent generation request.
-
-    This is not an extra workflow stage.  It gives the seven visible planning
-    stages a stable document to update while the Agent progressively fills in
-    the actual scene specification and artifact references.
-    """
+    """Allocate a fresh schema-v2 world with one resumable runtime state."""
 
     world_id = new_world_id()
     timestamp = _now()
     title = (name or "Untitled scene").strip() or "Untitled scene"
-    plan: dict[str, Any] = {
-        "version": 1,
-        "source": "worldclaw-paper",
-        "stages": [
-            {"id": stage_id, "status": "pending"}
-            for stage_id in WORLDCLAW_STAGE_IDS
-        ],
-        "updated_at": timestamp,
-    }
-    if prompt and prompt.strip():
-        plan["prompt"] = prompt.strip()
-
+    intent = (prompt or "").strip()
     result: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "polykit.world",
         "id": world_id,
-        "world_id": world_id,
         "name": title,
         "created_at": timestamp,
         "updated_at": timestamp,
-        # The Agent replaces this with the real WorldSpec during the plan
-        # stage.  Keeping the field JSON-compatible makes the shell resumable
-        # without inventing a second draft format.
-        "spec": {},
-        "instances": [],
+        "runtime": _initial_runtime(intent, timestamp),
         "artifacts": {},
-        "agent_plan": plan,
     }
     if parent_world_id and parent_world_id.strip():
         result["parent_world_id"] = parent_world_id.strip()
     return result
 
 
-def _normalise_artifacts(value: Any) -> dict[str, Any]:
-    if value is None:
-        return {}
-    if isinstance(value, Mapping):
-        return dict(value)
-    if isinstance(value, list):
-        result: dict[str, Any] = {}
-        for item in value:
-            if not isinstance(item, Mapping):
-                raise WorldStoreError("World artifacts must be an object or a list of objects")
-            artifact_id = item.get("id")
-            if not isinstance(artifact_id, str) or not artifact_id.strip():
-                raise WorldStoreError("List artifacts must have a non-empty id")
-            result[artifact_id.strip()] = dict(item)
-        return result
-    raise WorldStoreError("World artifacts must be an object or a list of objects")
+def _runtime(world: Mapping[str, Any]) -> dict[str, Any]:
+    value = world.get("runtime")
+    if not isinstance(value, Mapping) or value.get("version") != 1:
+        raise WorldStoreError("World requires runtime version 1")
+    return dict(value)
+
+
+def _artifact_map(world: Mapping[str, Any]) -> dict[str, Any]:
+    value = world.get("artifacts")
+    if not isinstance(value, Mapping):
+        raise WorldStoreError("World artifacts must be an object keyed by asset id")
+    return dict(value)
 
 
 def attach_world_artifact(
@@ -116,22 +122,15 @@ def attach_world_artifact(
     run_id: str | None = None,
     concept_image: str | None = None,
 ) -> dict[str, Any]:
-    """Return a world document with one generated mesh attached.
-
-    Paths are validated here as well as by ``world_store`` so an Agent gets a
-    useful error before the document is sent over HTTP.  The helper accepts
-    the legacy artifact list shape and normalises it to the Web editor's
-    prototype-id map.
-    """
+    """Attach one workspace asset and bind it to a matching semantic object."""
 
     safe_proto_id = _require_text(proto_id, "proto_id")
     safe_mesh_path = validate_workspace_relative_path(workspace_path)
-    safe_concept_image = (
-        validate_workspace_relative_path(concept_image) if concept_image else None
-    )
+    safe_concept_image = validate_workspace_relative_path(concept_image) if concept_image else None
 
     result = dict(world)
-    artifacts = _normalise_artifacts(result.get("artifacts"))
+    runtime = _runtime(result)
+    artifacts = _artifact_map(result)
     current = artifacts.get(safe_proto_id)
     artifact = dict(current) if isinstance(current, Mapping) else {}
     artifact["mode"] = "workspace-mesh"
@@ -145,6 +144,28 @@ def attach_world_artifact(
         mesh["run_id"] = run_id.strip()
     artifact["mesh"] = mesh
     artifacts[safe_proto_id] = artifact
+
+    scene = runtime.get("scene")
+    if isinstance(scene, Mapping):
+        scene_copy = dict(scene)
+        objects = scene_copy.get("objects")
+        if isinstance(objects, list):
+            next_objects: list[Any] = []
+            for value in objects:
+                if isinstance(value, Mapping) and value.get("id") == safe_proto_id:
+                    obj = dict(value)
+                    obj["asset"] = {
+                        "workspacePath": safe_mesh_path,
+                        "source": "world-artifact",
+                        **({"runId": run_id.strip()} if run_id and run_id.strip() else {}),
+                    }
+                    next_objects.append(obj)
+                else:
+                    next_objects.append(value)
+            scene_copy["objects"] = next_objects
+            runtime["scene"] = scene_copy
+
+    result["runtime"] = runtime
     result["artifacts"] = artifacts
     result["updated_at"] = _now()
     return result
@@ -158,58 +179,78 @@ def update_world_stage(
     note: str | None = None,
     prompt: str | None = None,
 ) -> dict[str, Any]:
-    """Update one paper-derived Agent stage without executing anything."""
+    """Advance one spec-first pass and unlock the next pass on success."""
 
     safe_stage = _require_text(stage_id, "stage_id")
-    if safe_stage not in WORLDCLAW_STAGE_IDS:
+    if safe_stage not in WORLD_STAGE_IDS:
         raise WorldStoreError(
-            f"Unknown world stage {safe_stage!r}; expected one of {', '.join(WORLDCLAW_STAGE_IDS)}"
+            f"Unknown world stage {safe_stage!r}; expected one of {', '.join(WORLD_STAGE_IDS)}"
         )
     safe_status = _require_text(status, "status")
-    if safe_status not in WORLDCLAW_STAGE_STATUSES:
+    if safe_status not in WORLD_STAGE_STATUSES:
         raise WorldStoreError(
-            f"Unknown world stage status {safe_status!r}; expected one of {', '.join(WORLDCLAW_STAGE_STATUSES)}"
+            f"Unknown world stage status {safe_status!r}; expected one of {', '.join(WORLD_STAGE_STATUSES)}"
         )
 
     result = dict(world)
-    existing_plan = result.get("agent_plan")
-    plan = dict(existing_plan) if isinstance(existing_plan, Mapping) else {}
-    plan.setdefault("version", 1)
-    plan.setdefault("source", "worldclaw-paper")
-    if prompt and prompt.strip():
-        plan["prompt"] = prompt.strip()
+    runtime = _runtime(result)
+    state = runtime.get("state")
+    if not isinstance(state, Mapping):
+        raise WorldStoreError("World runtime requires state")
+    state_copy = dict(state)
+    raw_stages = state_copy.get("stages")
+    if not isinstance(raw_stages, list):
+        raise WorldStoreError("World runtime state requires an ordered stages list")
 
-    raw_stages = plan.get("stages")
-    stage_map: dict[str, dict[str, Any]] = {}
-    if isinstance(raw_stages, Mapping):
-        for key, value in raw_stages.items():
-            if isinstance(key, str) and isinstance(value, Mapping):
-                stage_map[key] = dict(value)
-    elif isinstance(raw_stages, list):
-        for value in raw_stages:
-            if isinstance(value, Mapping) and isinstance(value.get("id"), str):
-                stage_map[value["id"]] = dict(value)
+    stage_map = {
+        value.get("id"): dict(value)
+        for value in raw_stages
+        if isinstance(value, Mapping) and value.get("id") in WORLD_STAGE_IDS
+    }
+    if tuple(stage_id for stage_id in WORLD_STAGE_IDS if stage_id in stage_map) != WORLD_STAGE_IDS:
+        raise WorldStoreError("World runtime state is missing one or more required stages")
 
-    for known_stage in WORLDCLAW_STAGE_IDS:
-        entry = stage_map.setdefault(known_stage, {"id": known_stage, "status": "pending"})
-        entry.setdefault("id", known_stage)
-        entry.setdefault("status", "pending")
     stage = stage_map[safe_stage]
+    current_status = stage.get("status")
+    if current_status == "locked" and safe_status in {"running", "passed", "failed"}:
+        raise WorldStoreError(f"World stage {safe_stage!r} is locked; pass the previous stage first")
+    if safe_status == "ready" and current_status == "locked":
+        raise WorldStoreError(f"World stage {safe_stage!r} cannot be manually unlocked")
+
+    timestamp = _now()
     stage["status"] = safe_status
     if note is not None:
         stage["note"] = note.strip()
-    stage["updated_at"] = _now()
+    stage["updated_at"] = timestamp
 
-    plan["stages"] = [stage_map[stage_name] for stage_name in WORLDCLAW_STAGE_IDS]
-    plan["updated_at"] = _now()
-    result["agent_plan"] = plan
-    result["updated_at"] = _now()
+    stage_index = WORLD_STAGE_IDS.index(safe_stage)
+    if safe_status == "passed" and stage_index + 1 < len(WORLD_STAGE_IDS):
+        next_stage = stage_map[WORLD_STAGE_IDS[stage_index + 1]]
+        if next_stage.get("status") == "locked":
+            next_stage["status"] = "ready"
+            next_stage["updated_at"] = timestamp
+    elif safe_status == "failed":
+        for later_id in WORLD_STAGE_IDS[stage_index + 1 :]:
+            later = stage_map[later_id]
+            if later.get("status") != "passed":
+                later["status"] = "locked"
+                later["updated_at"] = timestamp
+
+    state_copy["stages"] = [stage_map[stage_name] for stage_name in WORLD_STAGE_IDS]
+    state_copy["updated_at"] = timestamp
+    runtime["state"] = state_copy
+    if prompt is not None:
+        runtime["intent"] = {"prompt": prompt.strip()}
+
+    result["runtime"] = runtime
+    result["updated_at"] = timestamp
     return result
 
 
 __all__ = [
-    "WORLDCLAW_STAGE_IDS",
-    "WORLDCLAW_STAGE_STATUSES",
+    "WORLD_GATE_IDS",
+    "WORLD_STAGE_IDS",
+    "WORLD_STAGE_STATUSES",
     "attach_world_artifact",
     "create_world_document",
     "update_world_stage",

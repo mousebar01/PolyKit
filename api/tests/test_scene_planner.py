@@ -13,13 +13,10 @@ from routers.workspace_worlds import (
     compile_world_scene_plan,
 )
 from services.runtime_paths import runtime_paths
-from services.scene_planner import (
-    ScenePlanError,
-    apply_scene_plan_to_world,
-    compile_scene_plan,
-    normalize_scene_plan,
-)
+from services.scene_planner import ScenePlanError, compile_scene_plan, normalize_scene_plan
 from services.scene_assets import find_asset_candidates, resolve_scene_assets
+from services.world_agent import create_world_document
+from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import save_world
 
 
@@ -43,15 +40,16 @@ class ScenePlannerTests(unittest.TestCase):
             ],
         }
 
+    def _world(self):
+        world = create_world_document(name="Cabin")
+        world["id"] = "cabin"
+        return world
+
     def test_normalizes_embodiedgen_aliases_and_stable_ids(self):
         plan = normalize_scene_plan(
-            {
-                "assets": [{"id": "lamp", "name": "Desk lamp", "aliases": ["lamp", "灯"]}],
-            }
+            {"assets": [{"id": "lamp", "name": "Desk lamp", "aliases": ["lamp", "灯"]}]}
         )
         self.assertEqual(plan.objects[0].aliases, ["lamp", "灯"])
-        # Relations to unknown objects are rejected before a potentially
-        # ambiguous layout.
         with self.assertRaises(ScenePlanError):
             compile_scene_plan(
                 {
@@ -156,31 +154,25 @@ class ScenePlannerTests(unittest.TestCase):
                 }
             )
 
-    def test_world_adapter_preserves_existing_instance_contract(self):
-        world = {"schema_version": 1, "kind": "polykit.world", "id": "cabin", "spec": {}}
-        updated = apply_scene_plan_to_world(world, self._plan())
-        self.assertEqual(updated["scene_plan"]["kind"], "polykit.scene-plan")
-        instance = next(item for item in updated["instances"] if item["protoId"] == "stove")
-        self.assertIn("regionId", instance)
-        self.assertEqual(updated["spec"]["scene_plan"]["sceneKind"], "indoor")
+    def test_runtime_scene_has_no_top_level_mirrors(self):
+        compiled = compile_scene_plan(self._plan())
+        updated = attach_scene_plan_to_runtime(self._world(), compiled)
+        self.assertEqual(updated["runtime"]["scene"]["kind"], "polykit.scene-plan")
+        self.assertNotIn("scene_plan", updated)
+        self.assertNotIn("instances", updated)
+        self.assertNotIn("spec", updated)
+        self.assertEqual(updated["runtime"]["state"]["gates"]["construction"]["status"], "pass")
 
-    def test_world_adapter_reuses_attached_mesh_on_recompile(self):
-        world = {
-            "schema_version": 1,
-            "kind": "polykit.world",
-            "id": "cabin",
-            "spec": {},
-            "artifacts": {
-                "stove": {
-                    "mesh": {
-                        "workspace_path": "Workflows/stove.glb",
-                        "run_id": "run-1",
-                    }
-                }
-            },
+    def test_runtime_scene_reuses_attached_mesh(self):
+        world = self._world()
+        world["artifacts"] = {
+            "stove": {
+                "mode": "workspace-mesh",
+                "mesh": {"kind": "mesh", "workspace_path": "Workflows/stove.glb", "run_id": "run-1"},
+            }
         }
-        updated = apply_scene_plan_to_world(world, self._plan())
-        stove = next(item for item in updated["scene_plan"]["objects"] if item["id"] == "stove")
+        updated = attach_scene_plan_to_runtime(world, compile_scene_plan(self._plan()))
+        stove = next(item for item in updated["runtime"]["scene"]["objects"] if item["id"] == "stove")
         self.assertEqual(stove["asset"]["workspacePath"], "Workflows/stove.glb")
         self.assertEqual(stove["asset"]["runId"], "run-1")
 
@@ -216,47 +208,34 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         self._tmp.cleanup()
 
-    async def test_route_persists_compiled_plan_on_existing_world(self):
-        save_world("cabin", {"schema_version": 1, "kind": "polykit.world", "id": "cabin", "spec": {}})
+    def _world(self, scene=None):
+        world = create_world_document(name="Cabin")
+        world["id"] = "cabin"
+        world["runtime"]["scene"] = scene
+        return world
+
+    async def test_route_persists_compiled_plan_on_runtime(self):
+        save_world("cabin", self._world())
         request = ScenePlanCompileRequest(
             objects=[{"id": "room", "name": "Cabin", "role": "room", "size": [4, 3, 4]}],
             relations=[],
         )
         response = await compile_world_scene_plan("cabin", request)
         self.assertEqual(response["world_id"], "cabin")
-        self.assertEqual(response["world"]["scene_plan"]["sceneId"], "cabin")
-        self.assertEqual(response["world"]["instances"][0]["protoId"], "room")
+        self.assertEqual(response["scene"]["sceneId"], "cabin")
+        self.assertEqual(response["world"]["runtime"]["scene"]["sceneId"], "cabin")
+        self.assertNotIn("scene_plan", response["world"])
 
-    async def test_composition_builder_preserves_plan_instances(self):
+    async def test_composition_builder_preserves_scene_instances(self):
         mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
         mesh.parent.mkdir(parents=True)
         mesh.write_bytes(b"glb")
-        world = {
-            "schema_version": 1,
-            "kind": "polykit.world",
-            "id": "cabin",
-            "artifacts": {},
-            "scene_plan": {
-                "objects": [
-                    {
-                        "id": "lamp",
-                        "name": "Lamp",
-                        "asset": {"workspacePath": "Workflows/lamp.glb"},
-                    }
-                ],
-                "instances": [
-                    {
-                        "id": "instance_lamp",
-                        "objectId": "lamp",
-                        "position": [1, 0, 2],
-                        "rotation": [0, 45, 0],
-                        "scale": 1.5,
-                    }
-                ],
-            },
+        scene = {
+            "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
+            "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [1, 0, 2], "rotation": [0, 45, 0], "scale": 1.5}],
         }
         request = _build_scene_composition_workflow(
-            world,
+            {"runtime": {"version": 1, "scene": scene}, "artifacts": {}},
             world_id="cabin",
             collection="Scenes",
             output_name="cabin",
@@ -271,23 +250,18 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
         mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
         mesh.parent.mkdir(parents=True, exist_ok=True)
         mesh.write_bytes(b"glb")
-        world = {
-            "schema_version": 1,
-            "kind": "polykit.world",
-            "id": "cabin",
-            "scene_plan": {
-                "objects": [
-                    {"id": "room", "name": "Cabin", "role": "room", "size": [4, 3, 4]},
-                    {"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}},
-                ],
-                "instances": [
-                    {"id": "instance_room", "objectId": "room", "position": [0, 0, 0]},
-                    {"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]},
-                ],
-            },
+        scene = {
+            "objects": [
+                {"id": "room", "name": "Cabin", "role": "room", "size": [4, 3, 4]},
+                {"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}},
+            ],
+            "instances": [
+                {"id": "instance_room", "objectId": "room", "position": [0, 0, 0]},
+                {"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]},
+            ],
         }
         request = _build_scene_composition_workflow(
-            world,
+            {"runtime": {"version": 1, "scene": scene}, "artifacts": {}},
             world_id="cabin",
             collection="Scenes",
             output_name="cabin",
@@ -300,19 +274,14 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
         mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
         mesh.parent.mkdir(parents=True, exist_ok=True)
         mesh.write_bytes(b"glb")
-        world = {
-            "schema_version": 1,
-            "kind": "polykit.world",
-            "id": "cabin",
-            "scene_plan": {
-                "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
-                "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
-                "metadata": {"layoutQuality": {"status": "invalid", "cameraIndependent": True}},
-            },
+        scene = {
+            "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
+            "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
+            "metadata": {"layoutQuality": {"status": "invalid", "cameraIndependent": True}},
         }
         with self.assertRaises(ScenePlanError):
             _build_scene_composition_workflow(
-                world,
+                {"runtime": {"version": 1, "scene": scene}, "artifacts": {}},
                 world_id="cabin",
                 collection="Scenes",
                 output_name="cabin",
@@ -323,18 +292,11 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
         mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
         mesh.parent.mkdir(parents=True, exist_ok=True)
         mesh.write_bytes(b"glb")
-        save_world(
-            "cabin",
-            {
-                "schema_version": 1,
-                "kind": "polykit.world",
-                "id": "cabin",
-                "scene_plan": {
-                    "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
-                    "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
-                },
-            },
-        )
+        scene = {
+            "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
+            "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
+        }
+        save_world("cabin", self._world(scene))
         with patch("routers.workflow_runs.execute_workflow", autospec=True) as execute:
             execute.return_value = {"run_id": "run-1", "status": "pending"}
             response = await compose_world_scene(

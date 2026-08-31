@@ -1,13 +1,15 @@
-"""HTTP surface for server-owned world documents."""
+"""HTTP surface for server-owned schema-v2 world runtimes."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from pydantic import BaseModel, Field
 
-from services.scene_planner import ScenePlanError, apply_scene_plan_to_world, compile_scene_plan
+from services.scene_planner import ScenePlanError, compile_scene_plan
 from services.world_agent import create_world_document
+from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import (
     WorldNotFoundError,
     WorldStoreError,
@@ -23,19 +25,14 @@ router = APIRouter(prefix="/workspace-library/worlds", tags=["workspace-worlds"]
 
 
 class WorldCreateRequest(BaseModel):
-    """Optional metadata used when an Agent starts a new scene."""
-
     name: str | None = Field(default=None, max_length=240)
     prompt: str | None = Field(default=None, max_length=20_000)
     parent_world_id: str | None = Field(default=None, max_length=160)
 
 
 class ScenePlanCompileRequest(BaseModel):
-    """Agent-authored scene graph accepted by the server-side planner."""
+    """Agent-authored semantic scene graph accepted by the server planner."""
 
-    # ``plan`` is useful for MCP callers that already have the EmbodiedGen
-    # layout shape.  The expanded fields keep the endpoint pleasant for the
-    # Web client and hand-written requests.
     plan: dict[str, Any] | None = None
     prompt: str = Field(default="", max_length=20_000)
     scene_kind: str = Field(default="indoor", max_length=24)
@@ -48,8 +45,6 @@ class ScenePlanCompileRequest(BaseModel):
 
 
 class SceneComposeRequest(BaseModel):
-    """Options for composing the resolved scene objects into one GLB."""
-
     collection: str = Field(default="Scenes", max_length=160)
     output_name: str = Field(default="scene", min_length=1, max_length=120)
     allow_missing: bool = False
@@ -66,10 +61,20 @@ def _scene_asset_path(world: dict[str, Any], object_id: str, object_data: dict[s
         entry = artifacts.get(object_id)
         mesh = entry.get("mesh") if isinstance(entry, dict) else None
         if isinstance(mesh, dict):
-            value = mesh.get("workspace_path") or mesh.get("workspacePath")
+            value = mesh.get("workspace_path")
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return None
+
+
+def _runtime_scene(world: Mapping[str, Any]) -> dict[str, Any]:
+    runtime = world.get("runtime")
+    if not isinstance(runtime, Mapping) or runtime.get("version") != 1:
+        raise ScenePlanError("World has no valid runtime")
+    plan = runtime.get("scene")
+    if not isinstance(plan, dict):
+        raise ScenePlanError("World runtime has no compiled scene")
+    return plan
 
 
 def _build_scene_composition_workflow(
@@ -79,36 +84,31 @@ def _build_scene_composition_workflow(
     collection: str,
     output_name: str,
     allow_missing: bool,
-) -> WorkflowExecutionRequest:
-    """Compile a saved ScenePlan into the canonical multi-mesh workflow."""
+) -> "WorkflowExecutionRequest":
+    """Compile ``runtime.scene`` into the canonical multi-mesh workflow."""
 
     from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 
-    plan = world.get("scene_plan")
-    if not isinstance(plan, dict):
-        spec = world.get("spec")
-        plan = spec.get("scene_plan") if isinstance(spec, dict) else None
-    if not isinstance(plan, dict):
-        raise ScenePlanError("World has no compiled scene_plan")
+    plan = _runtime_scene(world)
     quality = plan.get("metadata", {}).get("layoutQuality") if isinstance(plan.get("metadata"), dict) else None
     if isinstance(quality, dict) and quality.get("status") == "invalid":
         raise ScenePlanError(
-            "Scene plan layout is invalid; fix its bounds or spatial relations before composing."
+            "Scene layout is invalid; fix its bounds or spatial relations before composing."
         )
 
     raw_objects = plan.get("objects")
     raw_instances = plan.get("instances")
     if not isinstance(raw_objects, list) or not raw_objects:
-        raise ScenePlanError("Scene plan has no objects to compose")
+        raise ScenePlanError("Runtime scene has no objects to compose")
     objects = {
         item.get("id"): item
         for item in raw_objects
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
     instances = {
-        item.get("objectId") or item.get("object_id"): item
+        item.get("objectId"): item
         for item in (raw_instances if isinstance(raw_instances, list) else [])
-        if isinstance(item, dict) and isinstance(item.get("objectId") or item.get("object_id"), str)
+        if isinstance(item, dict) and isinstance(item.get("objectId"), str)
     }
 
     nodes: dict[str, WorkflowExecutionNode] = {}
@@ -118,9 +118,6 @@ def _build_scene_composition_workflow(
     for object_id, object_data in objects.items():
         workspace_path = _scene_asset_path(world, object_id, object_data)
         if not workspace_path:
-            # EmbodiedGen omits the visual background by default.  A room or
-            # background node is still useful for planning/preview bounds, but
-            # it must not make an otherwise complete prop composition fail.
             if str(object_data.get("role") or "").lower() in {"room", "background"}:
                 continue
             missing.append(object_id)
@@ -147,20 +144,15 @@ def _build_scene_composition_workflow(
         })
 
     if missing and not allow_missing:
-        raise ScenePlanError(
-            "Scene objects are missing mesh assets: " + ", ".join(sorted(missing))
-        )
+        raise ScenePlanError("Scene objects are missing mesh assets: " + ", ".join(sorted(missing)))
     if not mesh_refs:
-        raise ScenePlanError("Scene plan has no resolved mesh assets to compose")
+        raise ScenePlanError("Runtime scene has no resolved mesh assets to compose")
 
     nodes["compose"] = WorkflowExecutionNode(
         class_type="scene-composer/compose",
         inputs={
             "mesh": mesh_refs,
-            "params": {
-                "output_name": output_name,
-                "placements": placements,
-            },
+            "params": {"output_name": output_name, "placements": placements},
         },
     )
     nodes["output"] = WorkflowExecutionNode(
@@ -183,7 +175,7 @@ def _build_scene_composition_workflow(
 
 @router.post("/{world_id}/scene-plan")
 async def compile_world_scene_plan(world_id: str, request: ScenePlanCompileRequest):
-    """Compile a semantic scene plan and persist its deterministic instances."""
+    """Compile a semantic scene and persist it only at ``runtime.scene``."""
 
     try:
         current = get_world(world_id)
@@ -203,13 +195,9 @@ async def compile_world_scene_plan(world_id: str, request: ScenePlanCompileReque
             solve=request.solve,
             resolve_assets=request.resolve_assets,
         )
-        updated = apply_scene_plan_to_world(current, compiled)
+        updated = attach_scene_plan_to_runtime(current, compiled)
         saved = save_world(world_id, updated)
-        return {
-            "world_id": world_id,
-            "scene_plan": compiled,
-            "world": saved,
-        }
+        return {"world_id": world_id, "scene": compiled, "world": saved}
     except HTTPException:
         raise
     except WorldTooLargeError as exc:
@@ -226,8 +214,6 @@ async def compose_world_scene(
     request: SceneComposeRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Submit a saved ScenePlan to the canonical multi-mesh composition workflow."""
-
     try:
         world = get_world(world_id)
         if world is None:
@@ -239,8 +225,6 @@ async def compose_world_scene(
             output_name=request.output_name,
             allow_missing=request.allow_missing,
         )
-        # Keep execution ownership in workflow-runs.  This route only compiles
-        # the world document into a typed DAG for the existing server runtime.
         from routers.workflow_runs import execute_workflow
 
         return await execute_workflow(workflow, background_tasks)
@@ -254,8 +238,6 @@ async def compose_world_scene(
 
 @router.post("")
 async def create_world(request: WorldCreateRequest | None = Body(default=None)):
-    """Allocate and persist a new world record for one generation request."""
-
     try:
         payload = request or WorldCreateRequest()
         document = create_world_document(
@@ -281,8 +263,6 @@ async def create_world(request: WorldCreateRequest | None = Body(default=None)):
 
 @router.put("/{world_id:path}")
 async def put_world(world_id: str, world: dict[str, Any] = Body(...)):
-    """Create or replace one ``<world-id>.world.json`` workspace artifact."""
-
     try:
         save_world(world_id, world)
         workspace_path = f"Workflows/{world_id.strip()}.world.json"
@@ -301,8 +281,6 @@ async def put_world(world_id: str, world: dict[str, Any] = Body(...)):
 
 @router.get("/{world_id:path}")
 async def read_world(world_id: str):
-    """Read one saved world document."""
-
     try:
         world = get_world(world_id)
     except WorldTooLargeError as exc:

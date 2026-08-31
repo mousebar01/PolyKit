@@ -22,14 +22,27 @@ function now(): string {
 }
 
 function prepare(document: WorldDocument): { document: WorldDocument; terrain: BuiltTerrain | null; instances: Instance[] } {
-  // Agent-created scene records are persisted before their plan is complete.
-  // Never send an incomplete Agent-created scene into the terrain generator.
-  if (!isRenderableWorldSpec(document.spec)) {
+  const build = document.runtime.build
+  if (!isRenderableWorldSpec(build)) {
     return { document, terrain: null, instances: [] }
   }
-  const terrain = buildTerrain(document.spec, { resolution: 96 })
-  const instances = document.instances.length > 0 ? document.instances : solvePlacements(document.spec, terrain)
-  return { document, terrain, instances }
+
+  const terrain = buildTerrain(build, { resolution: 96 })
+  const configured = document.runtime.compiled.instances
+  const instances = configured.length > 0 ? configured : solvePlacements(build, terrain)
+  if (configured.length > 0) return { document, terrain, instances }
+
+  return {
+    document: {
+      ...document,
+      runtime: {
+        ...document.runtime,
+        compiled: { ...document.runtime.compiled, instances },
+      },
+    },
+    terrain,
+    instances,
+  }
 }
 
 export const useWorldStore = create<WorldState>((set, get) => ({

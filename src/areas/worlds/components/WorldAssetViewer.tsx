@@ -18,11 +18,7 @@ interface WorldAssetViewerProps {
   onClose: () => void
 }
 
-/**
- * Contextual editor for a generated-world asset.  It deliberately lives in
- * the Assets area: a world is a compound asset, while this panel remains the
- * focused editor for its terrain and placements.
- */
+/** Focused editor for a strict schema-v2 world runtime. */
 export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JSX.Element {
   const { t } = useI18n()
   const apiUrl = useAppStore((state) => state.apiUrl)
@@ -31,26 +27,25 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
     setSelectedProtoId, save, clearError,
   } = useWorldStore()
   const [infoOpen, setInfoOpen] = useState(false)
-  const renderable = Boolean(document && terrain && isRenderableWorldSpec(document.spec))
-  const scenePlan = document?.scene_plan ?? (
-    document?.spec && typeof document.spec === 'object' && 'scene_plan' in document.spec
-      ? (document.spec as { scene_plan?: unknown }).scene_plan
-      : undefined
-  )
-  const renderableScenePlan = isRenderableScenePlan(scenePlan)
-  const scenePlanPrompt = renderableScenePlan ? scenePlan.prompt : undefined
+
+  const buildSpec = document?.runtime.build
+  const scenePlan = document?.runtime.scene
+  const renderableBuild = isRenderableWorldSpec(buildSpec)
+  const renderableScene = isRenderableScenePlan(scenePlan)
+  const scenePrompt = renderableScene ? scenePlan.prompt : undefined
+
   const heroCount = useMemo(
-    () => document && renderable ? document.spec.assets.filter((asset) => asset.tier === 'hero').length : 0,
-    [document, renderable],
+    () => renderableBuild ? buildSpec.assets.filter((asset) => asset.tier === 'hero').length : 0,
+    [buildSpec, renderableBuild],
   )
   const regionSummary = useMemo(
-    () => document && renderable
-      ? document.spec.regions.map((region) => ({
+    () => renderableBuild
+      ? buildSpec.regions.map((region) => ({
         ...region,
         count: instances.filter((item) => item.regionId === region.id).length,
       }))
       : [],
-    [document, instances, renderable],
+    [buildSpec, instances, renderableBuild],
   )
 
   if (!document) return <div className="h-full min-h-0 flex-1 bg-card" />
@@ -58,16 +53,16 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
-        {renderable && terrain ? (
+        {renderableBuild && terrain ? (
           <WorldCanvas
-            spec={document.spec}
+            spec={buildSpec}
             terrain={terrain}
             instances={instances}
             selectedProtoId={selectedProtoId}
             artifacts={document.artifacts}
             backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR}
           />
-        ) : renderableScenePlan ? (
+        ) : renderableScene ? (
           <ScenePlanCanvas plan={scenePlan} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -116,7 +111,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
           <div className="absolute right-3 top-12 z-20 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <p className="truncate font-medium text-foreground">{document.name}</p>
             <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document.id}</p>
-            {(renderable || renderableScenePlan) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
+            {(renderableBuild || renderableScene) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
           </div>
         )}
       </div>
@@ -125,7 +120,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">{t('worlds.scene')}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{(renderable ? document.spec.logline : scenePlanPrompt) || document.name}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{(renderableBuild ? buildSpec.logline : scenePrompt) || document.name}</p>
           </div>
           <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => void save()} disabled={saving || !apiUrl}>
             {saving ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Save className="size-3.5" aria-hidden="true" />}
@@ -133,7 +128,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
           </Button>
         </div>
 
-        {renderable ? (
+        {renderableBuild ? (
           <>
             <Card>
               <CardHeader className="pb-3">
@@ -141,8 +136,8 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
                 <CardDescription>{t('worlds.snapshotDescription')}</CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.mapSize')}</span><span className="font-mono text-foreground">{document.spec.size} m</span></div>
-                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.regions')}</span><span className="font-mono text-foreground">{document.spec.regions.length}</span></div>
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.mapSize')}</span><span className="font-mono text-foreground">{buildSpec.size} m</span></div>
+                <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.regions')}</span><span className="font-mono text-foreground">{buildSpec.regions.length}</span></div>
                 <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.instances')}</span><span className="font-mono text-foreground">{formatNumber(instances.length)}</span></div>
                 <div className="rounded-md bg-muted p-2"><span className="block text-muted-foreground">{t('worlds.heroSlots')}</span><span className="font-mono text-foreground">{heroCount}</span></div>
               </CardContent>
@@ -171,7 +166,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-sm">{t('worlds.prototypes')}</CardTitle><CardDescription>{t('worlds.prototypeHint')}</CardDescription></CardHeader>
               <CardContent className="space-y-1.5">
-                {document.spec.assets.map((asset) => {
+                {buildSpec.assets.map((asset) => {
                   const count = instances.filter((instance) => instance.protoId === asset.id).length
                   const selected = selectedProtoId === asset.id
                   return (
@@ -190,7 +185,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
               </CardContent>
             </Card>
           </>
-        ) : renderableScenePlan ? (
+        ) : renderableScene ? (
           <>
             <Card>
               <CardHeader className="pb-3">

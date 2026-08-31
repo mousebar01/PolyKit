@@ -1,11 +1,4 @@
-"""Safe, atomic persistence for Web world documents.
-
-World files are durable workspace artifacts rather than workflow definitions:
-they live below ``WORKSPACE_DIR/Workflows`` and use the stable
-``<world-id>.world.json`` name.  The store deliberately accepts unknown world
-fields so the browser can evolve its renderer-owned document without coupling
-the persistence layer to every terrain property.
-"""
+"""Safe, strict persistence for schema-v2 world runtime documents."""
 from __future__ import annotations
 
 import json
@@ -25,12 +18,7 @@ from services.runtime_paths import runtime_paths
 from services.workspace_paths import resolve_workspace_path
 
 
-# A world is metadata and procedural parameters, not a mesh payload.  Keeping
-# the JSON document bounded prevents accidental persistence of image/base64 or
-# generated binary data in the workspace manifest.
 MAX_WORLD_BYTES = 8 * 1024 * 1024
-_MAX_WORLD_BYTES = MAX_WORLD_BYTES
-
 WORLD_ROOT = "Workflows"
 WORLD_SUFFIX = ".world.json"
 
@@ -73,6 +61,7 @@ _ARTIFACT_KEYS = {
     "artifact_refs",
     "artifactrefs",
 }
+_NORMALIZED_ARTIFACT_KEYS = {re.sub(r"[^a-z0-9]", "", item) for item in _ARTIFACT_KEYS}
 
 
 class WorldStoreError(ValueError):
@@ -88,20 +77,13 @@ class WorldNotFoundError(FileNotFoundError):
 
 
 def _worlds_dir() -> Path:
-    """Return the server-owned world directory, creating it if needed."""
-
     workspace = runtime_paths.workspace
-    # Resolve the directory through the common workspace guard.  This prevents
-    # a configured ``Workflows`` symlink from redirecting world writes outside
-    # the server-owned workspace.
     directory = resolve_workspace_path(workspace, WORLD_ROOT)
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
 def validate_world_id(world_id: str) -> str:
-    """Validate and return a world id that is safe as one filename component."""
-
     if not isinstance(world_id, str):
         raise WorldStoreError("World id must be a string")
     value = world_id.strip()
@@ -111,15 +93,11 @@ def validate_world_id(world_id: str) -> str:
         raise WorldStoreError("World id is too long")
     if "\x00" in value or any(ord(char) < 32 for char in value):
         raise WorldStoreError("World id contains control characters")
-
-    # A world id is a filename stem, not a user-controlled relative path.  The
-    # explicit Windows checks matter even when the API runs on POSIX: the same
-    # document can be moved to a packaged desktop build later.
     if (
         value in {".", ".."}
         or "/" in value
         or "\\" in value
-        or value.startswith(('/', "\\\\"))
+        or value.startswith(("/", "\\\\"))
         or _WINDOWS_DRIVE.match(value)
         or PureWindowsPath(value).is_absolute()
         or value.endswith(WORLD_SUFFIX)
@@ -129,23 +107,11 @@ def validate_world_id(world_id: str) -> str:
 
 
 def world_path(world_id: str) -> Path:
-    """Return the canonical path for ``world_id`` after path validation."""
-
     safe_id = validate_world_id(world_id)
-    relative = f"{WORLD_ROOT}/{safe_id}{WORLD_SUFFIX}"
-    # ``resolve_workspace_path`` checks both traversal and symlink escapes.
-    return resolve_workspace_path(runtime_paths.workspace, relative)
+    return resolve_workspace_path(runtime_paths.workspace, f"{WORLD_ROOT}/{safe_id}{WORLD_SUFFIX}")
 
 
 def new_world_id(prefix: str = "scene") -> str:
-    """Return a collision-resistant id for a newly generated scene.
-
-    World ids are deliberately allocated by the server rather than by the
-    browser/Agent.  This keeps a generation request from accidentally
-    replacing a previous scene when two clients submit at nearly the same
-    time.
-    """
-
     safe_prefix = re.sub(r"[^a-z0-9-]+", "-", prefix.strip().lower()).strip("-") or "scene"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     with _lock:
@@ -159,14 +125,12 @@ def new_world_id(prefix: str = "scene") -> str:
 def _as_mapping(world: Mapping[str, Any] | BaseModel) -> dict[str, Any]:
     if isinstance(world, BaseModel):
         try:
-            value = world.model_dump(mode="json", by_alias=True, exclude_unset=True)
+            value = world.model_dump(mode="json", exclude_unset=False)
         except (TypeError, ValueError, ValidationError) as exc:
             raise WorldStoreError(f"Invalid world document: {exc}") from exc
     elif isinstance(world, Mapping):
         value = dict(world)
     else:
-        raise WorldStoreError("World document must be a JSON object")
-    if not isinstance(value, dict):
         raise WorldStoreError("World document must be a JSON object")
     if any(not isinstance(key, str) for key in value):
         raise WorldStoreError("World document keys must be strings")
@@ -186,13 +150,6 @@ def _is_absolute_workspace_path(raw_path: str) -> bool:
 
 
 def validate_workspace_relative_path(raw_path: str) -> str:
-    """Validate a workspace-relative path and return its slash form.
-
-    The referenced artifact does not need to exist yet; worlds can be saved
-    before generation finishes.  Resolving against the workspace still checks
-    symlink escapes when a path happens to exist.
-    """
-
     if not isinstance(raw_path, str):
         raise WorldStoreError("Artifact path must be a string")
     value = raw_path.strip()
@@ -212,13 +169,10 @@ def validate_workspace_relative_path(raw_path: str) -> str:
 
 
 def _looks_like_artifact_key(key: str) -> bool:
-    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
-    return normalized in {re.sub(r"[^a-z0-9]", "", item) for item in _ARTIFACT_KEYS}
+    return re.sub(r"[^a-z0-9]", "", key.lower()) in _NORMALIZED_ARTIFACT_KEYS
 
 
-def _validate_artifact_paths(value: Any, *, artifact_context: bool = False, field: str = "artifact") -> None:
-    """Validate all known artifact path fields in an open-ended world object."""
-
+def _validate_artifact_paths(value: Any, *, artifact_context: bool = False) -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
             if not isinstance(key, str):
@@ -226,76 +180,52 @@ def _validate_artifact_paths(value: Any, *, artifact_context: bool = False, fiel
             normalized_key = key.lower().replace("-", "_")
             child_context = artifact_context or _looks_like_artifact_key(key)
             if normalized_key in _PATH_KEYS:
-                # ``path`` is also part of the editable terrain vocabulary
-                # (for example ``spec.rivers[].path`` is an array of UV
-                # points).  Only fields inside an artifact reference are
-                # required to be workspace-relative file paths; ordinary
-                # world data is allowed to recurse through list/object
-                # values without being mistaken for a file path.
                 if isinstance(child, str):
                     validate_workspace_relative_path(child)
                 elif artifact_context:
                     raise WorldStoreError("Artifact path must be a string")
             elif normalized_key in _URL_PATH_KEYS and artifact_context:
-                # World artifacts are server-owned references, not browser blob
-                # URLs or local absolute paths.  Keep the wire value unchanged
-                # after validating it as a workspace-relative path.
                 validate_workspace_relative_path(child)
             elif _looks_like_artifact_key(key) and isinstance(child, str):
                 validate_workspace_relative_path(child)
-            _validate_artifact_paths(child, artifact_context=child_context, field=f"{field}.{key}")
+            _validate_artifact_paths(child, artifact_context=child_context)
     elif isinstance(value, list):
-        for index, child in enumerate(value):
-            _validate_artifact_paths(child, artifact_context=artifact_context, field=f"{field}[{index}]")
+        for child in value:
+            _validate_artifact_paths(child, artifact_context=artifact_context)
 
 
-def _validate_world_shape(value: dict[str, Any], expected_world_id: str | None = None) -> None:
-    schema_version = value.get("schema_version", WORLD_SCHEMA_VERSION)
-    # bool is an int subclass but is not a valid schema version.
-    if type(schema_version) is not int or schema_version != WORLD_SCHEMA_VERSION:
-        raise WorldStoreError(f"Unsupported world schema_version: {schema_version!r}")
-
-    kind = value.get("kind", WORLD_KIND)
-    if kind != WORLD_KIND:
+def _validate_world_shape(value: dict[str, Any], expected_world_id: str | None = None) -> WorldDocument:
+    if value.get("schema_version") != WORLD_SCHEMA_VERSION:
+        raise WorldStoreError(
+            f"World schema_version must be {WORLD_SCHEMA_VERSION}; old world documents are not supported"
+        )
+    if value.get("kind") != WORLD_KIND:
         raise WorldStoreError(f"World kind must be {WORLD_KIND!r}")
-
     if expected_world_id is not None:
-        for key in ("world_id", "worldId", "id"):
-            if key in value and value[key] is not None:
-                if not isinstance(value[key], str) or value[key].strip() != expected_world_id:
-                    raise WorldStoreError("World id in the URL must match the request body")
-
-    # Exercise the public Pydantic schema as a lightweight shape check while
-    # retaining the original open-ended mapping for round-trip fidelity.
+        body_id = value.get("id")
+        if not isinstance(body_id, str) or body_id.strip() != expected_world_id:
+            raise WorldStoreError("World id in the URL must match document.id")
     try:
-        WorldDocument.model_validate(value)
+        validated = WorldDocument.model_validate(value)
     except ValidationError as exc:
         raise WorldStoreError(f"Invalid world document: {exc}") from exc
     _validate_artifact_paths(value)
+    return validated
 
 
 def _encode_world(value: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
     try:
-        encoded = json.dumps(
-            value,
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        ).encode("utf-8")
+        encoded = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise WorldStoreError(f"World document must contain JSON values: {exc}") from exc
     if len(encoded) + 1 > MAX_WORLD_BYTES:
         raise WorldTooLargeError(
             f"World document is larger than {MAX_WORLD_BYTES // (1024 * 1024)} MiB"
         )
-    try:
-        normalized = json.loads(encoded)
-    except json.JSONDecodeError as exc:  # pragma: no cover - json.dumps is valid
-        raise WorldStoreError(f"Could not encode world document: {exc}") from exc
-    return encoded + b"\n", normalized
+    return encoded + b"\n", json.loads(encoded)
 
 
-def _read_world_file(path: Path, expected_world_id: str | None = None) -> dict[str, Any]:
+def _read_world_file(path: Path, expected_world_id: str) -> dict[str, Any]:
     try:
         if not path.is_file():
             raise WorldNotFoundError(path.name)
@@ -303,11 +233,8 @@ def _read_world_file(path: Path, expected_world_id: str | None = None) -> dict[s
             raise WorldTooLargeError(
                 f"World document is larger than {MAX_WORLD_BYTES // (1024 * 1024)} MiB"
             )
-        raw = path.read_bytes()
-        value = json.loads(raw.decode("utf-8"))
-    except WorldStoreError:
-        raise
-    except WorldNotFoundError:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (WorldStoreError, WorldNotFoundError):
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WorldStoreError(f"Could not read world document: {exc}") from exc
@@ -329,24 +256,17 @@ def save_world(
     world_id: str | Mapping[str, Any] | BaseModel,
     world: Mapping[str, Any] | BaseModel | None = None,
 ) -> dict[str, Any]:
-    """Validate and atomically replace one world document."""
+    """Validate and atomically replace one strict world document."""
 
     if world is None:
         value = _as_mapping(world_id)  # type: ignore[arg-type]
-        body_id = next(
-            (
-                value[key]
-                for key in ("world_id", "worldId", "id")
-                if key in value and value[key] is not None
-            ),
-            None,
-        )
-        safe_id = validate_world_id(body_id)
+        safe_id = validate_world_id(value.get("id"))
     else:
         safe_id = validate_world_id(world_id)  # type: ignore[arg-type]
         value = _as_mapping(world)
+
     _validate_world_shape(value, expected_world_id=safe_id)
-    encoded, normalized = _encode_world(value | {"schema_version": WORLD_SCHEMA_VERSION, "kind": WORLD_KIND})
+    encoded, normalized = _encode_world(value)
 
     with _lock:
         worlds_dir = _worlds_dir()
@@ -365,8 +285,6 @@ def save_world(
                 finally:
                     os.close(directory_fd)
             except OSError:
-                # Directory fsync is unavailable on a few filesystems; the
-                # atomic replacement itself is still guaranteed by os.replace.
                 pass
         finally:
             temporary.unlink(missing_ok=True)
@@ -374,26 +292,16 @@ def save_world(
 
 
 def load_world(world_id: str) -> dict[str, Any]:
-    """Load one world document, rejecting corrupt or unsafe data."""
-
     safe_id = validate_world_id(world_id)
     with _lock:
-        path = world_path(safe_id)
-        return _read_world_file(path, expected_world_id=safe_id)
+        return _read_world_file(world_path(safe_id), expected_world_id=safe_id)
 
 
 def get_world(world_id: str) -> dict[str, Any] | None:
-    """Return one world or ``None`` when it has not been saved."""
-
     try:
         return load_world(world_id)
     except WorldNotFoundError:
         return None
-
-
-# Private spelling kept as a small compatibility affordance for tests and
-# callers that mirror ``workflow_store._workflow_path``.
-_world_path = world_path
 
 
 __all__ = [

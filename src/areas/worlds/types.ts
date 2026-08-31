@@ -1,6 +1,4 @@
-import type { Instance, WorldSpec } from './runtime/types'
-import type { ScenePlan } from './runtime/scenePlan'
-import type { WorldAgentPlan } from './worldPlan'
+import type { WorldRuntime } from './runtime/runtime'
 
 export interface WorldMeshArtifact {
   kind: 'mesh'
@@ -15,24 +13,23 @@ export interface WorldAssetArtifact {
   mesh?: WorldMeshArtifact
 }
 
-/** Editable, server-owned world document. Derived terrain is never persisted. */
+/**
+ * Server-owned editable world document.
+ *
+ * Schema v2 has one runtime contract.  Build, semantic scene, compiled output,
+ * gameplay and Agent progress are no longer mirrored as top-level fields.
+ */
 export interface WorldDocument {
-  schema_version: 1
+  schema_version: 2
   kind: 'polykit.world'
   id: string
   name: string
   created_at: string
   updated_at: string
-  /** Server run that created this scene, when it came from Agent generation. */
   run_id?: string
-  /** Optional parent scene when the Agent deliberately creates a revision. */
   parent_world_id?: string
-  spec: WorldSpec
-  instances: Instance[]
+  runtime: WorldRuntime
   artifacts: Record<string, WorldAssetArtifact>
-  /** EmbodiedGen-style indoor plan, when this document is not an outdoor WorldSpec. */
-  scene_plan?: ScenePlan
-  agent_plan?: WorldAgentPlan
 }
 
 export interface WorldSaveResponse {
