@@ -52,6 +52,42 @@ export interface WorldRuntimeState {
   updated_at?: string
 }
 
+export interface BuildAnchorSpec {
+  id: string
+  partId?: string
+  position?: [number, number, number]
+  normal?: [number, number, number]
+}
+
+export interface BuildAttachmentSpec {
+  id: string
+  from: string
+  to: string
+  mode: 'flush' | 'support' | 'inside' | 'passes-through'
+  tolerance: number
+}
+
+export interface BuildingSpec {
+  id: string
+  name: string
+  generator: 'blender-parametric'
+  parameters: Record<string, string | number | boolean>
+  anchors: BuildAnchorSpec[]
+  attachments: BuildAttachmentSpec[]
+}
+
+/**
+ * Authoring/build contract.  Environment generation and construction rules
+ * live here; semantic scene relationships remain in ScenePlan and gameplay
+ * stays in GameSpec.
+ */
+export interface BuildSpec {
+  kind: 'polykit.build-spec'
+  version: 1
+  environment: WorldSpec | null
+  buildings: BuildingSpec[]
+}
+
 export interface GamePlayerSpec {
   controller: 'walk'
   radius: number
@@ -92,8 +128,8 @@ export interface WorldRuntime {
   intent: {
     prompt: string
   }
-  /** Procedural outdoor/environment build specification. */
-  build: WorldSpec | null
+  /** Authoring/build inputs for outdoor environment and constructed structures. */
+  build: BuildSpec
   /** Semantic object graph and solved transforms, independent of the renderer. */
   scene: ScenePlan | null
   /** Deterministic build output owned by the runtime rather than the renderer. */
@@ -104,6 +140,15 @@ export interface WorldRuntime {
   game: GameSpec
   /** Resumable Agent pass state and explicit quality gates. */
   state: WorldRuntimeState
+}
+
+export function createDefaultBuildSpec(): BuildSpec {
+  return {
+    kind: 'polykit.build-spec',
+    version: 1,
+    environment: null,
+    buildings: [],
+  }
 }
 
 export function createDefaultGameSpec(): GameSpec {
@@ -131,7 +176,7 @@ export function createInitialRuntime(prompt = ''): WorldRuntime {
   return {
     version: WORLD_RUNTIME_VERSION,
     intent: { prompt },
-    build: null,
+    build: createDefaultBuildSpec(),
     scene: null,
     compiled: { instances: [] },
     game: createDefaultGameSpec(),
