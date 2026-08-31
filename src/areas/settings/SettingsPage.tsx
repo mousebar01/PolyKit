@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bot, Globe, HardDrive, Info, Plug, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { Globe, HardDrive, Info, Plug, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 
 import { Button } from '@shared/components/ui/button'
 import { useI18n, type TranslationKey } from '@shared/i18n'
@@ -9,13 +9,11 @@ import { AboutSection } from './components/AboutSection'
 import { IntegrationsSection } from './components/IntegrationsSection'
 import { ApplicationSection } from './components/ApplicationSection'
 import { NetworkSection } from './components/NetworkSection'
-import { AgentSection } from './components/AgentSection'
 
 type Section = SettingsSection
 
 const SECTIONS: { id: Section; label: TranslationKey; icon: LucideIcon }[] = [
   { id: 'application', label: 'settings.application', icon: SlidersHorizontal },
-  { id: 'agent', label: 'settings.agent', icon: Bot },
   { id: 'storage', label: 'settings.storage', icon: HardDrive },
   { id: 'integrations', label: 'settings.integrations', icon: Plug },
   { id: 'network', label: 'settings.network', icon: Globe },
@@ -63,7 +61,6 @@ export default function SettingsPage(): JSX.Element {
       <main className="flex-1 overflow-y-auto bg-background">
         <div className="w-full max-w-5xl p-5 lg:p-6">
           {section === 'application' && <ApplicationSection />}
-          {section === 'agent' && <AgentSection />}
           {section === 'storage' && <StorageSection />}
           {section === 'integrations' && <IntegrationsSection />}
           {section === 'network' && <NetworkSection />}

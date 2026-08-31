@@ -1,24 +1,8 @@
 {
   "mcpServers": {
-    "polykit": {
-      "command": "uv",
-      "args": ["run", "python", "api/mcp_entrypoint.py"],
-      "cwd": "."
-    },
     "blender": {
       "command": "uvx",
-      "args": [
-        "--with",
-        "mcp<2",
-        "--from",
-        "git+https://projects.blender.org/lab/blender_mcp.git@4309a39#subdirectory=mcp",
-        "blender-mcp"
-      ],
-      "env": {
-        "BLENDER_MCP_HOST": "10.144.144.2",
-        "BLENDER_MCP_PORT": "9876"
-      },
-      "lifecycle": "lazy"
+      "args": ["blender-mcp"]
     }
   }
 }

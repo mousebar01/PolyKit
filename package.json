@@ -4,9 +4,9 @@
   "author": "PolyKit",
   "private": true,
   "scripts": {
-    "dev": "node scripts/ensure-agent-deps.mjs && node scripts/build-builtins.mjs && vite --config vite.web.config.ts",
-    "web": "node scripts/ensure-agent-deps.mjs && node scripts/build-builtins.mjs && vite --config vite.web.config.ts",
-    "web:build": "node scripts/ensure-agent-deps.mjs && node scripts/build-builtins.mjs && vite build --config vite.web.config.ts",
+    "dev": "node scripts/build-builtins.mjs && vite --config vite.web.config.ts",
+    "web": "node scripts/build-builtins.mjs && vite --config vite.web.config.ts",
+    "web:build": "node scripts/build-builtins.mjs && vite build --config vite.web.config.ts",
     "web:preview": "vite preview --config vite.web.config.ts",
     "web:serve": "npm run web:build && node scripts/serve-web.mjs",
     "build:web": "npm run web:build",

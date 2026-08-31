@@ -1,4 +1,0 @@
-interface:
-  display_name: "PolyKit Scene Planner"
-  short_description: "Plan spatially valid PolyKit scenes"
-  default_prompt: "Create or revise a PolyKit scene plan with explicit object relationships and camera-independent layout checks. During the materials stage, optionally resolve semantic material intents through the Poly Haven texture library (https://polyhaven.com/textures), record the chosen asset id/map set/UV scale, and preserve the scene's declared stylized or realistic art direction."

@@ -16,7 +16,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Dict, Optional
 from urllib.parse import quote, urlparse, urlunsplit
 
 _HOME = Path.home() / ".polykit"
@@ -137,63 +137,6 @@ class DownloadSourceConfig:
         }
 
 
-AgentThinkingLevel = Literal["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-AgentToolProfile = Literal["safe", "blender", "developer"]
-
-
-class AgentSettings:
-    """PolyKit-owned defaults for the embedded Agent runtime.
-
-    The session directory is derived from ``runtime_paths.data`` by the
-    settings route and is intentionally not persisted as a user-editable path.
-    """
-
-    def __init__(
-        self,
-        *,
-        enabled: bool = True,
-        default_provider: str = "",
-        default_model: str = "",
-        thinking_level: AgentThinkingLevel = "medium",
-        tool_profile: AgentToolProfile = "blender",
-    ) -> None:
-        self.enabled = bool(enabled)
-        self.default_provider = (default_provider or "").strip()
-        self.default_model = (default_model or "").strip()
-        self.thinking_level = thinking_level
-        self.tool_profile = tool_profile
-
-    @classmethod
-    def from_dict(cls, data: Optional[dict]) -> "AgentSettings":
-        if not isinstance(data, dict):
-            data = {}
-        thinking_level = data.get("thinking_level", "medium")
-        if thinking_level not in {"off", "minimal", "low", "medium", "high", "xhigh", "max"}:
-            thinking_level = "medium"
-        tool_profile = data.get("tool_profile", "blender")
-        if tool_profile not in {"safe", "blender", "developer"}:
-            tool_profile = "blender"
-        enabled = data.get("enabled", True)
-        if not isinstance(enabled, bool):
-            enabled = True
-        return cls(
-            enabled=enabled,
-            default_provider=str(data.get("default_provider", "") or ""),
-            default_model=str(data.get("default_model", "") or ""),
-            thinking_level=thinking_level,
-            tool_profile=tool_profile,
-        )
-
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            "enabled": self.enabled,
-            "default_provider": self.default_provider,
-            "default_model": self.default_model,
-            "thinking_level": self.thinking_level,
-            "tool_profile": self.tool_profile,
-        }
-
-
 def _read() -> dict:
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -206,8 +149,8 @@ def _write(data: dict) -> None:
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    # The settings file may contain HF tokens, proxy credentials, or future
-    # Agent provider secrets. Keep both the temporary and final files private.
+    # The settings file may contain HF tokens or proxy credentials. Keep both
+    # the temporary and final files private.
     os.chmod(tmp, 0o600)
     tmp.replace(SETTINGS_FILE)
     os.chmod(SETTINGS_FILE, 0o600)
@@ -223,6 +166,9 @@ def save_settings(patch: dict) -> dict:
     """Merge ``patch`` into the settings file atomically and return the result."""
     with _LOCK:
         next_data = {**_read(), **patch}
+        # Silently drop the retired embedded-agent configuration when any
+        # setting is saved so old installations converge to the current schema.
+        next_data.pop("agent", None)
         _write(next_data)
         return next_data
 
@@ -233,7 +179,7 @@ def _bypass_value(bypass: str) -> str:
         for part in (*_BYPASS_DEFAULTS, *bypass.replace("\n", ",").split(","))
         if part.strip()
     ]
-    return ",".join(dict.fromkeys(parts))  # dedupe while preserving order
+    return ",".join(dict.fromkeys(parts))
 
 
 def apply_proxy_env(proxy: ProxyConfig) -> None:
@@ -247,7 +193,7 @@ def apply_proxy_env(proxy: ProxyConfig) -> None:
     if scheme in {"http", "https"}:
         os.environ["http_proxy"] = os.environ["HTTP_PROXY"] = proxy.effective_url
         os.environ["https_proxy"] = os.environ["HTTPS_PROXY"] = proxy.effective_url
-    else:  # socks5 / socks5h — routed via ALL_PROXY
+    else:
         os.environ["all_proxy"] = os.environ["ALL_PROXY"] = proxy.effective_url
 
     bypass = _bypass_value(proxy.bypass)
@@ -277,12 +223,9 @@ def apply_download_sources(sources: DownloadSourceConfig) -> None:
     if sources.huggingface_endpoint:
         os.environ["HF_ENDPOINT"] = sources.huggingface_endpoint
     if sources.pypi_index_url:
-        # uv honours UV_INDEX_URL; pip-based packages still honour PIP_INDEX_URL.
         os.environ["UV_INDEX_URL"] = sources.pypi_index_url
         os.environ["PIP_INDEX_URL"] = sources.pypi_index_url
     if sources.pytorch_index_url:
-        # The SkinTokens setup uses a CUDA-specific PyTorch index, so keep this
-        # separate from the general PyPI mirror.
         os.environ["POLYKIT_PYTORCH_INDEX_URL"] = sources.pytorch_index_url
 
 
@@ -291,16 +234,6 @@ def set_download_sources(sources: DownloadSourceConfig) -> DownloadSourceConfig:
     save_settings({"sources": sources.to_dict()})
     apply_download_sources(sources)
     return sources
-
-
-def get_agent_settings() -> AgentSettings:
-    return AgentSettings.from_dict(load_settings().get("agent"))
-
-
-def set_agent_settings(settings: AgentSettings) -> AgentSettings:
-    """Persist Agent defaults for the embedded runtime."""
-    save_settings({"agent": settings.to_dict()})
-    return settings
 
 
 def apply_persisted_proxy() -> None:
@@ -313,10 +246,6 @@ def apply_persisted_proxy() -> None:
         os.environ.get(key) for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
     )
     if already_configured:
-        # urllib, requests and several package managers prefer lower-case
-        # aliases. Normalize aliases when a launcher supplied upper-case
-        # values so a stale lower-case variable cannot silently hijack a
-        # download (for example HTTPS_PROXY=17897 with https_proxy=7897).
         for upper, lower in (
             ("HTTP_PROXY", "http_proxy"),
             ("HTTPS_PROXY", "https_proxy"),
@@ -335,9 +264,6 @@ def apply_persisted_proxy() -> None:
 def apply_persisted_download_sources() -> None:
     """Apply saved mirrors unless the operator supplied that source via env."""
     sources = get_download_sources()
-    # Keep precedence per ecosystem. A container image commonly exports
-    # PIP_INDEX_URL while still needing the saved Hugging Face endpoint (and
-    # vice versa); one explicit variable must not suppress unrelated settings.
     if sources.huggingface_endpoint and not os.environ.get("HF_ENDPOINT"):
         os.environ["HF_ENDPOINT"] = sources.huggingface_endpoint
     if sources.pypi_index_url and not (
@@ -350,13 +276,7 @@ def apply_persisted_download_sources() -> None:
 
 
 def url_opener():
-    """Build a fresh urllib opener honouring the *current* proxy env.
-
-    ``urllib.request.urlopen`` builds and caches its default opener on first
-    use, freezing the proxy snapshot from that moment. Building the opener
-    per request lets a proxy change from Settings apply to the very next
-    download without a server restart.
-    """
+    """Build a fresh urllib opener honouring the *current* proxy env."""
     from urllib.request import ProxyHandler, build_opener
 
     return build_opener(ProxyHandler())

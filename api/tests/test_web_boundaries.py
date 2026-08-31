@@ -7,16 +7,14 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi import HTTPException
+from unittest.mock import patch
 
 import routers.model as model
 import routers.node_packs as node_packs
-import routers.agent as agent_router
 import routers.settings as settings_router
 import routers.workspace_library as workspace_library
-import services.runtime_settings as runtime_settings
 from services.runtime_paths import runtime_paths
 from services.runtime_settings import DownloadSourceConfig
 
@@ -58,7 +56,6 @@ class WebBoundaryTests(unittest.TestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual([entry["workspacePath"] for entry in result["entries"]], ["Workflows/hero.glb", "Workflows/hero.png"])
-
             image_entry = result["entries"][1]
             self.assertEqual(image_entry["capability"], "image")
             self.assertEqual(image_entry["previewKind"], "image")
@@ -70,18 +67,8 @@ class WebBoundaryTests(unittest.TestCase):
             runtime_paths.update(workspace_dir=root)
             (root / "Workflows").mkdir()
             (root / "Workflows" / "hero.glb").write_bytes(b"glb")
-
-            unsafe = asyncio.run(
-                workspace_library.read_library(
-                    workspace_library.LibraryRequest(workspacePath="../hero.glb")
-                )
-            )
-            safe = asyncio.run(
-                workspace_library.read_library(
-                    workspace_library.LibraryRequest(workspacePath="Workflows/hero.glb")
-                )
-            )
-
+            unsafe = asyncio.run(workspace_library.read_library(workspace_library.LibraryRequest(workspacePath="../hero.glb")))
+            safe = asyncio.run(workspace_library.read_library(workspace_library.LibraryRequest(workspacePath="Workflows/hero.glb")))
             self.assertFalse(unsafe["success"])
             self.assertEqual(unsafe["error"]["code"], "unsafe-path")
             self.assertTrue(safe["success"])
@@ -93,15 +80,8 @@ class WebBoundaryTests(unittest.TestCase):
             runtime_paths.update(workspace_dir=root)
             workflows = root / "Workflows"
             workflows.mkdir()
-            world_path = workflows / "emberfall.world.json"
-            world_path.write_text("{}", encoding="utf-8")
-
-            result = asyncio.run(
-                workspace_library.open_library(
-                    workspace_library.LibraryRequest(workspacePath="Workflows/emberfall.world.json")
-                )
-            )
-
+            (workflows / "emberfall.world.json").write_text("{}", encoding="utf-8")
+            result = asyncio.run(workspace_library.open_library(workspace_library.LibraryRequest(workspacePath="Workflows/emberfall.world.json")))
             self.assertTrue(result["success"])
             self.assertEqual(result["entry"]["capability"], "generated-world")
             self.assertTrue(result["entry"]["openable"])
@@ -114,16 +94,7 @@ class WebBoundaryTests(unittest.TestCase):
             workflows.mkdir()
             world_path = workflows / "emberfall.world.json"
             world_path.write_text(json.dumps({"id": "emberfall", "kind": "polykit.world"}), encoding="utf-8")
-
-            result = asyncio.run(
-                workspace_library.rename_asset(
-                    workspace_library.LibraryRenameRequest(
-                        workspacePath="Workflows/emberfall.world.json",
-                        newName="harbor",
-                    )
-                )
-            )
-
+            result = asyncio.run(workspace_library.rename_asset(workspace_library.LibraryRenameRequest(workspacePath="Workflows/emberfall.world.json", newName="harbor")))
             self.assertTrue(result["success"])
             self.assertEqual(result["workspacePath"], "Workflows/harbor.world.json")
             self.assertFalse(world_path.exists())
@@ -137,19 +108,10 @@ class WebBoundaryTests(unittest.TestCase):
             runtime_paths.update(workspace_dir=root)
             (root / "Workflows").mkdir()
             (root / "Workflows" / "hero.png").write_bytes(b"png")
-
-            result = asyncio.run(
-                workspace_library.read_library(
-                    workspace_library.LibraryRequest(workspacePath="Workflows/hero.png")
-                )
-            )
-
+            result = asyncio.run(workspace_library.read_library(workspace_library.LibraryRequest(workspacePath="Workflows/hero.png")))
             self.assertTrue(result["success"])
             self.assertEqual(result["entry"]["capability"], "image")
-            self.assertEqual(result["preview"], {
-                "kind": "image",
-                "imageUrl": "/workspace/Workflows/hero.png",
-            })
+            self.assertEqual(result["preview"], {"kind": "image", "imageUrl": "/workspace/Workflows/hero.png"})
 
     def test_workspace_library_exports_mixed_assets_as_original_zip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -159,12 +121,7 @@ class WebBoundaryTests(unittest.TestCase):
             workflows.mkdir()
             (workflows / "hero.png").write_bytes(b"png")
             (workflows / "hero.glb").write_bytes(b"glb")
-
-            response = workspace_library.export_assets(
-                workspace_library.LibraryExportRequest(
-                    workspacePaths=["Workflows/hero.png", "Workflows/hero.glb"]
-                )
-            )
+            response = workspace_library.export_assets(workspace_library.LibraryExportRequest(workspacePaths=["Workflows/hero.png", "Workflows/hero.glb"]))
             self.assertEqual(response.media_type, "application/zip")
             self.assertIn("polykit-assets.zip", response.headers["content-disposition"])
 
@@ -192,10 +149,8 @@ class WebBoundaryTests(unittest.TestCase):
                     "meshes": [{"primitives": [{"attributes": {"JOINTS_0": 0, "WEIGHTS_0": 1}}]}],
                 },
             )
-
             with patch("services.asset_previews.start_prewarm"):
                 result = asyncio.run(workspace_library.list_library())
-
             self.assertTrue(result["success"])
             entry = result["entries"][0]
             self.assertEqual(entry["capability"], "rigged-mesh")
@@ -208,7 +163,6 @@ class WebBoundaryTests(unittest.TestCase):
             runtime_paths.update(models_dir=root)
             (root / "real").mkdir()
             (root / "alias").symlink_to(root / "real", target_is_directory=True)
-
             with self.assertRaises(HTTPException):
                 model._safe_model_path("../outside")
             with self.assertRaises(HTTPException):
@@ -221,17 +175,8 @@ class WebBoundaryTests(unittest.TestCase):
             marker = root / "skintokens-rig" / "auto-rig" / "checkpoint.ckpt"
             marker.parent.mkdir(parents=True)
             marker.write_bytes(b"weights")
-
-            result = asyncio.run(
-                model.model_downloaded(
-                    "skintokens-rig/auto-rig",
-                    "checkpoint.ckpt",
-                )
-            )
-            self.assertEqual(result, {
-                "model_id": "skintokens-rig/auto-rig",
-                "downloaded": True,
-            })
+            result = asyncio.run(model.model_downloaded("skintokens-rig/auto-rig", "checkpoint.ckpt"))
+            self.assertEqual(result, {"model_id": "skintokens-rig/auto-rig", "downloaded": True})
 
     def test_model_delete_can_remove_weights_before_isolated_setup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -240,14 +185,8 @@ class WebBoundaryTests(unittest.TestCase):
             model_dir = root / "skintokens-rig" / "auto-rig"
             model_dir.mkdir(parents=True)
             (model_dir / "partial.ckpt").write_bytes(b"partial")
-
-            with patch.object(
-                model.model_runtime_registry,
-                "get_generator",
-                side_effect=ValueError("missing venv"),
-            ):
+            with patch.object(model.model_runtime_registry, "get_generator", side_effect=ValueError("missing venv")):
                 result = asyncio.run(model.delete_model("skintokens-rig/auto-rig"))
-
             self.assertTrue(result["deleted"])
             self.assertFalse(model_dir.exists())
 
@@ -258,7 +197,6 @@ class WebBoundaryTests(unittest.TestCase):
             pack = root / "third-party"
             pack.mkdir()
             (pack / "setup.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
-
             with patch.dict(os.environ, {"POLYKIT_HEADLESS": "1"}, clear=False):
                 with self.assertRaises(HTTPException) as raised:
                     asyncio.run(node_packs.setup_node_pack("third-party"))
@@ -271,24 +209,13 @@ class WebBoundaryTests(unittest.TestCase):
             pack = root / "official"
             pack.mkdir()
             (pack / ".polykit-official").write_text("official\n", encoding="utf-8")
-            (pack / "manifest.json").write_text(
-                json.dumps({"id": "official", "python_min": "3.11"}),
-                encoding="utf-8",
-            )
-            (pack / "setup.py").write_text(
-                "from pathlib import Path\nPath('setup-ran').write_text('ok')\n",
-                encoding="utf-8",
-            )
-
+            (pack / "manifest.json").write_text(json.dumps({"id": "official", "python_min": "3.11"}), encoding="utf-8")
+            (pack / "setup.py").write_text("from pathlib import Path\nPath('setup-ran').write_text('ok')\n", encoding="utf-8")
             with patch.dict(os.environ, {"POLYKIT_HEADLESS": "1"}, clear=False):
                 result = asyncio.run(node_packs.setup_node_pack("official"))
-
             self.assertEqual(result["status"], "ok")
             self.assertTrue((pack / "setup-ran").is_file())
-            self.assertGreaterEqual(
-                node_packs._python_version(result["python_exe"]),
-                (3, 11),
-            )
+            self.assertGreaterEqual(node_packs._python_version(result["python_exe"]), (3, 11))
 
     def test_download_source_probe_urls_are_ecosystem_specific(self) -> None:
         sources = DownloadSourceConfig(
@@ -296,63 +223,9 @@ class WebBoundaryTests(unittest.TestCase):
             pypi_index_url="https://pypi.example/simple/",
             pytorch_index_url="https://torch.example/whl/{tag}/",
         )
-        self.assertEqual(
-            settings_router._source_probe_url("huggingface", sources),
-            "https://hf.example/api/models?limit=1",
-        )
-        self.assertEqual(
-            settings_router._source_probe_url("pypi", sources),
-            "https://pypi.example/simple/fastapi/",
-        )
-        self.assertEqual(
-            settings_router._source_probe_url("pytorch", sources),
-            "https://torch.example/whl/cu126/torch/",
-        )
-
-    def test_agent_settings_route_merges_partial_updates(self) -> None:
-        original_file = runtime_settings.SETTINGS_FILE
-        with tempfile.TemporaryDirectory() as temp_dir:
-            runtime_settings.SETTINGS_FILE = Path(temp_dir) / "settings.json"
-            try:
-                first = asyncio.run(settings_router.update_agent_settings(
-                    settings_router.AgentSettingsUpdate(
-                        default_provider="anthropic",
-                        default_model="claude-sonnet",
-                    )
-                ))
-                second = asyncio.run(settings_router.update_agent_settings(
-                    settings_router.AgentSettingsUpdate(enabled=False)
-                ))
-            finally:
-                runtime_settings.SETTINGS_FILE = original_file
-
-        self.assertEqual(first["default_provider"], "anthropic")
-        self.assertEqual(second["default_provider"], "anthropic")
-        self.assertEqual(second["default_model"], "claude-sonnet")
-        self.assertFalse(second["enabled"])
-        self.assertTrue(second["session_dir"].endswith("agent/sessions"))
-
-    def test_agent_session_defaults_follow_polykit_settings(self) -> None:
-        configured = runtime_settings.AgentSettings(
-            default_provider="openai-codex",
-            default_model="gpt-5.6-luna",
-            thinking_level="high",
-            tool_profile="safe",
-        )
-        with patch("routers.agent.get_agent_settings", return_value=configured):
-            payload = json.loads(agent_router._apply_session_defaults(
-                b'{"cwd":"/workspace","type":"ensure_session"}'
-            ))
-            explicit = json.loads(agent_router._apply_session_defaults(
-                b'{"cwd":"/workspace","type":"ensure_session","thinkingLevel":"off","toolNames":["ls"]}'
-            ))
-
-        self.assertEqual(payload["provider"], "openai-codex")
-        self.assertEqual(payload["modelId"], "gpt-5.6-luna")
-        self.assertEqual(payload["thinkingLevel"], "high")
-        self.assertEqual(payload["toolNames"], ["read"])
-        self.assertEqual(explicit["thinkingLevel"], "off")
-        self.assertEqual(explicit["toolNames"], ["ls"])
+        self.assertEqual(settings_router._source_probe_url("huggingface", sources), "https://hf.example/api/models?limit=1")
+        self.assertEqual(settings_router._source_probe_url("pypi", sources), "https://pypi.example/simple/fastapi/")
+        self.assertEqual(settings_router._source_probe_url("pytorch", sources), "https://torch.example/whl/cu126/torch/")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ if (!found) {
 }
 
 const [command, prefix] = found
-const result = spawnSync(command, [...prefix, 'tools/polykit-cli/test_agent.py'], {
+const result = spawnSync(command, [...prefix, 'tools/polykit-cli/test_cli.py'], {
   cwd: root,
   stdio: 'inherit',
 })

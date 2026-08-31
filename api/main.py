@@ -1,8 +1,8 @@
 """PolyKit's standalone API and Web UI host.
 
-The FastAPI process is the product core. A browser can use the API directly.
-When ``dist-web`` (or ``POLYKIT_WEB_DIR``) exists, this process also serves the
-built Web frontend.
+The FastAPI process is the product core. A browser or CLI can use the API
+directly. When ``dist-web`` (or ``POLYKIT_WEB_DIR``) exists, this process also
+serves the built Web frontend.
 """
 import logging
 import os
@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import agent, export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library, workspace_worlds
+from routers import export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library, workspace_worlds, world_artifacts
 from services.runtime_paths import runtime_paths
 
 
@@ -27,9 +27,6 @@ async def lifespan(app: FastAPI):
     apply_persisted_download_sources()
     model_runtime_registry.initialize()
     yield
-    from services.agent_runtime import agent_runtime
-
-    await agent_runtime.stop()
     model_runtime_registry.unload_all(allow_during_generation=True)
 
 
@@ -73,7 +70,6 @@ app.add_middleware(
 )
 
 app.include_router(status.router)
-app.include_router(agent.router)
 app.include_router(settings.router)
 app.include_router(model.router, prefix="/model")
 app.include_router(legacy_generation.router, prefix="/generate")
@@ -84,6 +80,7 @@ app.include_router(workflow_runs.router, prefix="/workflow-runs")
 app.include_router(workflow_store.router)
 app.include_router(workspace_library.router)
 app.include_router(workspace_worlds.router)
+app.include_router(world_artifacts.router)
 app.include_router(node_types.router)
 
 

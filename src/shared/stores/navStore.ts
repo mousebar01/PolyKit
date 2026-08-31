@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
-export type Page = 'assets' | 'workflows' | 'nodePacks' | 'agent' | 'settings'
-export type SettingsSection = 'application' | 'agent' | 'storage' | 'integrations' | 'network' | 'about'
+export type Page = 'assets' | 'workflows' | 'nodePacks' | 'settings'
+export type SettingsSection = 'application' | 'storage' | 'integrations' | 'network' | 'about'
 
 interface NavState {
   currentPage: Page
