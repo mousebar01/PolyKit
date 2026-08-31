@@ -1,10 +1,13 @@
-# Worlds: Agent-first Three.js presentation
+# Worlds: Three.js presentation
 
-PolyKit's Worlds experiment is a local, server-owned adaptation of the useful
-parts of `fal-worldclaw` and the [WorldClaw paper](https://arxiv.org/abs/2608.05248).
-The Agent is the world director; Three.js is the presentation layer; the
-FastAPI workflow runtime remains the only place that executes model/process
-nodes and owns durable artifacts.
+PolyKit's Worlds experiment is a local, server-owned adaptation of useful ideas
+from `fal-worldclaw` and the [WorldClaw paper](https://arxiv.org/abs/2608.05248).
+Three.js is the presentation and interaction layer; the FastAPI workflow runtime
+is the only place that executes model/process nodes and owns durable artifacts.
+
+World building is caller-neutral: Web, CLI, automation, or another HTTP client
+may author the same semantic contracts and invoke the same World APIs. There is
+no embedded Agent state machine or MCP world-tool layer.
 
 ## First vertical slice
 
@@ -12,21 +15,22 @@ nodes and owns durable artifacts.
 - Placement rules resolve into terrain-aware instances.
 - Scatter prototypes use local low-poly geometry, so the preview works with no
   cloud key and no network request.
-- An Agent can save a paper-derived `agent_plan`, record stage progress, submit
-  local asset work, and attach the resulting workspace mesh through the MCP
-  world tools described in `docs/world-agent.md`.
-- The Agent submits local asset work through the canonical workflow-run API.
+- Schema-v2 world documents keep intent, BuildSpec, ScenePlan, GameSpec, quality
+  facts, and workspace artifact references.
+- Asset and structure generation is submitted through the canonical
+  `/workflow-runs/*` API.
 - Editable world documents are stored as
   `WORKSPACE_DIR/Workflows/<id>.world.json` and can be loaded again without
   persisting derived heightfields or Three.js objects.
+- Workflow execution state remains in `WorkflowRun`, not in the world document.
 
 ## Intentionally local and incremental
 
-Text-to-image, text-to-texture, VLM critique, panorama generation, and
-multi-hero orchestration are added as Agent-directed stages only when matching
-local node packs/workflows exist. They should not be reintroduced as browser
-calls to a hosted provider. A missing local capability is recorded as a blocked
-stage and can be implemented behind the canonical workflow-run API later.
+Text-to-image, text-to-texture, visual critique, panorama generation, and other
+capabilities are added only when matching local Node Packs/workflows exist. They
+must not be silently reintroduced as browser calls to hosted providers. Missing
+capabilities remain explicit API/workflow gaps until implemented behind the
+canonical runtime.
 
 ## Relevant modules
 
@@ -35,13 +39,15 @@ stage and can be implemented behind the canonical workflow-run API later.
 | Seeded noise, terrain, placement, procedural geometry | `src/areas/worlds/runtime/` |
 | Generated-scene viewer and inspector | `src/areas/worlds/components/WorldAssetViewer.tsx`, `WorldCanvas.tsx` |
 | Editable scene state and API adapter | `src/areas/worlds/worldStore.ts`, `worldApi.ts` |
-| World persistence | `api/services/world_store.py`, `api/routers/workspace_worlds.py` |
-| Agent planning + MCP tools | `api/services/world_agent.py`, `api/mcp_server.py`, `docs/world-agent.md` |
+| World domain helpers / persistence | `api/services/world_domain.py`, `api/services/world_store.py` |
+| World validation / workflow recipes | `api/services/world_validation.py`, `api/services/world_workflows.py` |
+| World HTTP API | `api/routers/workspace_worlds.py`, `api/routers/world_artifacts.py` |
+| Automation | `tools/polykit-cli/polykit.py` |
 
-The asset library is the single user-facing entry point for generated scenes;
-there is no separate Worlds page. The Agent preview remains a contextual view
-of the latest scene while this viewer is used to inspect a saved scene asset.
+The asset library is the user-facing entry point for generated scenes; there is
+no separate Worlds execution runtime. A saved world is inspected through the
+same Three.js components and server-owned workspace contracts used elsewhere in
+PolyKit.
 
-The external project is kept as a reference checkout outside this repository.
-The PolyKit runtime reimplements the deterministic parts instead of copying
-cloud-specific code or depending on its unannounced license.
+See [`world-builder.md`](world-builder.md) for the authoritative World Builder
+boundary.
