@@ -48,7 +48,7 @@ Required checks are fail-closed:
 - no failure but any required `needs_review` or `not_evaluated` -> report `needs_review`;
 - only required `pass` / `not_applicable` -> report `pass`.
 
-Missing evidence never becomes `pass`.
+Missing evidence never becomes `pass`. If no visual report exists yet, `world.visual.validate` returns `needs_review`; an explicit report that is malformed, belongs to another world/run, references invalid evidence, or contains a required failed check returns `fail`.
 
 ## VisualValidationReport v1
 
@@ -85,6 +85,20 @@ Missing evidence never becomes `pass`.
 ```
 
 Each required passing check must cite evidence by stable evidence id. The evidence entry must point to a real file when file-backed evidence is used.
+
+## Evidence integrity
+
+Server validation treats evidence as part of the proof, not as decoration:
+
+- reference-locked reports require deterministic metric checks and a required semantic review;
+- reference-locked reports require the P0 completeness check rather than allowing a caller to omit P0 validation;
+- when the target records a camera id or camera revision, the candidate must match it;
+- targets that declare `require_spatial` must contain required spatial/geometry checks;
+- file-backed evidence must exist and resolve inside the server-owned PolyKit workspace;
+- check ids and evidence ids must be unique, and every required evaluated check must reference existing evidence;
+- the validator recomputes report status, summary, and earliest unresolved check instead of trusting caller-authored summary fields.
+
+These rules prevent a numerically good image, a stale render, or an arbitrary local file from being used to manufacture a passing report.
 
 ## P0 observations
 
@@ -172,4 +186,4 @@ world.final.validate
 
 A report reference may be an embedded report during tests/automation or a workspace-relative JSON artifact reference in normal production use.
 
-`world.final.validate` requires visual validation to pass alongside the other required world quality domains. Validators report facts and evidence only; they do not create a second task state machine.
+`world.final.validate` requires visual validation to pass alongside the other required world quality domains. An unreviewed visual result keeps Final at `needs_review`; an explicit visual failure makes Final fail. Validators report facts and evidence only; they do not create a second task state machine.
