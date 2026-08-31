@@ -52,6 +52,12 @@ class RunCoordinator:
                 cleanup_artifact_root(runtime_paths.workspace / ".artifacts" / job_id)
             except Exception:
                 pass
+            try:
+                from services.workflow_execution import delete_run_checkpoints
+
+                delete_run_checkpoints(job_id)
+            except Exception:
+                pass
 
     def register(self, job: JobStatus) -> threading.Event:
         self.jobs[job.job_id] = job
@@ -60,12 +66,24 @@ class RunCoordinator:
         self.persist(job)
         return event
 
+    def ensure_cancel_event(self, job_id: str) -> threading.Event:
+        event = self.cancel_events.get(job_id)
+        if event is None or event.is_set():
+            event = threading.Event()
+            self.cancel_events[job_id] = event
+        self.cancelled.discard(job_id)
+        return event
+
     def persist(self, job: JobStatus) -> None:
         self.run_store.save(job, completed_at=self.completed_at.get(job.job_id))
 
     def mark_completed(self, job: JobStatus) -> None:
         self.completed_at[job.job_id] = time.time()
         self.persist(job)
+
+    def clear_completed(self, job_id: str) -> None:
+        self.completed_at.pop(job_id, None)
+        self.run_store.clear_completed(job_id)
 
     def is_cancelled(self, job_id: str) -> bool:
         return job_id in self.cancelled
@@ -79,7 +97,7 @@ class RunCoordinator:
         event = self.cancel_events.get(job_id)
         if event is not None:
             event.set()
-        if job.status in ("pending", "running"):
+        if job.status in ("pending", "running", "waiting", "interrupted"):
             job.status = "cancelled"
             self.completed_at[job_id] = time.time()
         self.persist(job)

@@ -29,6 +29,8 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("polykit_skill_get", names)
         self.assertIn("polykit_skill_read_resource", names)
         self.assertIn("polykit_workflow_inspect", names)
+        self.assertIn("polykit_workflow_signal", names)
+        self.assertIn("polykit_workflow_retry", names)
         self.assertIn("polykit_world_validate", names)
         self.assertIn("polykit_world_build_structure", names)
         self.assertIn("polykit_world_compile_repair", names)
@@ -84,6 +86,39 @@ class PolyKitMcpTests(unittest.TestCase):
             result = asyncio.run(server_module._dispatch("polykit_workflow_inspect", {"run_id": "run-1"}))
         self.assertEqual(result["run_id"], "run-1")
         request.assert_awaited_once_with("GET", "/workflow-runs/run-1/inspect")
+
+    def test_workflow_signal_forwards_judgment_to_same_run(self) -> None:
+        request = AsyncMock(return_value={"run_id": "run 1", "status": "pending", "resumed": True})
+        payload = {"decision": "approve", "score": 0.93}
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch(
+                "polykit_workflow_signal",
+                {"run_id": "run 1", "name": "visual-approval", "payload": payload},
+            ))
+        self.assertTrue(result["resumed"])
+        request.assert_awaited_once_with(
+            "POST",
+            "/workflow-runs/run%201/signals",
+            {"name": "visual-approval", "payload": payload},
+        )
+        self.assertNotEqual(request.await_args.args[1], "/workflow-runs/execute")
+
+    def test_workflow_retry_resumes_same_run_without_execute_submission(self) -> None:
+        request = AsyncMock(return_value={"run_id": "run-2", "status": "pending", "resumed": True})
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch("polykit_workflow_retry", {"run_id": "run-2"}))
+        self.assertEqual(result["run_id"], "run-2")
+        request.assert_awaited_once_with("POST", "/workflow-runs/run-2/retry")
+        self.assertNotEqual(request.await_args.args[1], "/workflow-runs/execute")
+
+    def test_workflow_signal_and_retry_descriptions_preserve_run_authority(self) -> None:
+        tools = {tool.name: tool for tool in asyncio.run(server_module.list_tools())}
+        signal_description = tools["polykit_workflow_signal"].description or ""
+        retry_description = tools["polykit_workflow_retry"].description or ""
+        self.assertIn("same run_id", signal_description)
+        self.assertIn("never creates a new run", signal_description)
+        self.assertIn("same run_id", retry_description)
+        self.assertIn("never submits a replacement WorkflowRun", retry_description)
 
     def test_world_validate_only_proxies_domain_validation(self) -> None:
         request = AsyncMock(return_value={"status": "pass", "issues": []})
