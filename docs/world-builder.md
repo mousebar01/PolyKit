@@ -19,7 +19,7 @@ Node Packs
         ↓
 Blender / local models / processors
         ↓
-Artifacts / GLB
+Artifacts / GLB / validation evidence
 ```
 
 FastAPI 是权威运行时。Three.js 负责浏览器中的交互预览；Blender MCP 可以作为独立的开发或 authoring 集成，但不是 World Builder 的控制面。
@@ -44,6 +44,8 @@ WorldDocument = what the world is
 WorkflowRun   = what computation is/was running
 ```
 
+视觉验证也遵守同一边界：完整的 `VisualValidationReport` 是 Workflow/evidence artifact；`runtime.quality.visual` 只保存紧凑的领域质量事实或 report reference，不保存视觉制作阶段、重试或回滚状态。
+
 ## Typical flow
 
 1. 创建或保存 World。
@@ -52,10 +54,12 @@ WorkflowRun   = what computation is/was running
 4. Workflow Engine 通过 Node Packs 执行 Blender / model / process 节点。
 5. 将完成的 workspace artifact 绑定回稳定的 world object id。
 6. 组合场景。
-7. 运行 spec / blockout / construction / gameplay / final validators。
+7. 运行 spec / blockout / construction / visual / gameplay / final validators。
 8. 通过 WorkflowRun inspect 查看执行证据；检查操作本身不推进或修改任务。
 
 Validators 只报告事实和证据，不决定聊天或客户端下一步要做什么。缺失的视觉或体积证据不能被静默当作通过。
+
+视觉验证采用 evidence-first 规则：deterministic image metrics、semantic review 和 World/geometry spatial checks 是独立证据来源；全局图像相似度不能覆盖 P0、材质类别、camera 或真实几何关系失败。详情见 [Visual validation](visual-validation.md)。
 
 ## CLI
 
@@ -68,6 +72,7 @@ python tools/polykit-cli/polykit.py world compile-scene <world-id> --json scene.
 python tools/polykit-cli/polykit.py world build-structure <world-id>
 python tools/polykit-cli/polykit.py workflow-run inspect <run-id>
 python tools/polykit-cli/polykit.py world attach-asset <world-id> <object-id> Workflows/cabin.glb
+python tools/polykit-cli/polykit.py world validate <world-id> world.visual.validate --run-id <run-id>
 python tools/polykit-cli/polykit.py world validate <world-id> world.final.validate
 ```
 
@@ -81,6 +86,7 @@ CLI 只调用 HTTP API。World artifact 绑定、验证、WorkflowRun 生命周�
 | World persistence | `api/services/world_store.py` |
 | World runtime quality | `api/services/world_runtime.py` |
 | Deterministic world validators | `api/services/world_validation.py` |
+| Visual report + reference image metrics | `api/services/visual_validation.py` |
 | World → Workflow recipes | `api/services/world_workflows.py` |
 | World HTTP API | `api/routers/workspace_worlds.py`, `api/routers/world_artifacts.py` |
 | Workflow execution / observability | `api/services/workflow_engine.py`, `api/services/run_observability.py` |
@@ -95,4 +101,5 @@ CLI 只调用 HTTP API。World artifact 绑定、验证、WorkflowRun 生命周�
 - No browser-side execution of model/process nodes.
 - Construction contacts and tolerances are measured deterministically.
 - `inside` / `passes-through` require volumetric evidence.
-- Missing visual evidence remains `needs_review`, never an invented pass.
+- Missing visual evidence remains `needs_review` or `fail` according to the required gate; it is never an invented pass.
+- A semantic or spatial visual failure cannot be waived by aggregate image similarity.
