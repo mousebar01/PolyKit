@@ -74,12 +74,13 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
             },
         }
 
-    def test_spec_blockout_gameplay_and_construction_validators_pass_real_evidence(self) -> None:
+    def test_domain_validators_report_facts_without_orchestration_outcomes(self) -> None:
         world = self._world()
         world_id = world["id"]
-        self.assertEqual(validate_world(world_id, world, "world.spec.validate")["outcome"], "continue")
-        self.assertEqual(validate_world(world_id, world, "world.blockout.validate")["outcome"], "continue")
-        self.assertEqual(validate_world(world_id, world, "world.gameplay.validate")["outcome"], "continue")
+        for capability in ("world.spec.validate", "world.blockout.validate", "world.gameplay.validate"):
+            report = validate_world(world_id, world, capability)
+            self.assertEqual(report["status"], "pass")
+            self.assertNotIn("outcome", report)
 
         construction = validate_world(
             world_id,
@@ -88,7 +89,7 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
             run=self._construction_run(world_id),
         )
         self.assertEqual(construction["status"], "pass")
-        self.assertEqual(construction["outcome"], "continue")
+        self.assertNotIn("outcome", construction)
         self.assertEqual(construction["evidence"]["kind"], "construction-report")
 
     def test_construction_rejects_a_run_from_another_world(self) -> None:
@@ -96,7 +97,7 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
         run = self._construction_run("other-world")
         report = validate_world(world["id"], world, "world.construction.validate", run=run)
         self.assertEqual(report["status"], "fail")
-        self.assertEqual(report["outcome"], "retry-step")
+        self.assertNotIn("outcome", report)
         self.assertTrue(any(issue["code"] == "construction-run-mismatch" for issue in report["issues"]))
 
     def test_gameplay_requires_an_objective_for_a_playable_world(self) -> None:
@@ -104,9 +105,9 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
         world["runtime"]["game"]["objectives"] = []
         report = validate_world(world["id"], world, "world.gameplay.validate")
         self.assertEqual(report["status"], "needs_review")
-        self.assertEqual(report["outcome"], "retry-step")
+        self.assertNotIn("outcome", report)
 
-    def test_final_review_never_silently_passes_missing_visual_evidence(self) -> None:
+    def test_final_validation_never_silently_passes_missing_visual_evidence(self) -> None:
         world = self._world()
         report = validate_world(
             world["id"],
@@ -115,7 +116,7 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
             run=self._construction_run(world["id"]),
         )
         self.assertEqual(report["status"], "needs_review")
-        self.assertEqual(report["outcome"], "stop")
+        self.assertNotIn("outcome", report)
         self.assertTrue(any(issue["code"] == "final-visual-evidence-missing" for issue in report["issues"]))
 
     def test_structure_compiler_targets_the_existing_blender_node(self) -> None:
