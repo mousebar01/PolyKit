@@ -49,11 +49,36 @@ def bundled_skills_dir() -> Path:
     return (Path(__file__).resolve().parent.parent.parent / "skills").resolve()
 
 
+def _strip_inline_comment(value: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote == '"':
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char == "#" and (index == 0 or value[index - 1].isspace()):
+            return value[:index].rstrip()
+    return value.rstrip()
+
+
 def _unquote_scalar(value: str) -> str:
-    value = value.strip()
+    value = _strip_inline_comment(value.strip())
     if not value:
         return ""
-    if value[0] in {"'", '"'}:
+    if value.startswith("'") and value.endswith("'") and len(value) >= 2:
+        # YAML single-quoted strings escape apostrophes by doubling them.
+        return value[1:-1].replace("''", "'")
+    if value.startswith('"'):
         try:
             parsed = ast.literal_eval(value)
         except (SyntaxError, ValueError) as exc:
@@ -199,13 +224,15 @@ def _resource_entries(skill_dir: Path) -> list[dict[str, Any]]:
         root = skill_dir / dirname
         if not root.is_dir():
             continue
+        resolved_root = root.resolve()
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
             resolved = path.resolve()
             try:
-                resolved.relative_to(skill_dir.resolve())
+                resolved.relative_to(resolved_root)
             except ValueError:
+                # Do not surface symlinks that escape their declared resource directory.
                 continue
             entries.append({
                 "path": path.relative_to(skill_dir).as_posix(),
@@ -277,11 +304,12 @@ def read_agent_skill_resource(name: str, resource_path: str, root: Path | None =
     relative = Path(resource_path)
     if relative.is_absolute() or not relative.parts or relative.parts[0] not in _RESOURCE_DIRS:
         raise AgentSkillError("Skill resources must live under scripts/, references/, or assets/")
+    declared_root = (skill_dir / relative.parts[0]).resolve()
     target = (skill_dir / relative).resolve()
     try:
-        target.relative_to(skill_dir)
+        target.relative_to(declared_root)
     except ValueError as exc:
-        raise AgentSkillError("Skill resource escapes its skill directory") from exc
+        raise AgentSkillError("Skill resource escapes its declared resource directory") from exc
     if not target.is_file():
         raise FileNotFoundError(resource_path)
     size = target.stat().st_size
