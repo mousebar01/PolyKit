@@ -7,17 +7,16 @@ from mcp_entrypoint import EXTRA_TOOL_NAMES, list_tools
 
 
 class McpEntrypointTests(unittest.TestCase):
-    def test_combined_entrypoint_keeps_legacy_tools_and_adds_workflow_controls(self) -> None:
+    def test_entrypoint_exposes_world_domain_bridges_without_agent_task_runtime(self) -> None:
         tools = asyncio.run(list_tools())
         names = {tool.name for tool in tools}
         self.assertIn("polykit_world_create", names)
         self.assertIn("polykit_get_generation_status", names)
+        self.assertEqual(EXTRA_TOOL_NAMES, {"polykit_world_validate", "polykit_world_build_structure"})
         self.assertTrue(EXTRA_TOOL_NAMES.issubset(names))
-        self.assertIn("polykit_agent_workflow_next", names)
-        self.assertIn("polykit_world_validate", names)
-        self.assertIn("polykit_world_build_structure", names)
+        self.assertFalse(any(name.startswith("polykit_agent_workflow_") for name in names))
 
-    def test_repo_mcp_config_uses_combined_entrypoint(self) -> None:
+    def test_repo_mcp_config_uses_world_domain_entrypoint(self) -> None:
         root = Path(__file__).resolve().parents[2]
         config = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
         args = config["mcpServers"]["polykit"]["args"]
