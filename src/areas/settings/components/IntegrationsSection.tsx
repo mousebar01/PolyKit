@@ -3,7 +3,6 @@ import { Eye, EyeOff, X } from 'lucide-react'
 
 import { Button, Input } from '@shared/components/ui'
 import { useI18n } from '@shared/i18n'
-import { McpSection } from './McpSection'
 import { SettingsCard, SettingsRow, SettingsSection } from './SettingsLayout'
 
 export function IntegrationsSection(): JSX.Element {
@@ -98,7 +97,7 @@ export function IntegrationsSection(): JSX.Element {
                   disabled={status === 'saving'}
                   className={
                     status === 'saved'
-                      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
+                      ? 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-300'
                       : status === 'error'
                         ? 'border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15'
                         : undefined
@@ -111,8 +110,6 @@ export function IntegrationsSection(): JSX.Element {
           </SettingsCard>
         </div>
       </SettingsSection>
-
-      <McpSection />
     </div>
   )
 }
