@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "polykit": {
+      "command": "uv",
+      "args": ["run", "python", "tools/polykit-mcp/server.py"]
+    },
     "blender": {
       "command": "uvx",
       "args": ["blender-mcp"]
