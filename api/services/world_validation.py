@@ -402,8 +402,14 @@ def _validate_final(
     issues: list[dict[str, Any]] = []
     if construction["status"] != "pass":
         issues.append(_issue("final-construction-not-pass", "error", "Construction validation has not passed."))
-    if visual["status"] != "pass":
-        issues.append(_issue("final-visual-not-pass", "error", "Visual validation has not passed."))
+    if visual["status"] == "fail":
+        issues.append(_issue("final-visual-failed", "error", "Visual validation failed."))
+    elif visual["status"] != "pass":
+        issues.append(_issue(
+            "final-visual-evidence-missing",
+            "warning",
+            "Final validation cannot pass until visual quality has explicit passing evidence.",
+        ))
     if gameplay["status"] != "pass":
         issues.append(_issue("final-gameplay-not-pass", "error", "Gameplay validation has not passed."))
 
