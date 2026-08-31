@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from routers.workspace_worlds import WorldCreateRequest, create_world, put_world, read_world
 from services.runtime_paths import runtime_paths
-from services.world_agent import attach_world_artifact, create_world_document
+from services.world_domain import attach_world_artifact, create_world_document
 from services.world_store import (
     MAX_WORLD_BYTES,
     WorldStoreError,
@@ -179,7 +179,7 @@ class WorldStoreTests(unittest.TestCase):
         )
         self.assertNotIn("state", attached["runtime"])
 
-    def test_agent_helper_rejects_absolute_artifact(self) -> None:
+    def test_domain_helper_rejects_absolute_artifact(self) -> None:
         with self.assertRaises(WorldStoreError):
             attach_world_artifact(self._world(), proto_id="hero", workspace_path="/tmp/hero.glb")
 
