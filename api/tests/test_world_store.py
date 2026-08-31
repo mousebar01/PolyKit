@@ -6,12 +6,7 @@ from fastapi import HTTPException
 
 from routers.workspace_worlds import WorldCreateRequest, create_world, put_world, read_world
 from services.runtime_paths import runtime_paths
-from services.world_agent import (
-    WORLD_STAGE_IDS,
-    attach_world_artifact,
-    create_world_document,
-    update_world_stage,
-)
+from services.world_agent import attach_world_artifact, create_world_document
 from services.world_store import (
     MAX_WORLD_BYTES,
     WorldStoreError,
@@ -72,17 +67,10 @@ class WorldStoreTests(unittest.TestCase):
                     "interactions": [],
                     "objectives": [],
                 },
-                "state": {
-                    "stages": [
-                        {"id": stage_id, "status": "ready" if index == 0 else "locked"}
-                        for index, stage_id in enumerate(WORLD_STAGE_IDS)
-                    ],
-                    "gates": {
-                        "construction": {"status": "pending", "issues": []},
-                        "visual": {"status": "pending", "issues": []},
-                        "gameplay": {"status": "pending", "issues": []},
-                    },
-                    "updated_at": timestamp,
+                "quality": {
+                    "construction": {"status": "pending", "issues": []},
+                    "visual": {"status": "pending", "issues": []},
+                    "gameplay": {"status": "pending", "issues": []},
                 },
             },
             "artifacts": {},
@@ -97,7 +85,7 @@ class WorldStoreTests(unittest.TestCase):
         self.assertEqual(load_world("demo"), saved)
         self.assertEqual(list((self.workspace / "Workflows").glob("*.tmp")), [])
 
-    def test_rejects_missing_old_or_mirrored_runtime_shapes(self) -> None:
+    def test_rejects_missing_old_mirrored_or_workflow_state_shapes(self) -> None:
         with self.assertRaises(WorldStoreError):
             save_world("missing", {"id": "missing"})
 
@@ -110,6 +98,11 @@ class WorldStoreTests(unittest.TestCase):
         mirrored["spec"] = {"seed": 1}
         with self.assertRaises(WorldStoreError):
             save_world("mirrored", mirrored)
+
+        workflow_state = self._world("workflow-state")
+        workflow_state["runtime"]["state"] = {"stages": []}
+        with self.assertRaises(WorldStoreError):
+            save_world("workflow-state", workflow_state)
 
     def test_allows_terrain_coordinate_arrays_named_path(self) -> None:
         body = self._world("terrain-path")
@@ -154,24 +147,9 @@ class WorldStoreTests(unittest.TestCase):
             save_world("too-large", body)
         self.assertFalse((self.workspace / "Workflows" / "too-large.world.json").exists())
 
-    def test_stage_progress_is_ordered_and_artifact_binds_to_scene(self) -> None:
+    def test_artifact_binds_to_scene_without_mutating_task_progress(self) -> None:
         world = self._world()
-        passed_intent = update_world_stage(
-            world,
-            stage_id="intent",
-            status="passed",
-            prompt="A volcanic island with a ruined observatory",
-            note="Playable promise is explicit.",
-        )
-        stages = passed_intent["runtime"]["state"]["stages"]
-        self.assertEqual(stages[0]["status"], "passed")
-        self.assertEqual(stages[1]["status"], "ready")
-        self.assertEqual(passed_intent["runtime"]["intent"]["prompt"], "A volcanic island with a ruined observatory")
-
-        with self.assertRaises(WorldStoreError):
-            update_world_stage(world, stage_id="structure", status="running")
-
-        passed_intent["runtime"]["scene"] = {
+        world["runtime"]["scene"] = {
             "kind": "polykit.scene-plan",
             "schema_version": 1,
             "objects": [{"id": "observatory", "name": "Observatory"}],
@@ -179,7 +157,7 @@ class WorldStoreTests(unittest.TestCase):
             "instances": [],
         }
         attached = attach_world_artifact(
-            passed_intent,
+            world,
             proto_id="observatory",
             workspace_path="Workflows/observatory.glb",
             workflow_id="image-to-trellis",
@@ -199,14 +177,13 @@ class WorldStoreTests(unittest.TestCase):
             attached["runtime"]["scene"]["objects"][0]["asset"]["workspacePath"],
             "Workflows/observatory.glb",
         )
+        self.assertNotIn("state", attached["runtime"])
 
-    def test_agent_helpers_reject_unknown_stage_and_absolute_artifact(self) -> None:
-        with self.assertRaises(WorldStoreError):
-            update_world_stage(self._world(), stage_id="render", status="passed")
+    def test_agent_helper_rejects_absolute_artifact(self) -> None:
         with self.assertRaises(WorldStoreError):
             attach_world_artifact(self._world(), proto_id="hero", workspace_path="/tmp/hero.glb")
 
-    def test_new_scene_document_has_one_id_and_spec_first_runtime(self) -> None:
+    def test_new_scene_document_has_domain_state_but_no_workflow_progress(self) -> None:
         first = create_world_document(name="Harbor", prompt="A stylized harbor")
         second = create_world_document(name="Harbor", prompt="A stylized harbor")
 
@@ -220,7 +197,11 @@ class WorldStoreTests(unittest.TestCase):
             {"kind": "polykit.build-spec", "version": 1, "environment": None, "buildings": []},
         )
         self.assertIsNone(first["runtime"]["scene"])
-        self.assertEqual([stage["id"] for stage in first["runtime"]["state"]["stages"]], list(WORLD_STAGE_IDS))
+        self.assertNotIn("state", first["runtime"])
+        self.assertEqual(
+            set(first["runtime"]["quality"]),
+            {"construction", "visual", "gameplay"},
+        )
         self.assertEqual(first["runtime"]["intent"]["prompt"], "A stylized harbor")
 
 
@@ -263,7 +244,8 @@ class WorkspaceWorldRouteTests(unittest.IsolatedAsyncioTestCase):
         response = await create_world(WorldCreateRequest(name="Harbor", prompt="A stylized harbor"))
         self.assertTrue(response["world_id"].startswith("scene-"))
         self.assertEqual(response["world"]["schema_version"], 2)
-        self.assertEqual(response["world"]["runtime"]["state"]["stages"][0]["id"], "intent")
+        self.assertNotIn("state", response["world"]["runtime"])
+        self.assertEqual(response["world"]["runtime"]["quality"]["construction"]["status"], "pending")
         self.assertEqual(await read_world(response["world_id"]), response["world"])
 
 
