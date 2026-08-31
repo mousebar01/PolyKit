@@ -25,6 +25,8 @@ WORLD_VALIDATORS = (
     "world.spec.validate",
     "world.blockout.validate",
     "world.construction.validate",
+    "world.spatial.validate",
+    "world.visual.validate",
     "world.gameplay.validate",
     "world.final.validate",
 )
@@ -182,8 +184,27 @@ async def list_tools() -> list[Tool]:
             inputSchema=_object_schema({
                 "world_id": _string("World id."),
                 "capability": {"type": "string", "enum": list(WORLD_VALIDATORS)},
-                "run_id": _string("Optional WorkflowRun id used as construction evidence."),
+                "run_id": _string("Optional WorkflowRun id used as validator evidence."),
             }, ["world_id", "capability"]),
+        ),
+        Tool(
+            name="polykit_world_compile_repair",
+            description=(
+                "Compile one authoritative validator repair scope into a ProductionRecipe and optional workflow payload. "
+                "This tool never starts a WorkflowRun; scope expansion requires explicit opt-in."
+            ),
+            inputSchema=_object_schema({
+                "world_id": _string("World id."),
+                "capability": {"type": "string", "enum": list(WORLD_VALIDATORS)},
+                "repair_scope_id": _string("Repair scope id returned by polykit_world_validate."),
+                "run_id": _string("Optional WorkflowRun id used as validator evidence."),
+                "collection": _string("Workspace collection for a compiled workflow. Default: Scenes."),
+                "render_preview": {"type": "boolean", "description": "Render inspection previews when the backend supports them. Default true."},
+                "allow_scope_expansion": {
+                    "type": "boolean",
+                    "description": "Allow an explicit wider fallback when the installed backend cannot honor the local scope. Default false.",
+                },
+            }, ["world_id", "capability", "repair_scope_id"]),
         ),
         Tool(
             name="polykit_world_compose",
@@ -348,6 +369,24 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             "capability": capability,
             "run_id": args.get("run_id") or None,
         })
+
+    if name == "polykit_world_compile_repair":
+        capability = _required_text(args, "capability")
+        if capability not in WORLD_VALIDATORS:
+            raise ValueError(f"Unsupported validator capability: {capability}")
+        world_id = _id_path(_required_text(args, "world_id"))
+        return await _request_json(
+            "POST",
+            f"/workspace-library/worlds/{world_id}/production-recipes/compile",
+            {
+                "capability": capability,
+                "repair_scope_id": _required_text(args, "repair_scope_id"),
+                "run_id": args.get("run_id") or None,
+                "collection": args.get("collection") or "Scenes",
+                "render_preview": args.get("render_preview", True),
+                "allow_scope_expansion": args.get("allow_scope_expansion", False),
+            },
+        )
 
     if name == "polykit_world_compose":
         world_id = _id_path(_required_text(args, "world_id"))
