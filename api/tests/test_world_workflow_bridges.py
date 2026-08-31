@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from services.runtime_paths import runtime_paths
-from services.world_agent import create_world_document
+from services.world_domain import create_world_document
 from services.world_validation import validate_world
 from services.world_workflows import build_structure_workflow
 
