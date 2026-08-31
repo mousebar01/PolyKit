@@ -1,8 +1,9 @@
 """Evidence-first visual validation for reference-guided worlds.
 
-This module deliberately separates deterministic image metrics from semantic and
-spatial review.  It produces immutable ``polykit.visual-validation-report``
-artifacts; it does not own WorkflowRun state, retries, or repair decisions.
+The module deliberately separates deterministic image metrics from semantic and
+spatial review. It produces immutable ``polykit.visual-validation-report``
+artifacts and validates their evidence; it never owns WorkflowRun state, retries,
+rollback, or repair decisions.
 """
 from __future__ import annotations
 
@@ -149,6 +150,21 @@ def _first_unresolved(checks: Sequence[Mapping[str, Any]]) -> dict[str, Any] | N
     }
 
 
+def _summary(checks: Sequence[Mapping[str, Any]], *, spatial_applicable: bool) -> dict[str, Any]:
+    required = [item for item in checks if item.get("required") is True]
+    return {
+        "metric_status": _judge_status(checks, "metric"),
+        "semantic_status": _judge_status(checks, "semantic"),
+        "spatial_status": _judge_status(checks, "spatial") if spatial_applicable else "not_applicable",
+        "required_checks": len(required),
+        "passed_checks": sum(item.get("status") == "pass" for item in required),
+        "review_checks": sum(
+            item.get("status") in {"needs_review", "not_evaluated"} for item in required
+        ),
+        "failed_checks": sum(item.get("status") == "fail" for item in required),
+    }
+
+
 def compare_reference_images(
     reference_path: Path,
     candidate_path: Path,
@@ -159,10 +175,10 @@ def compare_reference_images(
 ) -> dict[str, Any]:
     """Create deterministic comparison evidence and metric checks.
 
-    P0 observations are cropped at their reference bounds.  If an observation also
-    includes ``candidate_bbox_normalized`` (for example from a segmentation or
-    projection pass), center and size errors are measured explicitly.  Missing
-    candidate bounds remain ``not_evaluated`` instead of being invented.
+    P0 observations are evaluated at their reference bounds. If an observation also
+    includes ``candidate_bbox_normalized`` (for example from segmentation or a
+    camera projection pass), center and size errors are measured explicitly.
+    Missing candidate bounds remain ``not_evaluated`` instead of being invented.
     """
 
     reference_path = reference_path.expanduser().resolve()
@@ -271,27 +287,20 @@ def compare_reference_images(
     ]
 
     p0_observations = [item for item in (observations or []) if item.get("priority") == "P0"]
-    if not p0_observations:
-        checks.append(
-            _check(
-                "p0.observations-present",
-                "silhouette",
-                "needs_review",
-                evidence_refs=["evidence:reference"],
-                message="Reference-locked validation requires at least one measurable P0 observation.",
-            )
+    checks.append(
+        _check(
+            "p0.observations-present",
+            "silhouette",
+            "pass" if p0_observations else "needs_review",
+            metrics={"count": len(p0_observations)},
+            evidence_refs=["evidence:reference"],
+            message=(
+                "P0 observations are available for regional validation."
+                if p0_observations
+                else "Reference-locked validation requires at least one measurable P0 observation."
+            ),
         )
-    else:
-        checks.append(
-            _check(
-                "p0.observations-present",
-                "silhouette",
-                "pass",
-                metrics={"count": len(p0_observations)},
-                evidence_refs=["evidence:reference"],
-                message="P0 observations are available for regional validation.",
-            )
-        )
+    )
 
     for index, observation in enumerate(p0_observations):
         observation_id = str(observation.get("id") or f"p0-{index}")
@@ -358,46 +367,47 @@ def compare_reference_images(
                     message="Candidate P0 bounds were not supplied; center and size errors remain unevaluated.",
                 )
             )
-        else:
-            ref_center = (bbox[0] + bbox[2] / 2.0, bbox[1] + bbox[3] / 2.0)
-            candidate_center = (
-                candidate_bbox[0] + candidate_bbox[2] / 2.0,
-                candidate_bbox[1] + candidate_bbox[3] / 2.0,
+            continue
+
+        ref_center = (bbox[0] + bbox[2] / 2.0, bbox[1] + bbox[3] / 2.0)
+        candidate_center = (
+            candidate_bbox[0] + candidate_bbox[2] / 2.0,
+            candidate_bbox[1] + candidate_bbox[3] / 2.0,
+        )
+        center_error = math.hypot(
+            candidate_center[0] - ref_center[0],
+            candidate_center[1] - ref_center[1],
+        ) / math.sqrt(2.0)
+        width_error = abs(candidate_bbox[2] - bbox[2]) / max(bbox[2], 1e-9)
+        height_error = abs(candidate_bbox[3] - bbox[3]) / max(bbox[3], 1e-9)
+        bbox_status = "pass"
+        if center_error > 0.04 or width_error > 0.10 or height_error > 0.10:
+            bbox_status = "fail"
+        elif center_error > 0.02 or width_error > 0.05 or height_error > 0.05:
+            bbox_status = "needs_review"
+        checks.append(
+            _check(
+                f"p0.{observation_id}.bbox-geometry",
+                "silhouette",
+                bbox_status,
+                subjects=[observation_id],
+                metrics={
+                    "center_error_diagonal_fraction": center_error,
+                    "width_error_fraction": width_error,
+                    "height_error_fraction": height_error,
+                    "reference_bbox_normalized": bbox,
+                    "candidate_bbox_normalized": candidate_bbox,
+                },
+                thresholds={
+                    "center_warn": 0.02,
+                    "center_fail": 0.04,
+                    "size_warn": 0.05,
+                    "size_fail": 0.10,
+                },
+                evidence_refs=common_evidence,
+                message="P0 center and size error from supplied candidate bounds.",
             )
-            center_error = math.hypot(
-                candidate_center[0] - ref_center[0],
-                candidate_center[1] - ref_center[1],
-            ) / math.sqrt(2.0)
-            width_error = abs(candidate_bbox[2] - bbox[2]) / max(bbox[2], 1e-9)
-            height_error = abs(candidate_bbox[3] - bbox[3]) / max(bbox[3], 1e-9)
-            bbox_status = "pass"
-            if center_error > 0.04 or width_error > 0.10 or height_error > 0.10:
-                bbox_status = "fail"
-            elif center_error > 0.02 or width_error > 0.05 or height_error > 0.05:
-                bbox_status = "needs_review"
-            checks.append(
-                _check(
-                    f"p0.{observation_id}.bbox-geometry",
-                    "silhouette",
-                    bbox_status,
-                    subjects=[observation_id],
-                    metrics={
-                        "center_error_diagonal_fraction": center_error,
-                        "width_error_fraction": width_error,
-                        "height_error_fraction": height_error,
-                        "reference_bbox_normalized": bbox,
-                        "candidate_bbox_normalized": candidate_bbox,
-                    },
-                    thresholds={
-                        "center_warn": 0.02,
-                        "center_fail": 0.04,
-                        "size_warn": 0.05,
-                        "size_fail": 0.10,
-                    },
-                    evidence_refs=common_evidence,
-                    message="P0 center and size error from supplied candidate bounds.",
-                )
-            )
+        )
 
     return {
         "schema_version": 1,
@@ -429,9 +439,9 @@ def build_visual_validation_report(
 ) -> dict[str, Any]:
     """Assemble one immutable VisualValidationReport.
 
-    A missing semantic judge is represented explicitly as ``needs_review``.  This
-    keeps v1 fail-closed while allowing a future multimodal judge to plug into the
-    same contract without changing World or WorkflowRun state ownership.
+    Missing semantic review is represented explicitly as ``needs_review``. This
+    keeps v1 fail-closed while allowing a future multimodal or human semantic judge
+    to plug into the same contract without changing runtime ownership.
     """
 
     checks = [dict(item) for item in metric_bundle.get("checks", []) if isinstance(item, Mapping)]
@@ -472,7 +482,6 @@ def build_visual_validation_report(
         )
 
     status = _required_status(checks)
-    required = [item for item in checks if item.get("required") is True]
     return {
         "schema_version": VISUAL_REPORT_SCHEMA_VERSION,
         "kind": VISUAL_REPORT_KIND,
@@ -482,15 +491,10 @@ def build_visual_validation_report(
         "status": status,
         "target": dict(target),
         "candidate": dict(candidate),
-        "summary": {
-            "metric_status": _judge_status(checks, "metric"),
-            "semantic_status": _judge_status(checks, "semantic"),
-            "spatial_status": _judge_status(checks, "spatial") if require_spatial or spatial_checks else "not_applicable",
-            "required_checks": len(required),
-            "passed_checks": sum(item.get("status") == "pass" for item in required),
-            "review_checks": sum(item.get("status") in {"needs_review", "not_evaluated"} for item in required),
-            "failed_checks": sum(item.get("status") == "fail" for item in required),
-        },
+        "summary": _summary(
+            checks,
+            spatial_applicable=require_spatial or bool(spatial_checks),
+        ),
         "checks": checks,
         "earliest_failure": _first_unresolved(checks),
         "evidence": evidence,
@@ -530,6 +534,30 @@ def load_visual_validation_report(value: Any, *, workspace_root: Path) -> dict[s
     return payload
 
 
+def _evidence_path(
+    item: Mapping[str, Any],
+    *,
+    workspace_root: Path,
+) -> tuple[Path | None, str | None]:
+    """Resolve evidence while enforcing the server-owned workspace boundary."""
+
+    root = workspace_root.expanduser().resolve()
+    workspace_path = item.get("workspace_path") or item.get("workspacePath")
+    if isinstance(workspace_path, str) and workspace_path.strip():
+        try:
+            return resolve_workspace_path(root, _workspace_value(workspace_path)), None
+        except ValueError:
+            return None, "invalid"
+
+    raw_path = item.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None, "missing"
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_relative_to(root):
+        return None, "outside-workspace"
+    return path, None
+
+
 def validate_visual_validation_report(
     report: Mapping[str, Any],
     *,
@@ -551,16 +579,45 @@ def validate_visual_validation_report(
         issue("visual-report-schema", "error", "Visual report schema_version must be 1.")
     if report.get("kind") != VISUAL_REPORT_KIND:
         issue("visual-report-kind", "error", f"Visual report kind must be {VISUAL_REPORT_KIND!r}.")
+    if report.get("validator") != "world.visual.validate":
+        issue("visual-report-validator", "error", "Visual report validator must be 'world.visual.validate'.")
     if report.get("world_id") != world_id:
         issue("visual-report-world-mismatch", "error", "Visual report does not belong to this world.")
     if run_id and report.get("run_id") != run_id:
         issue("visual-report-run-mismatch", "error", "Visual report does not belong to the requested WorkflowRun.")
 
-    checks = [item for item in report.get("checks", []) if isinstance(item, Mapping)]
+    target = report.get("target")
+    candidate = report.get("candidate")
+    target_map = target if isinstance(target, Mapping) else {}
+    candidate_map = candidate if isinstance(candidate, Mapping) else {}
+    reference_locked = target_map.get("kind") == "reference-image"
+    require_spatial = bool(target_map.get("require_spatial"))
+
+    target_camera_id = target_map.get("camera_id")
+    if isinstance(target_camera_id, str) and target_camera_id:
+        if candidate_map.get("camera_id") != target_camera_id:
+            issue(
+                "visual-camera-id-mismatch",
+                "error",
+                "Candidate camera does not match the validated target camera.",
+                target_camera_id,
+            )
+    if "camera_revision" in target_map and target_map.get("camera_revision") is not None:
+        if candidate_map.get("camera_revision") != target_map.get("camera_revision"):
+            issue(
+                "visual-camera-revision-mismatch",
+                "error",
+                "Candidate render was produced from a different camera revision.",
+                str(target_camera_id) if target_camera_id else None,
+            )
+
+    raw_checks = report.get("checks")
+    checks = [item for item in raw_checks if isinstance(item, Mapping)] if isinstance(raw_checks, list) else []
     if not checks:
         issue("visual-checks-missing", "error", "Visual report has no validation checks.")
 
-    evidence = [item for item in report.get("evidence", []) if isinstance(item, Mapping)]
+    raw_evidence = report.get("evidence")
+    evidence = [item for item in raw_evidence if isinstance(item, Mapping)] if isinstance(raw_evidence, list) else []
     evidence_by_id: dict[str, Mapping[str, Any]] = {}
     for item in evidence:
         evidence_id = item.get("id")
@@ -572,9 +629,8 @@ def validate_visual_validation_report(
             continue
         evidence_by_id[evidence_id] = item
 
-    target = report.get("target")
-    reference_locked = isinstance(target, Mapping) and target.get("kind") == "reference-image"
     seen_judges: set[str] = set()
+    required_judges: set[str] = set()
     check_ids: set[str] = set()
     for item in checks:
         check_id = item.get("id")
@@ -584,47 +640,71 @@ def validate_visual_validation_report(
         if check_id in check_ids:
             issue("visual-check-id-duplicate", "error", f"Duplicate visual check id: {check_id}", check_id)
         check_ids.add(check_id)
+
         judge = item.get("judge")
         if judge not in JUDGE_KINDS:
             issue("visual-check-judge-invalid", "error", f"Check {check_id} has invalid judge {judge!r}.", check_id)
         else:
             seen_judges.add(str(judge))
+            if item.get("required") is True:
+                required_judges.add(str(judge))
+
         status = item.get("status")
         if status not in CHECK_STATUSES:
             issue("visual-check-status-invalid", "error", f"Check {check_id} has invalid status {status!r}.", check_id)
+
         refs = item.get("evidence_refs")
         if item.get("required") is True and status in {"pass", "needs_review", "fail"}:
             if not isinstance(refs, list) or not refs:
                 issue("visual-check-evidence-empty", "error", f"Required check {check_id} has no evidence.", check_id)
         if isinstance(refs, list):
             for ref in refs:
-                if isinstance(ref, str) and ref not in evidence_by_id:
+                if not isinstance(ref, str) or not ref:
+                    issue("visual-check-evidence-ref-invalid", "error", f"Check {check_id} has an invalid evidence reference.", check_id)
+                elif ref not in evidence_by_id:
                     issue("visual-check-evidence-missing", "error", f"Check {check_id} references missing evidence {ref}.", check_id)
 
-    if reference_locked and "metric" not in seen_judges:
-        issue("visual-metric-judge-missing", "error", "Reference-image validation requires deterministic metric checks.")
-    if reference_locked and "semantic" not in seen_judges:
-        issue("visual-semantic-judge-missing", "warning", "Reference-image validation requires semantic review before PASS.")
+    if reference_locked:
+        if "metric" not in required_judges:
+            issue("visual-metric-judge-missing", "error", "Reference-image validation requires deterministic required metric checks.")
+        if "semantic" not in required_judges:
+            issue("visual-semantic-judge-missing", "warning", "Reference-image validation needs a required semantic review before PASS.")
+        p0_check = next(
+            (
+                item
+                for item in checks
+                if item.get("id") == "p0.observations-present"
+                and item.get("judge") == "metric"
+                and item.get("required") is True
+            ),
+            None,
+        )
+        if p0_check is None:
+            issue("visual-p0-check-missing", "error", "Reference-image validation requires the P0 completeness check.")
+
+    if require_spatial and "spatial" not in required_judges:
+        issue("visual-spatial-judge-missing", "error", "This target requires a World/geometry spatial review.")
 
     if workspace_root is not None:
         for evidence_id, item in evidence_by_id.items():
-            workspace_path = item.get("workspace_path") or item.get("workspacePath")
-            raw_path = item.get("path")
-            try:
-                if isinstance(workspace_path, str) and workspace_path.strip():
-                    path = resolve_workspace_path(workspace_root, _workspace_value(workspace_path))
-                    if not path.is_file():
-                        issue("visual-evidence-file-missing", "error", f"Evidence file does not exist: {workspace_path}", evidence_id)
-                elif isinstance(raw_path, str) and raw_path.strip():
-                    path = Path(raw_path).expanduser().resolve()
-                    if not path.is_file():
-                        issue("visual-evidence-file-missing", "error", f"Evidence file does not exist: {raw_path}", evidence_id)
-                else:
-                    issue("visual-evidence-path-missing", "warning", f"Evidence {evidence_id} has no file path.", evidence_id)
-            except ValueError:
+            path, path_error = _evidence_path(item, workspace_root=workspace_root)
+            if path_error == "missing":
+                issue("visual-evidence-path-missing", "warning", f"Evidence {evidence_id} has no file path.", evidence_id)
+            elif path_error == "invalid":
                 issue("visual-evidence-path-invalid", "error", f"Evidence {evidence_id} has an invalid workspace path.", evidence_id)
+            elif path_error == "outside-workspace":
+                issue("visual-evidence-outside-workspace", "error", f"Evidence {evidence_id} resolves outside the PolyKit workspace.", evidence_id)
+            elif path is not None and not path.is_file():
+                issue("visual-evidence-file-missing", "error", f"Evidence file does not exist: {path}", evidence_id)
 
     derived_status = _required_status(checks)
+    if report.get("status") != derived_status:
+        issue(
+            "visual-report-status-mismatch",
+            "error",
+            f"Report claims {report.get('status')!r} but required checks derive {derived_status!r}.",
+        )
+
     if any(item["severity"] == "error" for item in issues):
         status = "fail"
     elif derived_status == "fail":
@@ -634,21 +714,14 @@ def validate_visual_validation_report(
     else:
         status = "pass"
 
-    if report.get("status") != derived_status:
-        issue(
-            "visual-report-status-mismatch",
-            "error",
-            f"Report claims {report.get('status')!r} but required checks derive {derived_status!r}.",
-        )
-        status = "fail"
-
+    spatial_applicable = require_spatial or "spatial" in seen_judges
     return {
         "status": status,
         "derived_status": derived_status,
         "issues": issues,
         "checks": [dict(item) for item in checks],
-        "summary": dict(report.get("summary") or {}) if isinstance(report.get("summary"), Mapping) else {},
-        "earliest_failure": dict(report.get("earliest_failure") or {}) if isinstance(report.get("earliest_failure"), Mapping) else None,
+        "summary": _summary(checks, spatial_applicable=spatial_applicable),
+        "earliest_failure": _first_unresolved(checks),
     }
 
 
