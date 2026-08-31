@@ -16,6 +16,11 @@ SPEC.loader.exec_module(server_module)
 
 
 class PolyKitMcpTests(unittest.TestCase):
+    def test_adapter_imports_no_product_domain_modules(self) -> None:
+        source = SERVER_PATH.read_text(encoding="utf-8")
+        for forbidden in ("from services", "import services", "from routers", "import routers"):
+            self.assertNotIn(forbidden, source)
+
     def test_tool_surface_is_unique_and_contains_no_agent_task_runtime(self) -> None:
         tools = asyncio.run(server_module.list_tools())
         names = [tool.name for tool in tools]
