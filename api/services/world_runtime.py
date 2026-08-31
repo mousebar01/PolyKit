@@ -263,7 +263,7 @@ def _gate_status(checked: bool, issues: list[dict[str, Any]]) -> str:
 
 
 def refresh_runtime_quality(world: Mapping[str, Any]) -> dict[str, Any]:
-    """Recompute construction quality only when the runtime contains evidence."""
+    """Recompute construction facts only when the world contains evidence."""
 
     result = dict(world)
     runtime = _runtime(result)
@@ -272,28 +272,23 @@ def refresh_runtime_quality(world: Mapping[str, Any]) -> dict[str, Any]:
     issues = [*build_issues, *scene_issues]
     checked = build_checked or scene_checked
 
-    # An empty runtime has nothing to derive.  Returning it byte-for-byte stable
+    # An empty runtime has nothing to derive. Returning it byte-for-byte stable
     # preserves ordinary PUT/GET round trips and avoids fake quality timestamps.
     if not checked and not issues:
         return result
 
-    state = runtime.get("state")
-    if not isinstance(state, Mapping):
-        raise WorldStoreError("World runtime requires state")
-    state_copy = dict(state)
-    gates = state_copy.get("gates")
-    if not isinstance(gates, Mapping):
-        raise WorldStoreError("World runtime state requires gates")
-    gate_copy = dict(gates)
+    quality = runtime.get("quality")
+    if not isinstance(quality, Mapping):
+        raise WorldStoreError("World runtime requires quality")
+    quality_copy = dict(quality)
     timestamp = _now()
-    gate_copy["construction"] = {
+    quality_copy["construction"] = {
         "status": _gate_status(checked, issues),
         "issues": issues,
         "checked_at": timestamp,
     }
-    state_copy["gates"] = gate_copy
-    state_copy["updated_at"] = timestamp
-    runtime["state"] = state_copy
+    quality_copy["updated_at"] = timestamp
+    runtime["quality"] = quality_copy
     result["runtime"] = runtime
     result["updated_at"] = timestamp
     return result
