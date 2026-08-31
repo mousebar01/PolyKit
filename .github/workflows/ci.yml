@@ -5,8 +5,35 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --locked --python 3.11
+      - name: Run Python, CLI, and MCP tests
+        run: |
+          npm run test:py
+          npm run test:cli
+          npm run test:mcp
+        env:
+          POLYKIT_PYTHON: .venv/bin/python
+
+  web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,21 +41,11 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
       - name: Install JavaScript dependencies
-        run: npm install
-      - name: Install Python dependencies
-        run: uv sync --locked --python 3.11
-      - name: Run unit tests
-        run: npm test
-        env:
-          POLYKIT_PYTHON: .venv/bin/python
+        run: npm ci
+      - name: Run Node tests
+        run: npm run test:node
       - name: Type-check Web
-        run: npx tsc --noEmit -p tsconfig.web.json
+        run: npm run typecheck
       - name: Build Web app
         run: npm run web:build
