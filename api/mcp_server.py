@@ -1,12 +1,11 @@
 """
-PolyKit MCP Server
-Exposes PolyKit's capabilities as MCP tools for external agents (Claude Desktop, Codex CLI, etc.).
+PolyKit MCP Server.
 
-Usage:
-  python mcp_server.py
-
-Requires PolyKit's FastAPI backend to be running on http://localhost:8765.
+The world tools expose the strict schema-v2 spec-first runtime. Agents create a
+world first, mutate its single ``runtime`` contract, advance explicit build
+passes, and attach workspace artifacts by stable object/prototype id.
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -19,452 +18,214 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
-from services.world_agent import attach_world_artifact, update_world_stage
-from services.world_store import WorldStoreError, validate_world_id
 from services.runtime_paths import runtime_paths
+from services.world_agent import (
+    WORLD_STAGE_IDS,
+    WORLD_STAGE_STATUSES,
+    attach_world_artifact,
+    update_world_stage,
+)
+from services.world_store import WorldStoreError, validate_world_id
 
 API_BASE = "http://localhost:8765"
-
 server: Server | None = None
+
+
+def _tool(name: str, description: str, properties: dict | None = None, required: list[str] | None = None) -> Tool:
+    schema: dict = {"type": "object", "properties": properties or {}}
+    if required:
+        schema["required"] = required
+    return Tool(name=name, description=description, inputSchema=schema)
 
 
 async def list_tools() -> list[Tool]:
     return [
-        Tool(
-            name="polykit_list_models",
-            description="List all 3D generation models available in PolyKit (downloaded and ready to use).",
-            inputSchema={"type": "object", "properties": {}},
+        _tool("polykit_list_models", "List downloaded 3D generation models."),
+        _tool(
+            "polykit_switch_model",
+            "Switch the active 3D generation model.",
+            {"model_id": {"type": "string"}},
+            ["model_id"],
         ),
-        Tool(
-            name="polykit_switch_model",
-            description="Switch the active 3D generation model in PolyKit.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "model_id": {"type": "string", "description": "The model ID to activate."},
-                },
-                "required": ["model_id"],
+        _tool(
+            "polykit_generate_from_image",
+            "Generate a 3D mesh from a local image and return a workflow run id.",
+            {
+                "image_path": {"type": "string"},
+                "model_id": {"type": "string"},
+                "remesh": {"type": "string", "enum": ["quad", "triangle", "none"]},
+                "collection": {"type": "string"},
+                "enable_texture": {"type": "boolean"},
+                "texture_resolution": {"type": "integer"},
+                "params": {"type": "object"},
+                "workflow_id": {"type": "string"},
+            },
+            ["image_path"],
+        ),
+        _tool(
+            "polykit_remove_background",
+            "Remove the background from a workspace image through the installed local process node.",
+            {
+                "image_path": {"type": "string"},
+                "model": {"type": "string"},
+                "collection": {"type": "string"},
+                "workflow_id": {"type": "string"},
+            },
+            ["image_path"],
+        ),
+        _tool(
+            "polykit_generate_image",
+            "Generate a local illustration from text and return a workflow run id.",
+            {
+                "prompt": {"type": "string"},
+                "model_id": {"type": "string"},
+                "params": {"type": "object"},
+                "collection": {"type": "string"},
+                "workflow_id": {"type": "string"},
+            },
+            ["prompt"],
+        ),
+        _tool(
+            "polykit_generate_text_asset",
+            "Run the canonical text-to-image-to-3D asset workflow.",
+            {
+                "prompt": {"type": "string"},
+                "image_model_id": {"type": "string"},
+                "mesh_model_id": {"type": "string"},
+                "enable_texture": {"type": "boolean"},
+                "enable_optimize": {"type": "boolean"},
+                "target_faces": {"type": "integer"},
+                "collection": {"type": "string"},
+                "workflow_id": {"type": "string"},
+                "world_id": {"type": "string"},
+                "proto_id": {"type": "string"},
+                "image_params": {"type": "object"},
+                "mesh_params": {"type": "object"},
+                "texture_params": {"type": "object"},
+            },
+            ["prompt"],
+        ),
+        _tool(
+            "polykit_get_generation_status",
+            "Read a workflow run until it reaches done, cancelled, or error.",
+            {"job_id": {"type": "string"}},
+            ["job_id"],
+        ),
+        _tool(
+            "polykit_decimate_mesh",
+            "Reduce mesh polygon count.",
+            {"path": {"type": "string"}, "target_faces": {"type": "integer"}},
+            ["path", "target_faces"],
+        ),
+        _tool(
+            "polykit_smooth_mesh",
+            "Apply Laplacian smoothing to a workspace mesh.",
+            {"path": {"type": "string"}, "iterations": {"type": "integer"}},
+            ["path", "iterations"],
+        ),
+        _tool(
+            "polykit_import_mesh",
+            "Import a mesh file from disk into the PolyKit workspace.",
+            {"path": {"type": "string"}},
+            ["path"],
+        ),
+        _tool("polykit_unload_models", "Unload all generation models from accelerator memory."),
+        _tool("polykit_get_settings", "Read configured model and workspace paths."),
+        _tool(
+            "polykit_world_create",
+            "Create a fresh schema-v2 world runtime. Call this before any world mutation and keep the returned world_id.",
+            {
+                "name": {"type": "string"},
+                "prompt": {"type": "string"},
+                "parent_world_id": {"type": "string"},
             },
         ),
-        Tool(
-            name="polykit_generate_from_image",
-            description="Generate a 3D mesh from a 2D image file. Returns a server run ID to track progress.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "image_path": {
-                        "type": "string",
-                        "description": "Absolute path to the image file on disk.",
-                    },
-                    "model_id": {
-                        "type": "string",
-                        "description": "Which model to use. If omitted, uses the currently active model.",
-                    },
-                    "remesh": {
-                        "type": "string",
-                        "enum": ["quad", "triangle", "none"],
-                        "description": "Remesh strategy after generation. Default: quad.",
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Workspace collection for the mesh; default: Workflows.",
-                    },
-                    "enable_texture": {
-                        "type": "boolean",
-                        "description": "Run the compatible texture-refinement node after mesh generation.",
-                    },
-                    "texture_resolution": {
-                        "type": "integer",
-                        "description": "Texture refinement resolution when enable_texture is true. Default: 1024.",
-                    },
-                    "params": {
-                        "type": "object",
-                        "description": "Optional Trellis generation/refinement parameters.",
-                    },
-                    "workflow_id": {
-                        "type": "string",
-                        "description": "Optional workflow provenance id.",
-                    },
-                },
-                "required": ["image_path"],
+        _tool(
+            "polykit_world_get",
+            "Read the current strict world document before editing runtime build, scene, game, state, or artifacts.",
+            {"world_id": {"type": "string"}},
+            ["world_id"],
+        ),
+        _tool(
+            "polykit_world_save",
+            "Save a complete schema-v2 world document. The document must keep its id and one runtime envelope; old top-level spec, instances, scene_plan, and agent_plan fields are invalid.",
+            {"world_id": {"type": "string"}, "document": {"type": "object"}},
+            ["world_id", "document"],
+        ),
+        _tool(
+            "polykit_world_compile_scene",
+            "Compile an Agent-authored semantic ScenePlan and persist the result at runtime.scene. Use stable ids, measured sizes, explicit support/spatial relations, and renderer-independent transforms.",
+            {
+                "world_id": {"type": "string"},
+                "plan": {"type": "object"},
+                "solve": {"type": "boolean"},
+                "resolve_assets": {"type": "boolean"},
             },
+            ["world_id", "plan"],
         ),
-        Tool(
-            name="polykit_remove_background",
-            description=(
-                "Remove the background from a local image through the installed local process node "
-                "and publish a transparent PNG. Returns a server run ID to track progress."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "image_path": {
-                        "type": "string",
-                        "description": "Absolute path to an image inside the PolyKit workspace.",
-                    },
-                    "model": {
-                        "type": "string",
-                        "description": "Background-removal model. Default: isnet-anime.",
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Workspace collection for the transparent PNG; default: Workflows.",
-                    },
-                    "workflow_id": {
-                        "type": "string",
-                        "description": "Optional workflow provenance id.",
-                    },
-                },
-                "required": ["image_path"],
+        _tool(
+            "polykit_world_find_assets",
+            "Find reusable workspace assets by semantic name, aliases, and category.",
+            {
+                "query": {"type": "string"},
+                "category": {"type": "string"},
+                "limit": {"type": "integer"},
             },
+            ["query"],
         ),
-        Tool(
-            name="polykit_generate_image",
-            description=(
-                "Generate an illustration from text through a local PolyKit workflow. "
-                "Defaults to the official Anima Diffusers node; returns a run ID."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "Anime/illustration prompt; Danbooru tags or natural language are both accepted.",
-                    },
-                    "model_id": {
-                        "type": "string",
-                        "description": "Text-to-image node id; default: anima/generate.",
-                    },
-                    "params": {
-                        "type": "object",
-                        "description": "Optional model parameters such as steps, guidance_scale, seed, width, and height.",
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Workspace collection; default: Workflows.",
-                    },
-                    "workflow_id": {
-                        "type": "string",
-                        "description": "Optional workflow provenance id.",
-                    },
-                },
-                "required": ["prompt"],
+        _tool(
+            "polykit_world_compose_scene",
+            "Compose resolved runtime.scene mesh assets into one GLB through the canonical workflow runtime.",
+            {
+                "world_id": {"type": "string"},
+                "collection": {"type": "string"},
+                "output_name": {"type": "string"},
+                "allow_missing": {"type": "boolean"},
             },
+            ["world_id"],
         ),
-        Tool(
-            name="polykit_generate_text_asset",
-            description=(
-                "Submit one canonical local workflow for text → stylized illustration → transparent cutout "
-                "→ 3D mesh → optional texture refinement. Returns a server run ID."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string", "description": "Single-object asset description."},
-                    "image_model_id": {"type": "string", "description": "Text-to-image node; default anima/generate."},
-                    "mesh_model_id": {"type": "string", "description": "Image-to-3D node; default trellis2/generate."},
-                    "enable_texture": {"type": "boolean", "description": "Run Trellis texture refinement; default true."},
-                    "enable_optimize": {"type": "boolean", "description": "Reduce the final mesh for real-time use; default true."},
-                    "target_faces": {"type": "integer", "description": "Triangle budget after optimization; default 100000."},
-                    "collection": {"type": "string", "description": "Workspace collection; default Workflows."},
-                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
-                    "world_id": {"type": "string", "description": "Optional world id for provenance."},
-                    "proto_id": {"type": "string", "description": "Optional planned object id for provenance."},
-                    "image_params": {"type": "object", "description": "Optional text-to-image params."},
-                    "mesh_params": {"type": "object", "description": "Optional image-to-3D params."},
-                    "texture_params": {"type": "object", "description": "Optional texture params."},
-                },
-                "required": ["prompt"],
+        _tool(
+            "polykit_world_update_stage",
+            "Advance one ordered spec-first world build pass. Passing a stage unlocks the next; locked stages cannot run. Quality evidence belongs in runtime.state.gates.",
+            {
+                "world_id": {"type": "string"},
+                "stage_id": {"type": "string", "enum": list(WORLD_STAGE_IDS)},
+                "status": {"type": "string", "enum": list(WORLD_STAGE_STATUSES)},
+                "note": {"type": "string"},
+                "prompt": {"type": "string"},
             },
+            ["world_id", "stage_id", "status"],
         ),
-        Tool(
-            name="polykit_get_generation_status",
-            description="Poll a PolyKit server run. Call repeatedly until status is 'done', 'cancelled', or 'error'.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "Run ID returned by polykit_generate_from_image. The field name is kept for MCP client compatibility.",
-                    },
-                },
-                "required": ["job_id"],
+        _tool("polykit_world_list_workflows", "List editable local workflows usable by world build passes."),
+        _tool(
+            "polykit_world_generate_asset",
+            "Generate one planned world asset with the local image-to-3D workflow.",
+            {
+                "world_id": {"type": "string"},
+                "proto_id": {"type": "string"},
+                "image_path": {"type": "string"},
+                "model_id": {"type": "string"},
+                "workflow_id": {"type": "string"},
+                "collection": {"type": "string"},
+                "remesh": {"type": "string", "enum": ["quad", "triangle", "none"]},
+                "enable_texture": {"type": "boolean"},
+                "texture_resolution": {"type": "integer"},
+                "params": {"type": "object"},
             },
+            ["world_id", "proto_id", "image_path"],
         ),
-        Tool(
-            name="polykit_decimate_mesh",
-            description="Reduce the polygon count of a mesh using quadric edge collapse decimation.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Workspace-relative path to the mesh (e.g. 'Workflows/mesh.glb').",
-                    },
-                    "target_faces": {
-                        "type": "integer",
-                        "description": "Target number of faces after decimation (minimum 100).",
-                    },
-                },
-                "required": ["path", "target_faces"],
+        _tool(
+            "polykit_world_attach_asset",
+            "Attach a completed workspace mesh to a stable runtime object/prototype id.",
+            {
+                "world_id": {"type": "string"},
+                "proto_id": {"type": "string"},
+                "workspace_path": {"type": "string"},
+                "workflow_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "concept_image": {"type": "string"},
             },
-        ),
-        Tool(
-            name="polykit_smooth_mesh",
-            description="Apply Laplacian smoothing to a mesh. More iterations = smoother surface but less detail.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Workspace-relative path to the mesh.",
-                    },
-                    "iterations": {
-                        "type": "integer",
-                        "description": "Number of smoothing iterations (1–20).",
-                    },
-                },
-                "required": ["path", "iterations"],
-            },
-        ),
-        Tool(
-            name="polykit_import_mesh",
-            description="Import a mesh file from disk into PolyKit's workspace (.glb, .obj, .stl, .ply).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the mesh file on disk.",
-                    },
-                },
-                "required": ["path"],
-            },
-        ),
-        Tool(
-            name="polykit_unload_models",
-            description="Unload all 3D generation models from GPU VRAM. Useful before running VRAM-intensive tasks.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="polykit_get_settings",
-            description="Get the current PolyKit settings (models directory, workspace directory).",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="polykit_world_create",
-            description=(
-                "Start a new scene record for one world-generation request. Call this once before "
-                "polykit_world_save and the stage tools; keep the returned world_id for every "
-                "subsequent stage and asset attachment. This allocates a fresh scene and never "
-                "overwrites an earlier world."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Optional display name for the scene."},
-                    "prompt": {"type": "string", "description": "Original scene request, if known."},
-                    "parent_world_id": {
-                        "type": "string",
-                        "description": "Optional earlier scene id when this is a deliberate revision.",
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="polykit_world_get",
-            description=(
-                "Read a server-owned world document. Use this before changing a world so the "
-                "Agent preserves the existing spec, artifacts, and WorldClaw stage plan."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {"world_id": {"type": "string", "description": "World id."}},
-                "required": ["world_id"],
-            },
-        ),
-        Tool(
-            name="polykit_world_save",
-            description=(
-                "Save an Agent-authored world plan or manifest to the local PolyKit workspace. "
-                "The Agent owns intent, regions, terrain rules, assets, spatial relations, and "
-                "stage decisions; PolyKit only validates and persists the JSON document."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "World id."},
-                    "document": {
-                        "type": "object",
-                        "description": (
-                            "JSON world document. Put the paper-derived plan under agent_plan "
-                            "and keep artifact paths workspace-relative."
-                        ),
-                    },
-                },
-                "required": ["world_id", "document"],
-            },
-        ),
-        Tool(
-            name="polykit_world_compile_scene",
-            description=(
-                "Compile an EmbodiedGen-style semantic scene plan into deterministic object instances "
-                "and persist it on an existing PolyKit world. Before calling, translate the user's "
-                "natural-language request into two passes: (1) stable object ids, roles, aliases, "
-                "dimensions and asset intents; (2) a shallow relation tree using floor/on/inside or "
-                "near/beside/away_from/overlooking. The server performs validation, optional workspace "
-                "asset lookup, collision-aware placement, and persists diagnostics; it does not call an "
-                "LLM or replace the existing workflow runtime."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "Existing PolyKit world id."},
-                    "plan": {
-                        "type": "object",
-                        "description": "Scene plan with objects, relations, bounds, seed, and optional asset refs.",
-                    },
-                    "solve": {
-                        "type": "boolean",
-                        "description": "Run deterministic placement; default true.",
-                    },
-                    "resolve_assets": {
-                        "type": "boolean",
-                        "description": "Resolve missing object assets from the workspace library; default false.",
-                    },
-                },
-                "required": ["world_id", "plan"],
-            },
-        ),
-        Tool(
-            name="polykit_world_find_assets",
-            description=(
-                "Search the server-owned workspace asset library by semantic name, aliases, category, "
-                "and optional asset sidecar metadata. Returns exact workspace paths for reuse."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Object name or natural-language asset description."},
-                    "category": {"type": "string", "description": "Optional category such as prop, structure, or vegetation."},
-                    "limit": {"type": "integer", "description": "Maximum number of matches; default 5."},
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="polykit_world_compose_scene",
-            description=(
-                "Compose the resolved mesh assets in an existing ScenePlan into one GLB through the "
-                "canonical workflow runtime. The server preserves the plan's object transforms and "
-                "returns a run id; it does not replace the editable scene graph."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "Existing world id with a compiled scene_plan."},
-                    "collection": {"type": "string", "description": "Workspace collection; default Scenes."},
-                    "output_name": {"type": "string", "description": "Output GLB name; default scene."},
-                    "allow_missing": {
-                        "type": "boolean",
-                        "description": "Compose available assets while skipping unresolved objects; default false.",
-                    },
-                },
-                "required": ["world_id"],
-            },
-        ),
-        Tool(
-            name="polykit_world_update_stage",
-            description=(
-                "Record progress for one WorldClaw-inspired stage without executing it. Stages "
-                "are intent, plan, terrain, placement, assets, materials, and refine. Use this "
-                "to make the Agent's coarse-to-fine orchestration visible and resumable. During "
-                "materials, Poly Haven Textures (https://polyhaven.com/textures) may be used as an "
-                "explicit source; record the asset id, map set, UV scale, and provenance instead of "
-                "putting the URL into a visual generation prompt."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "World id."},
-                    "stage_id": {
-                        "type": "string",
-                        "enum": ["intent", "plan", "terrain", "placement", "assets", "materials", "refine"],
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "running", "done", "blocked"],
-                    },
-                    "note": {"type": "string", "description": "Short progress or decision note."},
-                    "prompt": {"type": "string", "description": "Original world prompt, if known."},
-                },
-                "required": ["world_id", "stage_id", "status"],
-            },
-        ),
-        Tool(
-            name="polykit_world_list_workflows",
-            description=(
-                "List editable local workflow definitions that the Agent can choose for terrain, "
-                "asset, material, or refinement stages."
-            ),
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="polykit_world_generate_asset",
-            description=(
-                "Run a local image-to-3D workflow for one planned world prototype. This is the "
-                "paper's regional asset stage: the image and model stay on the local PolyKit "
-                "server, and the returned run id can be polled before attaching the mesh."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "World id for orchestration context."},
-                    "proto_id": {"type": "string", "description": "Prototype id from the world plan."},
-                    "image_path": {"type": "string", "description": "Absolute local concept image path."},
-                    "model_id": {"type": "string", "description": "Optional local model id."},
-                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
-                    "collection": {"type": "string", "description": "Workspace collection; default: Worlds."},
-                    "remesh": {
-                        "type": "string",
-                        "enum": ["quad", "triangle", "none"],
-                        "description": "Remesh strategy; default: quad.",
-                    },
-                    "enable_texture": {
-                        "type": "boolean",
-                        "description": "Run the compatible texture-refinement node after mesh generation.",
-                    },
-                    "texture_resolution": {
-                        "type": "integer",
-                        "description": "Texture refinement resolution when enable_texture is true. Default: 1024.",
-                    },
-                    "params": {
-                        "type": "object",
-                        "description": "Optional generation/refinement parameters.",
-                    },
-                },
-                "required": ["world_id", "proto_id", "image_path"],
-            },
-        ),
-        Tool(
-            name="polykit_world_attach_asset",
-            description=(
-                "Attach a completed local mesh to a planned world prototype. The mesh path must "
-                "be workspace-relative (for example Workflows/Worlds/observatory.glb); this "
-                "updates only the world manifest and never copies binary data."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "world_id": {"type": "string", "description": "World id."},
-                    "proto_id": {"type": "string", "description": "Prototype id from the world plan."},
-                    "workspace_path": {"type": "string", "description": "Workspace-relative mesh path."},
-                    "workflow_id": {"type": "string", "description": "Optional workflow provenance id."},
-                    "run_id": {"type": "string", "description": "Optional local workflow run id."},
-                    "concept_image": {"type": "string", "description": "Optional workspace-relative concept image."},
-                },
-                "required": ["world_id", "proto_id", "workspace_path"],
-            },
+            ["world_id", "proto_id", "workspace_path"],
         ),
     ]
 
@@ -474,15 +235,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = await _dispatch(client, name, arguments)
         except httpx.ConnectError:
-            result = (
-                "Cannot connect to PolyKit API at http://localhost:8765. "
-                "Make sure PolyKit is running."
-            )
+            result = "Cannot connect to PolyKit API at http://localhost:8765. Make sure PolyKit is running."
         except httpx.HTTPStatusError as exc:
             result = f"PolyKit API error {exc.response.status_code}: {exc.response.text[:300]}"
         except Exception as exc:
             result = f"Error: {exc}"
-
     return [TextContent(type="text", text=result)]
 
 
@@ -501,12 +258,11 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return f"Switched active model to: {args['model_id']}"
 
     if name == "polykit_generate_from_image":
-        image_path: str = args["image_path"]
+        image_path = _required_text(args.get("image_path"), "image_path")
         with open(image_path, "rb") as image_file:
             image_bytes = image_file.read()
         mime = mimetypes.guess_type(image_path)[0] or "image/png"
         filename = image_path.replace("\\", "/").split("/")[-1]
-
         form_data = {
             "remesh": args.get("remesh", "quad"),
             "collection": args.get("collection", "Workflows"),
@@ -520,7 +276,6 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         params = args.get("params")
         if isinstance(params, Mapping):
             form_data["params"] = json.dumps(dict(params), ensure_ascii=False)
-
         response = await client.post(
             f"{API_BASE}/workflow-runs/from-image",
             files={"image": (filename, image_bytes, mime)},
@@ -529,33 +284,21 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         )
         response.raise_for_status()
         run_id = response.json()["run_id"]
-        return (
-            f"Generation started. Run ID: {run_id}\n"
-            f"Use polykit_get_generation_status with this ID to track progress."
-        )
+        return f"Generation started. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track progress."
 
     if name == "polykit_remove_background":
-        image_ref = _workspace_image_reference(args["image_path"])
+        image_ref = _workspace_image_reference(args.get("image_path"))
         params = {"model": args.get("model", "isnet-anime")}
         payload = {
             "schema_version": 1,
             "workflow_id": str(args.get("workflow_id") or "").strip() or None,
             "prompt": {
-                "image": {
-                    "class_type": "polykit.image",
-                    "inputs": {"image": image_ref},
-                },
+                "image": {"class_type": "polykit.image", "inputs": {"image": image_ref}},
                 "cutout": {
                     "class_type": "image-background-remover/remove-background",
-                    "inputs": {
-                        "image": ["image", "image"],
-                        "params": params,
-                    },
+                    "inputs": {"image": ["image", "image"], "params": params},
                 },
-                "output": {
-                    "class_type": "polykit.image_output",
-                    "inputs": {"image": ["cutout", "image"]},
-                },
+                "output": {"class_type": "polykit.image_output", "inputs": {"image": ["cutout", "image"]}},
             },
             "output_node_id": "output",
             "collection": str(args.get("collection") or "Workflows"),
@@ -563,31 +306,19 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
         response.raise_for_status()
         run_id = response.json()["run_id"]
-        return (
-            f"Background removal started with {params['model']}. Run ID: {run_id}\n"
-            "Use polykit_get_generation_status with this ID to track progress."
-        )
+        return f"Background removal started with {params['model']}. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track progress."
 
     if name == "polykit_generate_image":
         prompt = _required_text(args.get("prompt"), "prompt")
         model_id = _required_text(args.get("model_id") or "anima/generate", "model_id")
-        params = args.get("params")
-        if not isinstance(params, Mapping):
-            params = {}
-        workflow_id = str(args.get("workflow_id") or "").strip() or None
+        params = args.get("params") if isinstance(args.get("params"), Mapping) else {}
         payload = {
             "schema_version": 1,
-            "workflow_id": workflow_id,
+            "workflow_id": str(args.get("workflow_id") or "").strip() or None,
             "prompt": {
                 "text": {"class_type": "polykit.text", "inputs": {"text": prompt}},
-                "image": {
-                    "class_type": model_id,
-                    "inputs": {"text": ["text", "text"], "params": dict(params)},
-                },
-                "output": {
-                    "class_type": "polykit.image_output",
-                    "inputs": {"image": ["image", "image"]},
-                },
+                "image": {"class_type": model_id, "inputs": {"text": ["text", "text"], "params": dict(params)}},
+                "output": {"class_type": "polykit.image_output", "inputs": {"image": ["image", "image"]}},
             },
             "output_node_id": "output",
             "collection": str(args.get("collection") or "Workflows"),
@@ -595,10 +326,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         response = await client.post(f"{API_BASE}/workflow-runs/execute", json=payload, timeout=30.0)
         response.raise_for_status()
         run_id = response.json()["run_id"]
-        return (
-            f"Illustration generation started with {model_id}. Run ID: {run_id}\n"
-            "Use polykit_get_generation_status with this ID to track progress."
-        )
+        return f"Illustration generation started with {model_id}. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track progress."
 
     if name == "polykit_generate_text_asset":
         prompt = _required_text(args.get("prompt"), "prompt")
@@ -620,13 +348,10 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         response = await client.post(f"{API_BASE}/workflow-runs/text-to-asset", json=payload, timeout=30.0)
         response.raise_for_status()
         run_id = response.json()["run_id"]
-        return (
-            f"Text-to-3D asset workflow started. Run ID: {run_id}\n"
-            "Use polykit_get_generation_status with this ID to track progress."
-        )
+        return f"Text-to-3D asset workflow started. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track progress."
 
     if name == "polykit_get_generation_status":
-        run_id = args["job_id"]
+        run_id = _required_text(args.get("job_id"), "job_id")
         response = await client.get(f"{API_BASE}/workflow-runs/{run_id}")
         response.raise_for_status()
         status = response.json()
@@ -643,19 +368,13 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return " | ".join(parts)
 
     if name == "polykit_decimate_mesh":
-        response = await client.post(
-            f"{API_BASE}/optimize/mesh",
-            json={"path": args["path"], "target_faces": args["target_faces"]},
-        )
+        response = await client.post(f"{API_BASE}/optimize/mesh", json={"path": args["path"], "target_faces": args["target_faces"]})
         response.raise_for_status()
         data = response.json()
         return f"Decimated mesh to {data.get('face_count', '?')} faces. New file: {data.get('url', '')}"
 
     if name == "polykit_smooth_mesh":
-        response = await client.post(
-            f"{API_BASE}/optimize/smooth",
-            json={"path": args["path"], "iterations": args["iterations"]},
-        )
+        response = await client.post(f"{API_BASE}/optimize/smooth", json={"path": args["path"], "iterations": args["iterations"]})
         response.raise_for_status()
         data = response.json()
         return f"Smoothed mesh ({args['iterations']} iterations). New file: {data.get('url', '')}"
@@ -699,7 +418,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return (
             f"New scene created: {data.get('world_id', '?')}\n"
             f"{_json_text(data.get('world', data))}\n"
-            "Use this world_id for the planning stages and all later asset attachments."
+            "Use this world_id for all runtime passes and asset attachments."
         )
 
     if name == "polykit_world_save":
@@ -708,8 +427,10 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         if not isinstance(document, Mapping):
             raise WorldStoreError("document must be a JSON object")
         payload = dict(document)
-        if not any(payload.get(key) for key in ("world_id", "worldId", "id")):
-            payload["world_id"] = world_id
+        if payload.get("id") != world_id:
+            raise WorldStoreError("document.id must exactly match world_id")
+        if payload.get("schema_version") != 2 or not isinstance(payload.get("runtime"), Mapping):
+            raise WorldStoreError("document must be a schema-v2 world with one runtime object")
         response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=payload)
         response.raise_for_status()
         return f"World '{world_id}' saved: {_json_text(response.json())}"
@@ -724,14 +445,11 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             "solve": _as_bool(args.get("solve", True)),
             "resolve_assets": _as_bool(args.get("resolve_assets", False)),
         }
-        response = await client.post(
-            f"{API_BASE}/workspace-library/worlds/{world_id}/scene-plan",
-            json=payload,
-        )
+        response = await client.post(f"{API_BASE}/workspace-library/worlds/{world_id}/scene-plan", json=payload)
         response.raise_for_status()
         data = response.json()
-        scene_plan = data.get("scene_plan", {}) if isinstance(data, Mapping) else {}
-        count = len(scene_plan.get("instances", [])) if isinstance(scene_plan, Mapping) else 0
+        scene = data.get("scene", {}) if isinstance(data, Mapping) else {}
+        count = len(scene.get("instances", [])) if isinstance(scene, Mapping) else 0
         return f"World '{world_id}' scene plan compiled with {count} instance(s): {_json_text(data)}"
 
     if name == "polykit_world_find_assets":
@@ -755,23 +473,16 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             "output_name": str(args.get("output_name") or "scene"),
             "allow_missing": _as_bool(args.get("allow_missing", False)),
         }
-        response = await client.post(
-            f"{API_BASE}/workspace-library/worlds/{world_id}/compose",
-            json=payload,
-            timeout=30.0,
-        )
+        response = await client.post(f"{API_BASE}/workspace-library/worlds/{world_id}/compose", json=payload, timeout=30.0)
         response.raise_for_status()
         data = response.json()
         run_id = data.get("run_id", "?") if isinstance(data, Mapping) else "?"
-        return (
-            f"Scene composition started for world '{world_id}'. Run ID: {run_id}\n"
-            "Use polykit_get_generation_status with this ID to track the GLB output."
-        )
+        return f"Scene composition started for world '{world_id}'. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track the GLB output."
 
     if name == "polykit_world_update_stage":
         world_id = _safe_world_id(args.get("world_id"))
         stage_id = _required_text(args.get("stage_id"), "stage_id")
-        world = await _get_world_or_shell(client, world_id)
+        world = await _get_world(client, world_id)
         updated = update_world_stage(
             world,
             stage_id=stage_id,
@@ -779,15 +490,10 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
             note=args.get("note"),
             prompt=args.get("prompt"),
         )
-        if not any(updated.get(key) for key in ("world_id", "worldId", "id")):
-            updated["world_id"] = world_id
         response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=updated)
         response.raise_for_status()
-        stage = next(
-            item
-            for item in updated["agent_plan"]["stages"]
-            if item["id"] == stage_id
-        )
+        stages = updated["runtime"]["state"]["stages"]
+        stage = next(item for item in stages if item["id"] == stage_id)
         return f"World '{world_id}' stage updated: {_json_text(stage)}"
 
     if name == "polykit_world_list_workflows":
@@ -802,11 +508,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
                 continue
             workflow_id = workflow.get("id", "?")
             name_value = workflow.get("name", workflow_id)
-            node_count = (
-                len(workflow.get("nodes", []))
-                if isinstance(workflow.get("nodes"), list)
-                else "?"
-            )
+            node_count = len(workflow.get("nodes", [])) if isinstance(workflow.get("nodes"), list) else "?"
             lines.append(f"- {workflow_id}: {name_value} ({node_count} nodes)")
         return "\n".join(lines) if lines else "No editable local workflows are saved yet."
 
@@ -846,16 +548,14 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         run_id = response.json()["run_id"]
         return (
             f"World asset generation started for '{world_id}/{proto_id}'. Run ID: {run_id}\n"
-            "Poll with polykit_get_generation_status; when done, attach "
-            "scene_candidate.workspace_path using polykit_world_attach_asset."
+            "Poll with polykit_get_generation_status; when done, attach scene_candidate.workspace_path using polykit_world_attach_asset."
         )
 
     if name == "polykit_world_attach_asset":
         world_id = _safe_world_id(args.get("world_id"))
-        world_response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
-        world_response.raise_for_status()
+        world = await _get_world(client, world_id)
         updated = attach_world_artifact(
-            world_response.json(),
+            world,
             proto_id=args.get("proto_id", ""),
             workspace_path=args.get("workspace_path", ""),
             workflow_id=args.get("workflow_id"),
@@ -884,7 +584,6 @@ def _as_bool(value: object) -> bool:
 
 
 def _workspace_image_reference(image_path: object) -> dict[str, str]:
-    """Convert a trusted local image path into the workflow's safe file reference."""
     path = Path(_required_text(image_path, "image_path")).expanduser().resolve()
     root = runtime_paths.workspace.resolve()
     try:
@@ -904,14 +603,14 @@ def _json_text(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-async def _get_world_or_shell(client: httpx.AsyncClient, world_id: str) -> dict:
+async def _get_world(client: httpx.AsyncClient, world_id: str) -> dict:
     response = await client.get(f"{API_BASE}/workspace-library/worlds/{world_id}")
-    if response.status_code == 404:
-        return {"world_id": world_id, "spec": {}, "artifacts": {}}
     response.raise_for_status()
     value = response.json()
     if not isinstance(value, dict):
         raise WorldStoreError("Saved world document must be a JSON object")
+    if value.get("schema_version") != 2 or not isinstance(value.get("runtime"), Mapping):
+        raise WorldStoreError("Saved world must use schema-v2 runtime")
     return value
 
 
@@ -927,14 +626,9 @@ async def _on_call_tool(_context: object, params: object) -> CallToolResult:
 
 
 def _build_server() -> Server:
-    """Create a server for MCP 2.x, with a small MCP 1.x fallback."""
-
     try:
         return Server("polykit", on_list_tools=_on_list_tools, on_call_tool=_on_call_tool)
     except TypeError:
-        # MCP 1.x registered low-level handlers with decorators instead of
-        # constructor callbacks.  Keep the adapter usable for older installs
-        # while the lockfile continues to use the current protocol package.
         legacy = Server("polykit")
         list_tools_decorator = getattr(legacy, "list_tools", None)
         call_tool_decorator = getattr(legacy, "call_tool", None)
@@ -948,7 +642,7 @@ def _build_server() -> Server:
 server = _build_server()
 
 
-async def main():
+async def main() -> None:
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
