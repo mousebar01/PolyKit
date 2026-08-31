@@ -1,0 +1,5 @@
+[mcp_servers.polykit]
+command = "uv"
+args = ["run", "python", "api/mcp_server.py"]
+cwd = "."
+startup_timeout_sec = 30
