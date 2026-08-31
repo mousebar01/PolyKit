@@ -25,6 +25,8 @@ WORLD_VALIDATORS = (
     "world.spec.validate",
     "world.blockout.validate",
     "world.construction.validate",
+    "world.spatial.validate",
+    "world.visual.validate",
     "world.gameplay.validate",
     "world.final.validate",
 )
@@ -56,6 +58,33 @@ async def list_tools() -> list[Tool]:
             inputSchema=_object_schema({
                 "downloaded_only": {"type": "boolean", "description": "Only include downloaded entries. Default false."},
             }),
+        ),
+        Tool(
+            name="polykit_skill_list",
+            description=(
+                "List metadata for bundled Agent Skills without loading their instruction bodies. "
+                "This is read-only discovery and never executes a skill or script."
+            ),
+            inputSchema=_object_schema({}),
+        ),
+        Tool(
+            name="polykit_skill_get",
+            description=(
+                "Load one bundled Agent Skill's full SKILL.md instructions after selecting it. "
+                "Reading a skill does not authorize tools, execute scripts, or start a WorkflowRun."
+            ),
+            inputSchema=_object_schema({"name": _string("Agent Skill name.")}, ["name"]),
+        ),
+        Tool(
+            name="polykit_skill_read_resource",
+            description=(
+                "Read one bounded UTF-8 Agent Skill resource under scripts/, references/, or assets/. "
+                "Script files are returned only as text and are never executed by PolyKit."
+            ),
+            inputSchema=_object_schema({
+                "name": _string("Agent Skill name."),
+                "path": _string("Resource path relative to the skill, such as references/guide.md."),
+            }, ["name", "path"]),
         ),
         Tool(
             name="polykit_workflow_list",
@@ -102,7 +131,7 @@ async def list_tools() -> list[Tool]:
                 "world_id": _string("Optional World id for provenance."),
                 "proto_id": _string("Optional semantic object id for provenance."),
                 "image_params": {"type": "object", "description": "Optional image model params."},
-                "mesh_params": {"type": "object", "description": "Optional mesh model params."},
+                "mesh_params": {"type": "object", "description": "Optional mesh params."},
                 "texture_params": {"type": "object", "description": "Optional texture params."},
             }, ["prompt"]),
         ),
@@ -182,8 +211,28 @@ async def list_tools() -> list[Tool]:
             inputSchema=_object_schema({
                 "world_id": _string("World id."),
                 "capability": {"type": "string", "enum": list(WORLD_VALIDATORS)},
-                "run_id": _string("Optional WorkflowRun id used as construction evidence."),
+                "run_id": _string("Optional WorkflowRun id used as validator evidence."),
             }, ["world_id", "capability"]),
+        ),
+        Tool(
+            name="polykit_world_compile_repair",
+            description=(
+                "Compile one authoritative validator repair scope into a ProductionRecipe and optional workflow payload. "
+                "This tool never starts a WorkflowRun; inspect the result and explicitly call polykit_workflow_execute if execution is wanted. "
+                "Scope expansion also requires explicit opt-in."
+            ),
+            inputSchema=_object_schema({
+                "world_id": _string("World id."),
+                "capability": {"type": "string", "enum": list(WORLD_VALIDATORS)},
+                "repair_scope_id": _string("Repair scope id returned by polykit_world_validate."),
+                "run_id": _string("Optional WorkflowRun id used as validator evidence."),
+                "collection": _string("Workspace collection for a compiled workflow. Default: Scenes."),
+                "render_preview": {"type": "boolean", "description": "Render inspection previews when the backend supports them. Default true."},
+                "allow_scope_expansion": {
+                    "type": "boolean",
+                    "description": "Allow an explicit wider fallback when the installed backend cannot honor the local scope. Default false.",
+                },
+            }, ["world_id", "capability", "repair_scope_id"]),
         ),
         Tool(
             name="polykit_world_compose",
@@ -221,6 +270,10 @@ def _id_path(value: str) -> str:
     return quote(value.strip(), safe="")
 
 
+def _relative_resource_path(value: str) -> str:
+    return quote(value.strip(), safe="/")
+
+
 async def _request_json(method: str, path: str, payload: Any | None = None, *, timeout: float = DEFAULT_TIMEOUT) -> Any:
     async with httpx.AsyncClient(base_url=API_BASE, timeout=timeout) as client:
         response = await client.request(method, path, json=payload)
@@ -239,6 +292,18 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
         if args.get("downloaded_only") and isinstance(models, list):
             return [item for item in models if isinstance(item, dict) and item.get("downloaded")]
         return models
+
+    if name == "polykit_skill_list":
+        return await _request_json("GET", "/agent-skills")
+
+    if name == "polykit_skill_get":
+        skill_name = _id_path(_required_text(args, "name"))
+        return await _request_json("GET", f"/agent-skills/{skill_name}")
+
+    if name == "polykit_skill_read_resource":
+        skill_name = _id_path(_required_text(args, "name"))
+        resource_path = _relative_resource_path(_required_text(args, "path"))
+        return await _request_json("GET", f"/agent-skills/{skill_name}/resources/{resource_path}")
 
     if name == "polykit_workflow_list":
         return await _request_json("GET", "/workflow-definitions")
@@ -348,6 +413,24 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             "capability": capability,
             "run_id": args.get("run_id") or None,
         })
+
+    if name == "polykit_world_compile_repair":
+        capability = _required_text(args, "capability")
+        if capability not in WORLD_VALIDATORS:
+            raise ValueError(f"Unsupported validator capability: {capability}")
+        world_id = _id_path(_required_text(args, "world_id"))
+        return await _request_json(
+            "POST",
+            f"/workspace-library/worlds/{world_id}/production-recipes/compile",
+            {
+                "capability": capability,
+                "repair_scope_id": _required_text(args, "repair_scope_id"),
+                "run_id": args.get("run_id") or None,
+                "collection": args.get("collection") or "Scenes",
+                "render_preview": args.get("render_preview", True),
+                "allow_scope_expansion": args.get("allow_scope_expansion", False),
+            },
+        )
 
     if name == "polykit_world_compose":
         world_id = _id_path(_required_text(args, "world_id"))

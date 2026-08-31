@@ -1,15 +1,11 @@
 # World Builder
 
-PolyKit 的 World Builder 是一组 **World domain APIs、确定性 validators、Workflow recipes 和 runtime contracts**。它不属于聊天系统，也不要求嵌入式 Agent runtime。
-
-任何客户端都通过同一套 FastAPI 能力创建和修改世界：Web、CLI、自动化脚本或其他 HTTP 调用方没有特殊权限，也不复制领域逻辑。
-
-## Boundary
+PolyKit World Builder is a server-owned domain layer for scene intent, construction facts, gameplay contracts, workflow execution, and evidence-backed validation.
 
 ```text
 Web / CLI / automation
         ↓
-     World API
+World API
         ↓
 World domain compiler + validators
         ↓
@@ -22,77 +18,93 @@ Blender / local models / processors
 Artifacts / GLB
 ```
 
-FastAPI 是权威运行时。Three.js 负责浏览器中的交互预览；Blender MCP 可以作为独立的开发或 authoring 集成，但不是 World Builder 的控制面。
+## Domain boundary
 
-## Source of truth
+A `WorldDocument` describes what the world is. A `WorkflowRun` describes what computation is or was running. Do not store workflow stages, retry counters, task progress, rollback targets, or Agent conversation state in the World document.
 
-Schema-v2 `WorldDocument` 保存产品/领域事实：
+The server remains the single execution control plane. Browser, CLI, MCP, and external automation all use the same World and workflow APIs.
 
-- intent
-- `BuildSpec`
-- `ScenePlan`
-- `GameSpec`
-- construction / visual / gameplay quality facts
-- artifact references
+## Runtime model
 
-工作流执行状态不写进 `WorldDocument`。长任务的生命周期、节点进度、错误、事件和 evidence refs 属于现有 `WorkflowRun`。
+Schema-v2 World documents keep stable domain facts under `runtime`:
 
-因此：
+- `intent`: the authored goal and prompt.
+- `build`: deterministic BuildSpec facts such as buildings, anchors, attachments, tolerances, and construction rules.
+- `scene`: compiled ScenePlan objects, relations, instances, and layout diagnostics.
+- `game`: player, interaction, objective, and gameplay facts.
+- `quality`: compact construction, visual, and gameplay quality summaries.
+
+Large validation reports, renders, meshes, and workflow timelines remain artifacts/evidence rather than being copied into the World document.
+
+## Scene planning
+
+A typical semantic scene flow is:
 
 ```text
-WorldDocument = what the world is
-WorkflowRun   = what computation is/was running
+create/save World
+      ↓
+compile ScenePlan
+      ↓
+resolve or generate object assets
+      ↓
+attach artifacts to stable object ids
+      ↓
+compose final scene
 ```
 
-## Typical flow
+ScenePlan is renderer-neutral. Object identity is stable and must not depend on filenames.
 
-1. 创建或保存 World。
-2. 编译语义 `ScenePlan`。
-3. 使用 World build bridge 把 `BuildSpec` 编译成标准 WorkflowRun。
-4. Workflow Engine 通过 Node Packs 执行 Blender / model / process 节点。
-5. 将完成的 workspace artifact 绑定回稳定的 world object id。
-6. 组合场景。
-7. 运行 spec / blockout / construction / gameplay / final validators。
-8. 通过 WorkflowRun inspect 查看执行证据；检查操作本身不推进或修改任务。
+## Building construction
 
-Validators 只报告事实和证据，不决定聊天或客户端下一步要做什么。缺失的视觉或体积证据不能被静默当作通过。
+`runtime.build` stores the authored construction facts. `POST /workspace-library/worlds/{world_id}/build-structure` compiles one supported building into the canonical Workflow Engine.
 
-## CLI
+The current Blender bridge uses the official `blender-scene/build` process node and publishes a GLB plus optional inspection render. FastAPI owns the WorkflowRun, output naming, artifact paths, cancellation, and persistence.
 
-`tools/polykit-cli/polykit.py` 是普通的 JSON-first HTTP automation client。例如：
+Construction validators inspect facts and evidence; they never advance a task.
 
-```bash
-python tools/polykit-cli/polykit.py world create --name cabin
-python tools/polykit-cli/polykit.py world get <world-id>
-python tools/polykit-cli/polykit.py world compile-scene <world-id> --json scene.json
-python tools/polykit-cli/polykit.py world build-structure <world-id>
-python tools/polykit-cli/polykit.py workflow-run inspect <run-id>
-python tools/polykit-cli/polykit.py world attach-asset <world-id> <object-id> Workflows/cabin.glb
-python tools/polykit-cli/polykit.py world validate <world-id> world.final.validate
+## Visual and spatial validation
+
+World validation capabilities include:
+
+```text
+world.spec.validate
+world.blockout.validate
+world.construction.validate
+world.spatial.validate
+world.visual.validate
+world.gameplay.validate
+world.final.validate
 ```
 
-CLI 只调用 HTTP API。World artifact 绑定、验证、WorkflowRun 生命周期等规则仍由服务端实现。
+`world.visual.validate` consumes an evidence-backed VisualValidationReport and, when required, reruns authoritative spatial checks against the current World plus the final WorkflowRun GLB.
 
-## Relevant modules
+The Spatial Judge can prove bounded facts such as BuildSpec contact tolerances, camera-frustum membership, sampled line of sight, and suitable watertight/convex `inside` or `passes-through` relations. Missing or insufficient evidence remains `needs_review` / `not_evaluated`; it is never promoted to PASS by assumption.
 
-| Concern | Location |
-| --- | --- |
-| World document creation / artifact binding | `api/services/world_domain.py` |
-| World persistence | `api/services/world_store.py` |
-| World runtime quality | `api/services/world_runtime.py` |
-| Deterministic world validators | `api/services/world_validation.py` |
-| World → Workflow recipes | `api/services/world_workflows.py` |
-| World HTTP API | `api/routers/workspace_worlds.py`, `api/routers/world_artifacts.py` |
-| Workflow execution / observability | `api/services/workflow_engine.py`, `api/services/run_observability.py` |
-| Browser world runtime | `src/areas/worlds/` |
-| Automation CLI | `tools/polykit-cli/polykit.py` |
+See `docs/visual-validation.md` and `docs/spatial-validation.md`.
 
-## Design rules
+## Repair scopes and production recipes
 
-- No second durable task state machine beside `WorkflowRun`.
-- No workflow stage state inside `WorldDocument`.
-- No CLI-side duplication of domain mutations.
-- No browser-side execution of model/process nodes.
-- Construction contacts and tolerances are measured deterministically.
-- `inside` / `passes-through` require volumetric evidence.
-- Missing visual evidence remains `needs_review`, never an invented pass.
+Validators also derive advisory `polykit.repair-scope` v1 records. These identify the smallest trustworthy causal area—such as an attachment relationship, P0 object, camera composition issue, or missing evidence—without performing a repair.
+
+`POST /workspace-library/worlds/{world_id}/production-recipes/compile` recompiles one authoritative repair scope into `polykit.production-recipe` v1. A recipe may return an editable WorkflowDefinition draft and canonical WorkflowExecutionRequest, but it never starts a run automatically.
+
+The compiler preserves both desired and executable scope. If a validator localizes a defect to one relationship but the installed backend can only rebuild an entire building, the default result is blocked. Scope expansion is allowed only through an explicit caller opt-in and is recorded in workflow metadata.
+
+See `docs/repair-scopes.md` and `docs/production-recipes.md`.
+
+## Final validation
+
+Final validation aggregates domain validators rather than inventing new facts.
+
+Construction, visual/spatial, and gameplay domains must have the required passing evidence before final output can pass. Missing visual evidence remains `needs_review`; explicit failed evidence is `fail`.
+
+## Important rules
+
+- Do not introduce a second durable World task state machine.
+- Do not put workflow stage state in `WorldDocument`.
+- Do not duplicate World mutation rules in CLI, MCP, or browser clients.
+- Do not execute model/process nodes in the browser.
+- Construction contacts and tolerances must be deterministic.
+- `inside` and `passes-through` require volume evidence before PASS.
+- Missing visual or semantic evidence must not be invented as PASS.
+- Validation and repair-scope outputs are facts/advice; callers decide whether to compile or execute another WorkflowRun.
