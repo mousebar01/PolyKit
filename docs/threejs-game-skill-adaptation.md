@@ -9,7 +9,7 @@ collision proxies, and browser QA with reproducible screenshots and playtests.
 
 | Reference idea | PolyKit implementation |
 | --- | --- |
-| Define the player promise, verb, pressure, reward, and retry path | Keep the scene brief and relation graph in the Agent-authored `ScenePlan` |
+| Define the player promise, verb, pressure, reward, and retry path | Keep the scene brief and relation graph in the caller-authored `ScenePlan` |
 | Build a playable loop before polish | Add a desktop walkthrough to `ScenePlanCanvas` before adding interaction systems |
 | Use simple collision geometry | Derive 2D semantic AABB proxies from object dimensions and clamp to scene bounds |
 | Prefer deterministic tests | Preserve `seed`, deterministic layout, deterministic walkthrough spawn, and server diagnostics |
@@ -20,18 +20,17 @@ collision proxies, and browser QA with reproducible screenshots and playtests.
 The external skill's Vite scaffold, game-specific runtime, Tripo/Gemini/
 ElevenLabs integrations, combat/physics systems, and mobile controls are not
 copied. FastAPI remains the only execution and persistence boundary; Blender
-MCP remains an optional authoring/offline-render backend; Three.js remains the
+MCP remains an optional development/authoring backend; Three.js remains the
 browser viewer.
 
 ## Current demo
 
-Open any valid `polykit.scene-plan` in the Agent scene preview or world asset
-viewer. Click the gamepad button, click the viewport to lock the pointer, and
-use WASD or arrow keys to walk. Press Esc to release the pointer; click the
-button again to leave walkthrough mode. This is a spatial validation demo, not
-a shipping game loop: it proves that the generated room, object placement, and
-collision proxies agree from a first-person view instead of only from one
-camera screenshot.
+Open any valid `polykit.scene-plan` in the world asset viewer. Click the gamepad
+button, click the viewport to lock the pointer, and use WASD or arrow keys to
+walk. Press Esc to release the pointer; click the button again to leave
+walkthrough mode. This is a spatial validation demo, not a shipping game loop:
+it proves that the generated room, object placement, and collision proxies agree
+from a first-person view instead of only from one camera screenshot.
 
 The server-side `metadata.layoutQuality` audit remains authoritative. A scene
 that only looks correct from the editor camera is not considered valid.
