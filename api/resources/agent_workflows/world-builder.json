@@ -15,6 +15,7 @@
       "id": "intent",
       "type": "agent",
       "capability": "world.intent.author",
+      "inputs": {"operation": "polykit_world_save"},
       "completion": {"evidence": ["world-intent"]},
       "transitions": {"continue": "spec"}
     },
@@ -22,6 +23,9 @@
       "id": "spec",
       "type": "agent",
       "capability": "world.spec.author",
+      "inputs": {
+        "operations": ["polykit_world_save", "polykit_world_compile_scene"]
+      },
       "completion": {"evidence": ["build-spec", "scene-plan", "game-spec"]},
       "transitions": {"continue": "validate-spec"}
     },
@@ -29,20 +33,23 @@
       "id": "validate-spec",
       "type": "validator",
       "capability": "world.spec.validate",
+      "inputs": {"operation": "polykit_world_validate"},
       "completion": {"evidence": ["spec-validation"]},
       "transitions": {"continue": "blockout", "revise-spec": "spec"}
     },
     {
       "id": "blockout",
-      "type": "workflow",
-      "workflow": "world-blockout",
-      "completion": {"evidence": ["workflow-run"]},
+      "type": "agent",
+      "capability": "world.blockout.author",
+      "inputs": {"operation": "polykit_world_compile_scene"},
+      "completion": {"evidence": ["scene-plan"]},
       "transitions": {"continue": "blockout-review"}
     },
     {
       "id": "blockout-review",
       "type": "validator",
       "capability": "world.blockout.validate",
+      "inputs": {"operation": "polykit_world_validate"},
       "completion": {"evidence": ["review-report"]},
       "transitions": {"continue": "structure", "retry-step": "blockout", "revise-spec": "spec"}
     },
@@ -50,6 +57,7 @@
       "id": "structure",
       "type": "workflow",
       "workflow": "building-construction",
+      "inputs": {"operation": "polykit_world_build_structure"},
       "completion": {"evidence": ["workflow-run"]},
       "transitions": {"continue": "construction-review"}
     },
@@ -57,55 +65,72 @@
       "id": "construction-review",
       "type": "validator",
       "capability": "world.construction.validate",
+      "inputs": {
+        "operation": "polykit_world_validate",
+        "requires_previous_run": true
+      },
       "completion": {"evidence": ["construction-report"]},
       "transitions": {"continue": "environment", "retry-step": "structure", "revise-spec": "spec"}
     },
     {
       "id": "environment",
-      "type": "workflow",
-      "workflow": "world-environment",
-      "completion": {"evidence": ["workflow-run"]},
+      "type": "agent",
+      "capability": "world.environment.author",
+      "inputs": {"operation": "polykit_world_save"},
+      "completion": {"evidence": ["world-environment"]},
       "transitions": {"continue": "assets"}
     },
     {
       "id": "assets",
       "type": "agent",
       "capability": "world.assets.resolve",
+      "inputs": {
+        "operations": [
+          "polykit_world_find_assets",
+          "polykit_world_generate_asset",
+          "polykit_world_attach_asset"
+        ]
+      },
       "completion": {"evidence": ["asset-manifest"]},
       "transitions": {"continue": "materials"}
     },
     {
       "id": "materials",
-      "type": "workflow",
-      "workflow": "world-materials",
-      "completion": {"evidence": ["workflow-run"]},
+      "type": "agent",
+      "capability": "world.materials.author",
+      "inputs": {"operation": "polykit_world_save"},
+      "completion": {"evidence": ["material-plan"]},
       "transitions": {"continue": "lighting"}
     },
     {
       "id": "lighting",
-      "type": "workflow",
-      "workflow": "world-lighting",
-      "completion": {"evidence": ["workflow-run"]},
+      "type": "agent",
+      "capability": "world.lighting.author",
+      "inputs": {"operation": "polykit_world_save"},
+      "completion": {"evidence": ["lighting-plan"]},
       "transitions": {"continue": "gameplay"}
     },
     {
       "id": "gameplay",
-      "type": "workflow",
-      "workflow": "gameplay-graybox",
-      "completion": {"evidence": ["workflow-run"]},
+      "type": "agent",
+      "capability": "world.gameplay.author",
+      "inputs": {"operation": "polykit_world_save"},
+      "completion": {"evidence": ["gameplay-spec"]},
       "transitions": {"continue": "gameplay-review"}
     },
     {
       "id": "gameplay-review",
       "type": "validator",
       "capability": "world.gameplay.validate",
+      "inputs": {"operation": "polykit_world_validate"},
       "completion": {"evidence": ["gameplay-report"]},
       "transitions": {"continue": "optimization", "retry-step": "gameplay", "revise-spec": "spec"}
     },
     {
       "id": "optimization",
       "type": "workflow",
-      "workflow": "world-optimization",
+      "workflow": "world-compose-scene",
+      "inputs": {"operation": "polykit_world_compose_scene"},
       "completion": {"evidence": ["workflow-run"]},
       "transitions": {"continue": "final-review"}
     },
@@ -113,6 +138,10 @@
       "id": "final-review",
       "type": "validator",
       "capability": "world.final.validate",
+      "inputs": {
+        "operation": "polykit_world_validate",
+        "requires_construction_run": true
+      },
       "completion": {"evidence": ["final-report"]},
       "transitions": {
         "continue": "$complete",
