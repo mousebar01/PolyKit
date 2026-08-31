@@ -158,11 +158,11 @@ class VisualValidationTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["details"]["validation_status"], "pass")
 
-    def test_world_visual_validator_fails_without_report(self) -> None:
+    def test_world_visual_validator_needs_review_without_report(self) -> None:
         world = create_world_document(name="Reference world", prompt="Match the supplied reference")
         world["id"] = "world-1"
         result = validate_world("world-1", world, "world.visual.validate")
-        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["status"], "needs_review")
         self.assertTrue(any(item["code"] == "visual-report-missing" for item in result["issues"]))
 
 
