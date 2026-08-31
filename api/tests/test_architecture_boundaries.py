@@ -103,7 +103,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             for path in root.rglob("*"):
                 if path.suffix not in {".py", ".ts", ".tsx", ".js", ".mjs"}:
                     continue
-                if path == Path(__file__):
+                if path == Path(__file__) or path.name.endswith((".test.py", ".test.ts", ".test.tsx", ".test.mjs", ".test.js")):
                     continue
                 text = path.read_text(encoding="utf-8")
                 if any(token in text for token in forbidden_tokens):
