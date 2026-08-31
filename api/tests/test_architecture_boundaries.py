@@ -83,6 +83,33 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertIn("class WorkflowEngine:", canonical)
         self.assertIn("ExecutionContext.create", canonical)
 
+    def test_embedded_agent_runtime_stays_removed(self) -> None:
+        forbidden_paths = [
+            REPO_ROOT / "agent",
+            API_ROOT / "mcp_server.py",
+            API_ROOT / "services" / "agent_runtime.py",
+            API_ROOT / "services" / "world_agent.py",
+            SRC_ROOT / "areas" / "agent",
+            SRC_ROOT / "areas" / "settings" / "components" / "AgentSection.tsx",
+            SRC_ROOT / "areas" / "settings" / "components" / "McpSection.tsx",
+        ]
+        existing = [path.relative_to(REPO_ROOT).as_posix() for path in forbidden_paths if path.exists()]
+        self.assertEqual(existing, [], f"Retired embedded Agent runtime paths returned: {existing}")
+
+        forbidden_tokens = ("/settings/agent", "api/mcp_server.py", "services.world_agent")
+        offenders: list[str] = []
+        roots = (API_ROOT, SRC_ROOT)
+        for root in roots:
+            for path in root.rglob("*"):
+                if path.suffix not in {".py", ".ts", ".tsx", ".js", ".mjs"}:
+                    continue
+                if path == Path(__file__):
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if any(token in text for token in forbidden_tokens):
+                    offenders.append(path.relative_to(REPO_ROOT).as_posix())
+        self.assertEqual(offenders, [], f"Retired embedded Agent references returned: {offenders}")
+
 
 if __name__ == "__main__":
     unittest.main()
