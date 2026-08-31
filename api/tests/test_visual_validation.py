@@ -69,6 +69,16 @@ class VisualValidationTests(unittest.TestCase):
             }
         ]
 
+    def _passing_report(self):
+        return build_visual_validation_report(
+            world_id="world-1",
+            run_id="run-1",
+            target={"kind": "reference-image", "camera_id": "camera-main", "camera_revision": 1},
+            candidate={"camera_id": "camera-main", "camera_revision": 1},
+            metric_bundle=self._metric_bundle(),
+            semantic_checks=self._semantic_pass(),
+        )
+
     def test_identical_images_with_measured_p0_pass_metric_judge(self) -> None:
         bundle = self._metric_bundle()
         self.assertEqual(bundle["status"], "pass")
@@ -131,15 +141,56 @@ class VisualValidationTests(unittest.TestCase):
         bbox_check = next(item for item in bundle["checks"] if item["id"] == "p0.hero.bbox-geometry")
         self.assertEqual(bbox_check["status"], "not_evaluated")
 
-    def test_world_visual_validator_accepts_completed_run_report(self) -> None:
-        report = build_visual_validation_report(
+    def test_camera_revision_mismatch_fails_report_integrity(self) -> None:
+        report = self._passing_report()
+        report["candidate"]["camera_revision"] = 2
+        validation = validate_visual_validation_report(
+            report,
             world_id="world-1",
             run_id="run-1",
-            target={"kind": "reference-image", "camera_id": "camera-main", "camera_revision": 1},
-            candidate={"camera_id": "camera-main", "camera_revision": 1},
-            metric_bundle=self._metric_bundle(),
-            semantic_checks=self._semantic_pass(),
+            workspace_root=self.root,
         )
+        self.assertEqual(validation["status"], "fail")
+        self.assertTrue(
+            any(item["code"] == "visual-camera-revision-mismatch" for item in validation["issues"])
+        )
+
+    def test_reference_report_cannot_drop_p0_completeness_check(self) -> None:
+        report = self._passing_report()
+        report["checks"] = [
+            item for item in report["checks"] if item["id"] != "p0.observations-present"
+        ]
+        validation = validate_visual_validation_report(
+            report,
+            world_id="world-1",
+            run_id="run-1",
+            workspace_root=self.root,
+        )
+        self.assertEqual(validation["status"], "fail")
+        self.assertTrue(any(item["code"] == "visual-p0-check-missing" for item in validation["issues"]))
+
+    def test_evidence_outside_workspace_cannot_prove_a_check(self) -> None:
+        report = self._passing_report()
+        with tempfile.TemporaryDirectory(prefix="polykit-outside-evidence-") as outside:
+            outside_path = Path(outside) / "candidate.png"
+            Image.new("RGB", (32, 32), (1, 2, 3)).save(outside_path)
+            candidate_evidence = next(
+                item for item in report["evidence"] if item["id"] == "evidence:candidate"
+            )
+            candidate_evidence["path"] = str(outside_path)
+            validation = validate_visual_validation_report(
+                report,
+                world_id="world-1",
+                run_id="run-1",
+                workspace_root=self.root,
+            )
+        self.assertEqual(validation["status"], "fail")
+        self.assertTrue(
+            any(item["code"] == "visual-evidence-outside-workspace" for item in validation["issues"])
+        )
+
+    def test_world_visual_validator_accepts_completed_run_report(self) -> None:
+        report = self._passing_report()
         self.assertEqual(report["status"], "pass")
         world = create_world_document(name="Reference world", prompt="Match the supplied reference")
         world["id"] = "world-1"
