@@ -56,6 +56,12 @@ class AgentWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual({step.type for step in definition.steps}, {"agent", "workflow", "validator"})
         self.assertEqual(definition.steps[-1].transitions["continue"], "$complete")
 
+        workflow_steps = {step.id: step for step in definition.steps if step.type == "workflow"}
+        self.assertEqual(set(workflow_steps), {"structure", "optimization"})
+        self.assertEqual(workflow_steps["structure"].workflow, "building-construction")
+        self.assertEqual(workflow_steps["structure"].inputs["operation"], "polykit_world_build_structure")
+        self.assertEqual(workflow_steps["optimization"].inputs["operation"], "polykit_world_compose_scene")
+
     def test_session_is_persistent_and_next_does_not_mutate_it(self) -> None:
         session = self._start()
         session_id = session["id"]
@@ -67,6 +73,10 @@ class AgentWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertEqual(action["action"], "execute")
         self.assertEqual(action["step"]["id"], "intent")
+        self.assertEqual(action["subject"], {"kind": "world", "id": "scene-demo"})
+        self.assertEqual(action["executor"]["kind"], "agent")
+        self.assertEqual(action["executor"]["capability"], "world.intent.author")
+        self.assertEqual(action["executor"]["inputs"]["operation"], "polykit_world_save")
         self.assertEqual(before, after)
         self.assertEqual(after["metadata"]["chat_session_id"], "chat-1")
 
@@ -98,7 +108,9 @@ class AgentWorkflowRuntimeTests(unittest.TestCase):
             reason="Blender workflow is still rendering",
         )
         self.assertEqual(waiting["status"], "waiting_for_run")
-        self.assertEqual(next_agent_workflow_action(session_id)["action"], "wait")
+        waiting_action = next_agent_workflow_action(session_id)
+        self.assertEqual(waiting_action["action"], "wait")
+        self.assertEqual(waiting_action["subject"]["id"], "scene-demo")
 
         # A normal chat turn does not call any workflow mutation API. Re-reading
         # the durable session must therefore be byte-for-byte equivalent.
@@ -128,7 +140,7 @@ class AgentWorkflowRuntimeTests(unittest.TestCase):
         self._run_step(session_id, "continue", ["world-intent"])
         self._run_step(session_id, "continue", ["build-spec", "scene-plan", "game-spec"])
         self._run_step(session_id, "continue", ["spec-validation"])
-        self._run_step(session_id, "continue", ["workflow-run"])
+        self._run_step(session_id, "continue", ["scene-plan"])
         updated = self._run_step(session_id, "retry-step", ["review-report"])
 
         self.assertEqual(updated["current_step"], "blockout")
