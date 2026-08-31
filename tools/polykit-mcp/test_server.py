@@ -28,8 +28,14 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("polykit_workflow_inspect", names)
         self.assertIn("polykit_world_validate", names)
         self.assertIn("polykit_world_build_structure", names)
+        self.assertIn("polykit_world_compile_repair", names)
         forbidden = ("agent_workflow", "session_begin", "session_complete", "world_update_stage")
         self.assertFalse(any(token in name for name in names for token in forbidden))
+
+    def test_mcp_validator_enum_matches_visual_and_spatial_surface(self) -> None:
+        self.assertIn("world.spatial.validate", server_module.WORLD_VALIDATORS)
+        self.assertIn("world.visual.validate", server_module.WORLD_VALIDATORS)
+        self.assertEqual(len(server_module.WORLD_VALIDATORS), len(set(server_module.WORLD_VALIDATORS)))
 
     def test_workflow_inspect_is_a_read_only_get_proxy(self) -> None:
         request = AsyncMock(return_value={"run_id": "run-1", "status": "running"})
@@ -45,7 +51,7 @@ class PolyKitMcpTests(unittest.TestCase):
                 "polykit_world_validate",
                 {
                     "world_id": "winter cabin",
-                    "capability": "world.construction.validate",
+                    "capability": "world.spatial.validate",
                     "run_id": "run-structure",
                 },
             ))
@@ -53,8 +59,77 @@ class PolyKitMcpTests(unittest.TestCase):
         request.assert_awaited_once_with(
             "POST",
             "/workspace-library/worlds/winter%20cabin/validate",
-            {"capability": "world.construction.validate", "run_id": "run-structure"},
+            {"capability": "world.spatial.validate", "run_id": "run-structure"},
         )
+
+    def test_compile_repair_is_a_pure_http_compiler_proxy(self) -> None:
+        request = AsyncMock(return_value={"status": "blocked", "workflow_definition": None})
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch(
+                "polykit_world_compile_repair",
+                {
+                    "world_id": "winter cabin",
+                    "capability": "world.spatial.validate",
+                    "repair_scope_id": "repair:world.spatial.validate:spatial.attachment.cabin.wall-floor",
+                    "run_id": "run-structure",
+                    "allow_scope_expansion": False,
+                },
+            ))
+        self.assertEqual(result["status"], "blocked")
+        request.assert_awaited_once_with(
+            "POST",
+            "/workspace-library/worlds/winter%20cabin/production-recipes/compile",
+            {
+                "capability": "world.spatial.validate",
+                "repair_scope_id": "repair:world.spatial.validate:spatial.attachment.cabin.wall-floor",
+                "run_id": "run-structure",
+                "collection": "Scenes",
+                "render_preview": True,
+                "allow_scope_expansion": False,
+            },
+        )
+
+    def test_compile_repair_can_explicitly_forward_scope_expansion(self) -> None:
+        request = AsyncMock(return_value={"status": "ready", "scope_expanded": True})
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch(
+                "polykit_world_compile_repair",
+                {
+                    "world_id": "cabin",
+                    "capability": "world.construction.validate",
+                    "repair_scope_id": "repair:world.construction.validate:attachment-gap",
+                    "collection": "Repairs",
+                    "render_preview": False,
+                    "allow_scope_expansion": True,
+                },
+            ))
+        self.assertTrue(result["scope_expanded"])
+        request.assert_awaited_once_with(
+            "POST",
+            "/workspace-library/worlds/cabin/production-recipes/compile",
+            {
+                "capability": "world.construction.validate",
+                "repair_scope_id": "repair:world.construction.validate:attachment-gap",
+                "run_id": None,
+                "collection": "Repairs",
+                "render_preview": False,
+                "allow_scope_expansion": True,
+            },
+        )
+
+    def test_compile_repair_rejects_unknown_validator_before_http(self) -> None:
+        request = AsyncMock()
+        with patch.object(server_module, "_request_json", request):
+            with self.assertRaisesRegex(ValueError, "Unsupported validator"):
+                asyncio.run(server_module._dispatch(
+                    "polykit_world_compile_repair",
+                    {
+                        "world_id": "cabin",
+                        "capability": "world.fake.validate",
+                        "repair_scope_id": "repair:fake",
+                    },
+                ))
+        request.assert_not_awaited()
 
     def test_structure_build_returns_the_canonical_run_response(self) -> None:
         request = AsyncMock(return_value={"run_id": "run-build", "status": "pending"})
