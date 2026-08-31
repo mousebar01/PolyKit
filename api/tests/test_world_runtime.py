@@ -55,14 +55,14 @@ class WorldRuntimeAttachmentTests(unittest.TestCase):
     def test_support_attachment_inside_tolerance_passes_construction_gate(self) -> None:
         world = self._world_with_building(gap=0.02)
         saved = save_world(world)
-        gate = saved["runtime"]["state"]["gates"]["construction"]
+        gate = saved["runtime"]["quality"]["construction"]
         self.assertEqual(gate["status"], "pass")
         self.assertEqual(gate["issues"], [])
 
     def test_contact_gap_fails_construction_gate(self) -> None:
         world = self._world_with_building(gap=0.12)
         saved = save_world(world)
-        gate = saved["runtime"]["state"]["gates"]["construction"]
+        gate = saved["runtime"]["quality"]["construction"]
         self.assertEqual(gate["status"], "fail")
         issue = next(item for item in gate["issues"] if item["code"] == "attachment-gap")
         self.assertAlmostEqual(issue["measured"], 0.12)
@@ -72,25 +72,31 @@ class WorldRuntimeAttachmentTests(unittest.TestCase):
         world = self._world_with_building(mode="flush")
         world["runtime"]["build"]["buildings"][0]["anchors"][1]["normal"] = [1.0, 0.0, 0.0]
         saved = save_world(world)
-        gate = saved["runtime"]["state"]["gates"]["construction"]
+        gate = saved["runtime"]["quality"]["construction"]
         self.assertEqual(gate["status"], "fail")
         self.assertTrue(any(item["code"] == "attachment-normal-mismatch" for item in gate["issues"]))
 
     def test_missing_or_volume_only_evidence_never_silently_passes(self) -> None:
         world = self._world_with_building(mode="inside", include_positions=False)
         saved = save_world(world)
-        gate = saved["runtime"]["state"]["gates"]["construction"]
+        gate = saved["runtime"]["quality"]["construction"]
         self.assertEqual(gate["status"], "needs_review")
         self.assertTrue(any(item["severity"] == "warning" for item in gate["issues"]))
 
     def test_authored_gate_is_replaced_by_derived_result(self) -> None:
         world = self._world_with_building(gap=0.2)
-        world["runtime"]["state"]["gates"]["construction"] = {
+        world["runtime"]["quality"]["construction"] = {
             "status": "pass",
             "issues": [],
         }
         saved = save_world(world)
-        self.assertEqual(saved["runtime"]["state"]["gates"]["construction"]["status"], "fail")
+        self.assertEqual(saved["runtime"]["quality"]["construction"]["status"], "fail")
+
+    def test_world_quality_contains_no_agent_stage_progress(self) -> None:
+        world = create_world_document(name="No stages")
+        self.assertNotIn("state", world["runtime"])
+        self.assertNotIn("stages", world["runtime"]["quality"])
+        self.assertEqual(set(world["runtime"]["quality"]), {"construction", "visual", "gameplay"})
 
 
 if __name__ == "__main__":
