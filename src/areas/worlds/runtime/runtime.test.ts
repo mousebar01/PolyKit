@@ -15,7 +15,12 @@ test('world runtime starts spec-first with locked downstream passes', () => {
   const runtime = createInitialRuntime('Build a playable winter cabin demo')
   assert.equal(runtime.version, 1)
   assert.equal(runtime.intent.prompt, 'Build a playable winter cabin demo')
-  assert.equal(runtime.build, null)
+  assert.deepEqual(runtime.build, {
+    kind: 'polykit.build-spec',
+    version: 1,
+    environment: null,
+    buildings: [],
+  })
   assert.equal(runtime.scene, null)
   assert.deepEqual(runtime.compiled.instances, [])
   assert.deepEqual(runtime.state.stages.map((stage) => stage.id), WORLD_RUNTIME_STAGE_IDS)
