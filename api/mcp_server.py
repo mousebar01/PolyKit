@@ -1,9 +1,9 @@
 """
 PolyKit MCP Server.
 
-The world tools expose the strict schema-v2 spec-first runtime. Agents create a
-world first, mutate its single ``runtime`` contract, advance explicit build
-passes, and attach workspace artifacts by stable object/prototype id.
+The world tools expose the strict schema-v2 domain runtime. Agents create and
+edit world data, while durable task/stage progress lives in Agent Workflow
+sessions rather than inside WorldDocument.
 """
 from __future__ import annotations
 
@@ -19,12 +19,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from services.runtime_paths import runtime_paths
-from services.world_agent import (
-    WORLD_STAGE_IDS,
-    WORLD_STAGE_STATUSES,
-    attach_world_artifact,
-    update_world_stage,
-)
+from services.world_agent import attach_world_artifact
 from services.world_store import WorldStoreError, validate_world_id
 
 API_BASE = "http://localhost:8765"
@@ -133,7 +128,7 @@ async def list_tools() -> list[Tool]:
         _tool("polykit_get_settings", "Read configured model and workspace paths."),
         _tool(
             "polykit_world_create",
-            "Create a fresh schema-v2 world runtime. Call this before any world mutation and keep the returned world_id.",
+            "Create a fresh schema-v2 world domain document. Workflow progress is managed separately by Agent Workflow sessions.",
             {
                 "name": {"type": "string"},
                 "prompt": {"type": "string"},
@@ -142,13 +137,13 @@ async def list_tools() -> list[Tool]:
         ),
         _tool(
             "polykit_world_get",
-            "Read the current strict world document before editing runtime build, scene, game, state, or artifacts.",
+            "Read the current strict world document before editing runtime build, scene, game, quality, or artifacts.",
             {"world_id": {"type": "string"}},
             ["world_id"],
         ),
         _tool(
             "polykit_world_save",
-            "Save a complete schema-v2 world document. The document must keep its id and one runtime envelope; old top-level spec, instances, scene_plan, and agent_plan fields are invalid.",
+            "Save a complete schema-v2 world document. The document must keep its id and one runtime envelope; workflow stage state and old top-level mirrors are invalid.",
             {"world_id": {"type": "string"}, "document": {"type": "object"}},
             ["world_id", "document"],
         ),
@@ -184,19 +179,7 @@ async def list_tools() -> list[Tool]:
             },
             ["world_id"],
         ),
-        _tool(
-            "polykit_world_update_stage",
-            "Advance one ordered spec-first world build pass. Passing a stage unlocks the next; locked stages cannot run. Quality evidence belongs in runtime.state.gates.",
-            {
-                "world_id": {"type": "string"},
-                "stage_id": {"type": "string", "enum": list(WORLD_STAGE_IDS)},
-                "status": {"type": "string", "enum": list(WORLD_STAGE_STATUSES)},
-                "note": {"type": "string"},
-                "prompt": {"type": "string"},
-            },
-            ["world_id", "stage_id", "status"],
-        ),
-        _tool("polykit_world_list_workflows", "List editable local workflows usable by world build passes."),
+        _tool("polykit_world_list_workflows", "List editable local workflows usable by world build steps."),
         _tool(
             "polykit_world_generate_asset",
             "Generate one planned world asset with the local image-to-3D workflow.",
@@ -418,7 +401,7 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         return (
             f"New scene created: {data.get('world_id', '?')}\n"
             f"{_json_text(data.get('world', data))}\n"
-            "Use this world_id for all runtime passes and asset attachments."
+            "Use this world_id for domain edits and asset attachments."
         )
 
     if name == "polykit_world_save":
@@ -478,23 +461,6 @@ async def _dispatch(client: httpx.AsyncClient, name: str, args: dict) -> str:
         data = response.json()
         run_id = data.get("run_id", "?") if isinstance(data, Mapping) else "?"
         return f"Scene composition started for world '{world_id}'. Run ID: {run_id}\nUse polykit_get_generation_status with this ID to track the GLB output."
-
-    if name == "polykit_world_update_stage":
-        world_id = _safe_world_id(args.get("world_id"))
-        stage_id = _required_text(args.get("stage_id"), "stage_id")
-        world = await _get_world(client, world_id)
-        updated = update_world_stage(
-            world,
-            stage_id=stage_id,
-            status=args.get("status", ""),
-            note=args.get("note"),
-            prompt=args.get("prompt"),
-        )
-        response = await client.put(f"{API_BASE}/workspace-library/worlds/{world_id}", json=updated)
-        response.raise_for_status()
-        stages = updated["runtime"]["state"]["stages"]
-        stage = next(item for item in stages if item["id"] == stage_id)
-        return f"World '{world_id}' stage updated: {_json_text(stage)}"
 
     if name == "polykit_world_list_workflows":
         response = await client.get(f"{API_BASE}/workflow-definitions")
