@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services.world_agent import attach_world_artifact
+from services.world_domain import attach_world_artifact
 from services.world_store import WorldStoreError, WorldTooLargeError, get_world, save_world
 
 
