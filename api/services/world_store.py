@@ -256,7 +256,7 @@ def save_world(
     world_id: str | Mapping[str, Any] | BaseModel,
     world: Mapping[str, Any] | BaseModel | None = None,
 ) -> dict[str, Any]:
-    """Validate and atomically replace one strict world document."""
+    """Validate, refresh derived gates, and atomically replace one world."""
 
     if world is None:
         value = _as_mapping(world_id)  # type: ignore[arg-type]
@@ -265,13 +265,21 @@ def save_world(
         safe_id = validate_world_id(world_id)  # type: ignore[arg-type]
         value = _as_mapping(world)
 
+    # Validate the authored contract first.  Derived gate refresh then operates
+    # on a known schema-v2 document and its result is validated once more before
+    # persistence.  The local import avoids a module-level world_store/runtime
+    # cycle because world_runtime raises WorldStoreError for invalid envelopes.
+    _validate_world_shape(value, expected_world_id=safe_id)
+    from services.world_runtime import refresh_runtime_quality
+
+    value = refresh_runtime_quality(value)
     _validate_world_shape(value, expected_world_id=safe_id)
     encoded, normalized = _encode_world(value)
 
     with _lock:
         worlds_dir = _worlds_dir()
         destination = world_path(safe_id)
-        temporary = worlds_dir / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        temporary = worlds_dir / f".{destination.name}.{uuid.uuid4().hex[:10]}.tmp"
         try:
             with temporary.open("wb") as handle:
                 handle.write(encoded)
