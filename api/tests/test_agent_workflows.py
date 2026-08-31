@@ -147,6 +147,37 @@ class AgentWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(updated["corrections"], 1)
         self.assertEqual(updated["history"][-1]["to_step"], "blockout")
 
+    def test_world_builder_can_progress_from_start_to_final_review(self) -> None:
+        session = self._start()
+        session_id = session["id"]
+        path = [
+            ("intent", ["world-intent"]),
+            ("spec", ["build-spec", "scene-plan", "game-spec"]),
+            ("validate-spec", ["spec-validation"]),
+            ("blockout", ["scene-plan"]),
+            ("blockout-review", ["review-report"]),
+            ("structure", ["workflow-run"]),
+            ("construction-review", ["construction-report"]),
+            ("environment", ["world-environment"]),
+            ("assets", ["asset-manifest"]),
+            ("materials", ["material-plan"]),
+            ("lighting", ["lighting-plan"]),
+            ("gameplay", ["gameplay-spec"]),
+            ("gameplay-review", ["gameplay-report"]),
+            ("optimization", ["workflow-run"]),
+        ]
+        for expected_step, evidence in path:
+            action = next_agent_workflow_action(session_id)
+            self.assertEqual(action["step"]["id"], expected_step)
+            self._run_step(session_id, "continue", evidence)
+
+        action = next_agent_workflow_action(session_id)
+        self.assertEqual(action["step"]["id"], "final-review")
+        self.assertEqual(action["executor"]["kind"], "validator")
+        self.assertEqual(action["executor"]["capability"], "world.final.validate")
+        self.assertEqual(action["executor"]["inputs"]["operation"], "polykit_world_validate")
+        self.assertEqual(get_agent_workflow_session(session_id)["status"], "running")
+
     def test_subject_kind_is_enforced(self) -> None:
         with self.assertRaises(AgentWorkflowStateError):
             create_agent_workflow_session("world-builder", subject_kind="mesh", subject_id="asset-1")
