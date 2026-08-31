@@ -22,14 +22,14 @@ function now(): string {
 }
 
 function prepare(document: WorldDocument): { document: WorldDocument; terrain: BuiltTerrain | null; instances: Instance[] } {
-  const build = document.runtime.build
-  if (!isRenderableWorldSpec(build)) {
+  const environment = document.runtime.build.environment
+  if (!isRenderableWorldSpec(environment)) {
     return { document, terrain: null, instances: [] }
   }
 
-  const terrain = buildTerrain(build, { resolution: 96 })
+  const terrain = buildTerrain(environment, { resolution: 96 })
   const configured = document.runtime.compiled.instances
-  const instances = configured.length > 0 ? configured : solvePlacements(build, terrain)
+  const instances = configured.length > 0 ? configured : solvePlacements(environment, terrain)
   if (configured.length > 0) return { document, terrain, instances }
 
   return {
