@@ -59,7 +59,7 @@ WorkflowRun   = what computation is/was running
 
 Validators 只报告事实和证据，不决定聊天或客户端下一步要做什么。缺失的视觉或体积证据不能被静默当作通过。
 
-视觉验证采用 evidence-first 规则：deterministic image metrics、semantic review 和 World/geometry spatial checks 是独立证据来源；全局图像相似度不能覆盖 P0、材质类别、camera 或真实几何关系失败。`world.spatial.validate` 会从 WorkflowRun observability 找到最终 GLB，用 `trimesh` 重新测量最终交付几何，而不是信任调用方写入的 spatial score。详情见 [Visual validation](visual-validation.md)。
+视觉验证采用 evidence-first 规则：deterministic image metrics、semantic review 和 World/geometry spatial checks 是独立证据来源；全局图像相似度不能覆盖 P0、材质类别、camera 或真实几何关系失败。详情见 [Visual validation](visual-validation.md) 和 [Spatial validation](spatial-validation.md)。
 
 ## CLI
 
@@ -88,7 +88,7 @@ CLI 只调用 HTTP API。World artifact 绑定、验证、WorkflowRun 生命周�
 | World runtime quality | `api/services/world_runtime.py` |
 | Deterministic world validators | `api/services/world_validation.py` |
 | Visual report + reference image metrics | `api/services/visual_validation.py` |
-| Final-GLB spatial geometry judge | `api/services/spatial_validation.py` |
+| Final-GLB spatial / camera / volume evidence | `api/services/spatial_validation.py` |
 | World → Workflow recipes | `api/services/world_workflows.py` |
 | World HTTP API | `api/routers/workspace_worlds.py`, `api/routers/world_artifacts.py` |
 | Workflow execution / observability | `api/services/workflow_engine.py`, `api/services/run_observability.py` |
@@ -102,7 +102,7 @@ CLI 只调用 HTTP API。World artifact 绑定、验证、WorkflowRun 生命周�
 - No CLI-side duplication of domain mutations.
 - No browser-side execution of model/process nodes.
 - Construction contacts and tolerances are measured deterministically.
-- Spatial validation re-checks the final delivered GLB when geometry evidence is required.
-- `inside` / `passes-through` require volumetric evidence.
-- Missing visual evidence remains `needs_review` or `fail` according to the required gate; it is never an invented pass.
+- `inside` / `passes-through` require actual final-mesh volume evidence; incomplete or unsuitable geometry cannot become PASS.
+- Camera visibility is checked only from explicit visual-target camera facts; the validator does not guess a camera pose.
+- Missing visual or spatial evidence remains `needs_review` or `fail` according to the required gate; it is never an invented pass.
 - A semantic or spatial visual failure cannot be waived by aggregate image similarity.
