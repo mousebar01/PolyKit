@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from services.run_coordinator import run_coordinator
 from services.scene_planner import ScenePlanError, compile_scene_plan
-from services.world_agent import create_world_document
+from services.world_domain import create_world_document
 from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import (
     WorldNotFoundError,
@@ -34,7 +34,7 @@ class WorldCreateRequest(BaseModel):
 
 
 class ScenePlanCompileRequest(BaseModel):
-    """Agent-authored semantic scene graph accepted by the server planner."""
+    """Semantic scene graph accepted by the server planner."""
 
     plan: dict[str, Any] | None = None
     prompt: str = Field(default="", max_length=20_000)
@@ -284,7 +284,7 @@ async def build_world_structure(
 
 @router.post("/{world_id}/validate")
 async def validate_world_for_workflow(world_id: str, request: WorldValidationRequest):
-    """Return deterministic evidence and a transition outcome for one validator step."""
+    """Return deterministic validation evidence for one world capability."""
 
     try:
         world = get_world(world_id)
