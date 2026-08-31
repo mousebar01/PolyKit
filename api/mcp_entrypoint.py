@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
 
 import httpx
 from mcp.server import Server
@@ -69,21 +68,7 @@ def extra_tools() -> list[Tool]:
 
 
 async def list_tools() -> list[Tool]:
-    tools = await base.list_tools()
-    # Keep the base server's tool implementation, but remove wording from the
-    # abandoned Agent Workflow experiment before exposing it to clients.
-    normalized: list[Tool] = []
-    for tool in tools:
-        if tool.name == "polykit_world_create":
-            normalized.append(_tool(
-                tool.name,
-                "Create a fresh schema-v2 world domain document. Chat, UI, CLI, or any external Agent may call the same World API.",
-                tool.inputSchema.get("properties", {}),
-                tool.inputSchema.get("required"),
-            ))
-        else:
-            normalized.append(tool)
-    return [*normalized, *extra_tools()]
+    return [*(await base.list_tools()), *extra_tools()]
 
 
 def _json_text(value: object) -> str:
