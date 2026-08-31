@@ -50,7 +50,12 @@ class WorldStoreTests(unittest.TestCase):
             "runtime": {
                 "version": 1,
                 "intent": {"prompt": "A small playable world"},
-                "build": None,
+                "build": {
+                    "kind": "polykit.build-spec",
+                    "version": 1,
+                    "environment": None,
+                    "buildings": [],
+                },
                 "scene": None,
                 "compiled": {"instances": []},
                 "game": {
@@ -108,7 +113,7 @@ class WorldStoreTests(unittest.TestCase):
 
     def test_allows_terrain_coordinate_arrays_named_path(self) -> None:
         body = self._world("terrain-path")
-        body["runtime"]["build"] = {
+        body["runtime"]["build"]["environment"] = {
             "name": "River test",
             "logline": "River path is geometry, not an artifact path.",
             "seed": 1,
@@ -122,7 +127,7 @@ class WorldStoreTests(unittest.TestCase):
         }
 
         saved = save_world("terrain-path", body)
-        self.assertEqual(saved["runtime"]["build"]["rivers"][0]["path"], [[0.1, 0.2], [0.8, 0.7]])
+        self.assertEqual(saved["runtime"]["build"]["environment"]["rivers"][0]["path"], [[0.1, 0.2], [0.8, 0.7]])
 
     def test_rejects_unsafe_world_ids_and_artifact_paths(self) -> None:
         for world_id in ("../escape", "/tmp/escape", r"C:\\escape", "nested/world"):
@@ -210,7 +215,10 @@ class WorldStoreTests(unittest.TestCase):
         self.assertNotIn("spec", first)
         self.assertNotIn("scene_plan", first)
         self.assertNotIn("agent_plan", first)
-        self.assertIsNone(first["runtime"]["build"])
+        self.assertEqual(
+            first["runtime"]["build"],
+            {"kind": "polykit.build-spec", "version": 1, "environment": None, "buildings": []},
+        )
         self.assertIsNone(first["runtime"]["scene"])
         self.assertEqual([stage["id"] for stage in first["runtime"]["state"]["stages"]], list(WORLD_STAGE_IDS))
         self.assertEqual(first["runtime"]["intent"]["prompt"], "A stylized harbor")
