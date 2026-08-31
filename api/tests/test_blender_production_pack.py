@@ -56,6 +56,14 @@ class BlenderProductionManifestTests(unittest.TestCase):
             compile(script, f"{operation}.py", "exec")
             self.assertIn(f"OPERATION = '{operation}'", script)
             self.assertIn("export_scene.gltf", script)
+            self.assertIn("blenderVersion", script)
+            if operation == "array-stairs":
+                self.assertIn("index * rise + rail_height / 2.0", script)
+                self.assertNotIn("index * rise / 2.0 + rail_height / 2.0", script)
+                self.assertIn("tread_thickness / 2.0", script)
+            if operation == "surface":
+                self.assertIn("zlib.decompress", script)
+                self.assertIn("ShaderNodeBsdfPrincipled", script)
 
         report = processor._report_script("/tmp/input.glb", "", {})
         compile(report, "geometry-report.py", "exec")

@@ -47,6 +47,18 @@ Events are append-only observations with monotonically increasing `seq` values. 
 
 Successful published output is recorded as both an artifact reference and workflow-output evidence. Domain validators may produce additional evidence separately; observability does not convert that evidence into an Agent transition.
 
+## Process evidence
+
+Process nodes may return a small JSON `metadata` object. The workflow engine
+stores it under `JobStatus.meta.process_metadata`, keyed by node id, and the
+read-only inspection projection exposes it as `process_metadata`. This is
+backend evidence, not another progress or task state machine. For Blender
+scene builds it can include the Blender version, BuildSpec, and the
+`constructionValidation` report. A world construction validator accepts a
+completed `building-construction` run only when that Blender report is present
+and has `status: "pass"`; a mock executor without this evidence is not a
+Blender E2E result.
+
 ## Read-only inspection
 
 `GET /workflow-runs/{run_id}/inspect` returns the stable inspection projection:

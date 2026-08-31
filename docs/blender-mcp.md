@@ -4,11 +4,15 @@ PolyKit keeps Blender MCP as an **independent development/authoring integration*
 It is not part of the product control plane and is not required by the Web UI,
 FastAPI World API, CLI, or WorkflowRun lifecycle.
 
-The project-level `.mcp.json` currently contains only the Blender server entry:
+The project-level `.mcp.json` contains two independent server entries:
 
 ```json
 {
   "mcpServers": {
+    "polykit": {
+      "command": "uv",
+      "args": ["run", "python", "tools/polykit-mcp/server.py"]
+    },
     "blender": {
       "command": "uvx",
       "args": ["blender-mcp"]
@@ -17,20 +21,20 @@ The project-level `.mcp.json` currently contains only the Blender server entry:
 }
 ```
 
-A compatible external MCP client may use that configuration when interactive
-Blender authoring is useful. PolyKit itself does not start an embedded chat
-runtime or expose a PolyKit MCP server.
+A compatible external MCP client may use the `blender` entry when interactive
+Blender authoring is useful, or the `polykit` entry when it needs the stateless
+HTTP adapter to the FastAPI control plane. PolyKit itself does not start an
+embedded chat runtime; the MCP entries are adapters only.
 
 ## Product boundary
 
 ```text
-Web / CLI / automation
-        ↓ HTTP
-      FastAPI
-        ↓
-Workflow Engine / Node Packs
-        ↓
-workspace artifacts
+Web / CLI / automation ── HTTP ──> FastAPI
+external MCP client ──> PolyKit MCP adapter ──┘
+                                  ↓
+                           Workflow Engine / Node Packs
+                                  ↓
+                           workspace artifacts
 
 external MCP client ── optional ──> Blender MCP ──> Blender
 ```

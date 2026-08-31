@@ -56,9 +56,13 @@ class BlenderCabinV2Tests(unittest.TestCase):
         )
         compile(script, "<blender-cabin-v2>", "exec")
         self.assertIn("closest_distance", script)
+        self.assertIn("interior_outside_floor", script)
+        self.assertIn("polyKitZone", script)
         self.assertIn("ROOF_CENTER_Z", script)
         self.assertIn("construction validation failed", script)
         self.assertIn("polyKitBuildSpec", script)
+        self.assertIn("blender_version", script)
+        self.assertIn("polyKitBlenderVersion", script)
 
     def test_generated_blender_script_declares_inspection_views(self) -> None:
         config = self.processor._cabin_config({})

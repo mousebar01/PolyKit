@@ -14,6 +14,7 @@ import re
 import socket
 import sys
 import uuid
+import zlib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -70,6 +71,7 @@ import json
 import math
 import pathlib
 import tempfile
+import zlib
 import bpy
 from mathutils import Vector
 
@@ -108,11 +110,15 @@ def move(obj, target):
         current.objects.unlink(obj)
     target.objects.link(obj)
 
+def principled(mat):
+    nodes = mat.node_tree.nodes
+    return nodes.get('Principled BSDF') or next((node for node in nodes if node.bl_idname == 'ShaderNodeBsdfPrincipled'), None)
+
 def material(name, color, roughness=0.55, metallic=0.0, transmission=0.0):
     mat = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     mat.diffuse_color = (*color, 1.0)
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    bsdf = principled(mat)
     if bsdf:
         if 'Base Color' in bsdf.inputs:
             bsdf.inputs['Base Color'].default_value = (*color, 1.0)
@@ -163,7 +169,7 @@ def import_mesh(path):
     path = str(path)
     if INPUT_B64 and not pathlib.Path(path).is_file():
         transferred = pathlib.Path(tempfile.gettempdir()) / ('polykit_input_' + SCENE_NAME + pathlib.Path(path).suffix.lower())
-        transferred.write_bytes(base64.b64decode(INPUT_B64))
+        transferred.write_bytes(zlib.decompress(base64.b64decode(INPUT_B64)))
         path = str(transferred)
     suffix = pathlib.Path(path).suffix.lower()
     if suffix in {'.glb', '.gltf'}:
@@ -212,19 +218,24 @@ def add_presentation(objects):
     minimum, maximum = bounds(objects)
     center = (minimum + maximum) * 0.5
     extent = max((maximum - minimum).length, 1.0)
+    # Area-light energy is distance-sensitive. Scale the authored preset for
+    # larger composed scenes so a cabin-sized asset remains readable without
+    # forcing callers to guess an exposure value; small assets keep the
+    # original preset intensity.
+    energy_scale = max(1.0, (extent / 12.0) ** 2)
     preset = str(PARAMS.get('preset', 'three-point')).lower() if OPERATION == 'lighting' else 'three-point'
     if preset == 'daylight':
-        key_spec = (center + Vector((-extent * 1.2, -extent * 1.5, extent * 2.4)), 1500.0, (1.0, 0.92, 0.78), extent * 0.9)
-        fill_spec = (center + Vector((extent * 1.4, -extent * 0.3, extent * 0.9)), 850.0, (0.66, 0.82, 1.0), extent * 1.2)
-        rim_spec = (center + Vector((0.0, extent * 1.8, extent * 1.4)), 260.0, (0.72, 0.84, 1.0), extent)
+        key_spec = (center + Vector((-extent * 1.2, -extent * 1.5, extent * 2.4)), 1500.0 * energy_scale, (1.0, 0.92, 0.78), extent * 0.9)
+        fill_spec = (center + Vector((extent * 1.4, -extent * 0.3, extent * 0.9)), 850.0 * energy_scale, (0.66, 0.82, 1.0), extent * 1.2)
+        rim_spec = (center + Vector((0.0, extent * 1.8, extent * 1.4)), 260.0 * energy_scale, (0.72, 0.84, 1.0), extent)
     elif preset == 'dramatic':
-        key_spec = (center + Vector((-extent * 1.7, -extent * 0.8, extent * 1.1)), 1250.0, (1.0, 0.32, 0.12), extent * 0.3)
-        fill_spec = (center + Vector((extent * 1.6, -extent * 0.1, extent * 0.4)), 110.0, (0.18, 0.28, 1.0), extent * 0.35)
-        rim_spec = (center + Vector((extent * 0.2, extent * 1.6, extent * 1.6)), 1050.0, (0.3, 0.48, 1.0), extent * 0.25)
+        key_spec = (center + Vector((-extent * 1.7, -extent * 0.8, extent * 1.1)), 1250.0 * energy_scale, (1.0, 0.32, 0.12), extent * 0.3)
+        fill_spec = (center + Vector((extent * 1.6, -extent * 0.1, extent * 0.4)), 110.0 * energy_scale, (0.18, 0.28, 1.0), extent * 0.35)
+        rim_spec = (center + Vector((extent * 0.2, extent * 1.6, extent * 1.6)), 1050.0 * energy_scale, (0.3, 0.48, 1.0), extent * 0.25)
     else:
-        key_spec = (center + Vector((-extent, -extent, extent * 1.2)), 850.0, (1.0, 0.72, 0.52), extent * 0.55)
-        fill_spec = (center + Vector((extent, -extent * 0.25, extent * 0.65)), 520.0, (0.45, 0.62, 1.0), extent * 0.7)
-        rim_spec = (center + Vector((0.0, extent, extent * 1.1)), 700.0, (0.55, 0.7, 1.0), extent * 0.45)
+        key_spec = (center + Vector((-extent, -extent, extent * 1.2)), 850.0 * energy_scale, (1.0, 0.72, 0.52), extent * 0.55)
+        fill_spec = (center + Vector((extent, -extent * 0.25, extent * 0.65)), 520.0 * energy_scale, (0.45, 0.62, 1.0), extent * 0.7)
+        rim_spec = (center + Vector((0.0, extent, extent * 1.1)), 700.0 * energy_scale, (0.55, 0.7, 1.0), extent * 0.45)
     key = add_light('Key_Light', 'AREA', *key_spec)
     fill = add_light('Fill_Light', 'AREA', *fill_spec)
     rim = add_light('Rim_Light', 'AREA', *rim_spec)
@@ -250,7 +261,7 @@ def add_presentation(objects):
     return camera
 
 objects = []
-metadata = {'operation': OPERATION, 'version': 1, 'warnings': []}
+metadata = {'operation': OPERATION, 'version': 1, 'blenderVersion': bpy.app.version_string, 'warnings': []}
 
 if OPERATION == 'opening':
     width = float(PARAMS.get('wall_width', 6.0))
@@ -289,7 +300,11 @@ elif OPERATION == 'array-stairs':
     run = max(0.05, float(PARAMS.get('run', 0.28)))
     rise = max(0.03, float(PARAMS.get('rise', 0.18)))
     width = max(0.2, float(PARAMS.get('width', 1.2)))
-    tread = cube('Stair_Tread_Array', (0.0, 0.0, 0.0), (width, run, 0.12), WOOD, bevel=0.025)
+    tread_thickness = 0.12
+    # Keep the first tread's underside on the Blender ground plane.  The
+    # composed-scene fitter also enforces contact, but standalone stair
+    # artifacts should not ship with half their base below y=0.
+    tread = cube('Stair_Tread_Array', (0.0, 0.0, tread_thickness / 2.0), (width, run, tread_thickness), WOOD, bevel=0.025)
     array = tread.modifiers.new('Parametric Stair Array', 'ARRAY')
     array.count = steps
     array.use_relative_offset = False
@@ -304,7 +319,10 @@ elif OPERATION == 'array-stairs':
             x = side * (width / 2.0 - 0.04)
             cube('Stair_Rail', (x, (steps - 1) * run / 2.0, (steps - 1) * rise / 2.0 + rail_height), (0.06, steps * run + 0.12, 0.06), METAL, DETAILS, rotation=(math.atan2((steps - 1) * rise, max(steps * run, 0.01)), 0.0, 0.0))
             for index in (0, steps - 1):
-                cylinder('Rail_Post', (x, index * run, index * rise / 2.0 + rail_height / 2.0), 0.035, rail_height, METAL)
+                # Each post stands on the corresponding tread.  The end
+                # post must use the full accumulated rise; halving it leaves
+                # the post floating inside the flight for normal stair rises.
+                cylinder('Rail_Post', (x, index * run, index * rise + rail_height / 2.0), 0.035, rail_height, METAL)
     objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     metadata.update({'steps': steps, 'run': run, 'rise': rise, 'arrayApplied': True})
 elif OPERATION == 'curve-profile':
@@ -319,6 +337,7 @@ elif OPERATION == 'curve-profile':
     curve_data.dimensions = '3D'
     curve_data.resolution_u = max(1, min(24, int(PARAMS.get('resolution', 3))))
     curve_data.bevel_depth = max(0.005, min(1.0, float(PARAMS.get('radius', 0.06))))
+    curve_data.use_fill_caps = True
     profile = str(PARAMS.get('profile', 'round')).lower()
     curve_data.bevel_resolution = 0 if profile == 'square' else max(0, min(8, int(PARAMS.get('resolution', 3))))
     spline = curve_data.splines.new('BEZIER')
@@ -402,7 +421,7 @@ elif OPERATION in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr'}:
         palette = {'wood': WOOD, 'metal': METAL, 'concrete': CONCRETE, 'glass': material('Production Glass', (0.22, 0.42, 0.62), 0.08, 0.0, 0.88), 'water': material('Production Water', (0.03, 0.16, 0.35), 0.05, 0.0, 0.72), 'fabric': material('Production Fabric', (0.32, 0.09, 0.12), 0.92)}
         mat = palette.get(kind, WOOD)
         roughness = max(0.02, min(1.0, float(PARAMS.get('roughness', 0.55))))
-        bsdf = mat.node_tree.nodes.get('Principled BSDF')
+        bsdf = principled(mat)
         if bsdf and 'Roughness' in bsdf.inputs:
             bsdf.inputs['Roughness'].default_value = roughness
         nodes = mat.node_tree.nodes
@@ -560,6 +579,20 @@ if OPERATION != 'geometry-report':
     preview_path = root / (SCENE_NAME + '.png')
     scene.render.filepath = str(preview_path)
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+    if OPERATION == 'surface':
+        # Blender's glTF exporter cannot serialize procedural ColorRamp/Noise
+        # links as a portable PBR base color and otherwise falls back to white.
+        # Keep the authored node graph in the .blend sidecar, but export the
+        # calibrated Principled default so downstream GLB consumers retain the
+        # declared substrate color.
+        for mat in bpy.data.materials:
+            bsdf = principled(mat)
+            base = bsdf.inputs.get('Base Color') if bsdf else None
+            if not base:
+                continue
+            for link in list(mat.node_tree.links):
+                if link.to_node == bsdf and link.to_socket == base:
+                    mat.node_tree.links.remove(link)
     bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT', export_apply=True)
     if RENDER_PREVIEW:
         bpy.ops.render.render(write_still=True)
@@ -586,6 +619,7 @@ import base64
 import json
 import pathlib
 import tempfile
+import zlib
 import bpy
 import bmesh
 
@@ -600,7 +634,7 @@ for collection in list(bpy.data.collections):
     bpy.data.collections.remove(collection)
 if INPUT_B64 and not pathlib.Path(INPUT_PATH).is_file():
     transferred = pathlib.Path(tempfile.gettempdir()) / ('polykit_report_input' + pathlib.Path(INPUT_PATH).suffix.lower())
-    transferred.write_bytes(base64.b64decode(INPUT_B64))
+    transferred.write_bytes(zlib.decompress(base64.b64decode(INPUT_B64)))
     INPUT_PATH = str(transferred)
 suffix = pathlib.Path(INPUT_PATH).suffix.lower()
 if suffix in {'.glb', '.gltf'}:
@@ -614,7 +648,7 @@ elif suffix == '.stl':
 else:
     raise RuntimeError('unsupported mesh format: ' + suffix)
 objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-report = {'version': 1, 'input': pathlib.Path(INPUT_PATH).name, 'objects': len(objects), 'findings': [], 'status': 'pass'}
+report = {'version': 1, 'blenderVersion': bpy.app.version_string, 'input': pathlib.Path(INPUT_PATH).name, 'objects': len(objects), 'findings': [], 'status': 'pass'}
 for obj in objects:
     mesh = obj.data
     bm = bmesh.new()
@@ -708,7 +742,10 @@ def main() -> None:
         if input_file.stat().st_size > 64 * 1024 * 1024:
             error('blender-production: remote mesh transfer is limited to 64 MiB; use a shared workspace for larger assets')
             return
-        input_b64 = base64.b64encode(input_file.read_bytes()).decode('ascii')
+        # Remote Blender bridges commonly impose a request-size limit. Compress
+        # embedded mesh bytes before placing them in the JSON code payload while
+        # retaining the existing bounded 64 MiB source guard.
+        input_b64 = base64.b64encode(zlib.compress(input_file.read_bytes(), level=9)).decode('ascii')
     render_preview = _bool(params, 'render_preview', True)
     scene_name = _slug(str(params.get('scene_name') or f'production_{operation}_{uuid.uuid4().hex[:8]}'))
     try:

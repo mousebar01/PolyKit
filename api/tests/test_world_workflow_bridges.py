@@ -70,7 +70,13 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
                     "world_id": world_id,
                     "building_id": "cabin",
                     "workflow_recipe": "building-construction",
-                }
+                },
+                "process_metadata": {
+                    "build": {
+                        "blenderVersion": "5.0.1",
+                        "constructionValidation": {"status": "pass", "attachments": []},
+                    }
+                },
             },
         }
 
@@ -91,6 +97,15 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
         self.assertEqual(construction["status"], "pass")
         self.assertNotIn("outcome", construction)
         self.assertEqual(construction["evidence"]["kind"], "construction-report")
+        self.assertEqual(construction["details"]["blender_validation_status"], "pass")
+
+    def test_construction_rejects_completed_run_without_blender_evidence(self) -> None:
+        world = self._world()
+        run = self._construction_run(world["id"])
+        run["meta"].pop("process_metadata")
+        report = validate_world(world["id"], world, "world.construction.validate", run=run)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any(issue["code"] == "construction-run-evidence-missing" for issue in report["issues"]))
 
     def test_construction_rejects_a_run_from_another_world(self) -> None:
         world = self._world()

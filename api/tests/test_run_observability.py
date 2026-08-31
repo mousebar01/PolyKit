@@ -73,6 +73,12 @@ class RunObservabilityTests(unittest.TestCase):
         job.step = "Workflow complete"
         job.output_url = "/workspace/Workflows/cabin.glb"
         job.meta["artifact_kind"] = "mesh"
+        job.meta["process_metadata"] = {
+            "build": {
+                "blenderVersion": "5.0.1",
+                "constructionValidation": {"status": "pass"},
+            }
+        }
         finalize_workflow_run(job, status="done", output_url=job.output_url)
 
         inspection = inspect_workflow_run(job)
@@ -80,6 +86,7 @@ class RunObservabilityTests(unittest.TestCase):
         self.assertEqual(inspection["nodes"]["output"]["status"], "done")
         self.assertEqual(inspection["artifacts"][0]["workspace_path"], "Workflows/cabin.glb")
         self.assertEqual(inspection["evidence"][0]["kind"], "workflow-output")
+        self.assertEqual(inspection["process_metadata"]["build"]["blenderVersion"], "5.0.1")
         event_types = [event["type"] for event in inspection["events"]]
         self.assertIn("run.queued", event_types)
         self.assertIn("run.started", event_types)
@@ -106,6 +113,34 @@ class RunObservabilityTests(unittest.TestCase):
         self.assertEqual(inspection["nodes"]["build"]["status"], "failed")
         self.assertEqual(inspection["nodes"]["output"]["status"], "pending")
         self.assertEqual(inspection["events"][-1]["type"], "run.failed")
+
+    def test_retry_clears_failed_node_error_before_success(self) -> None:
+        request = _request()
+        job = JobStatus(job_id="run-retry", status="running", progress=30, meta={})
+        init_workflow_observability(job, request, request.prompt, ["text", "build", "output"])
+        job.step = "Running Fake Build (2/3)"
+        observe_workflow_checkpoint(job)
+        job.status = "error"
+        job.error = "build failed"
+        finalize_workflow_run(job, status="error", error=job.error)
+        self.assertEqual(job.meta["observability"]["nodes"]["build"]["status"], "failed")
+
+        # Resume the same node after the durable retry reset.
+        job.status = "running"
+        job.progress = 0
+        job.step = "Queued for resume"
+        observe_workflow_checkpoint(job)
+        job.progress = 30
+        job.step = "Running Fake Build (2/3)"
+        observe_workflow_checkpoint(job)
+        self.assertEqual(job.meta["observability"]["nodes"]["build"]["status"], "running")
+        self.assertIsNone(job.meta["observability"]["nodes"]["build"]["error"])
+
+        job.progress = 70
+        job.step = "Publishing output (3/3)"
+        observe_workflow_checkpoint(job)
+        self.assertEqual(job.meta["observability"]["nodes"]["build"]["status"], "done")
+        self.assertIsNone(job.meta["observability"]["nodes"]["build"]["error"])
 
     def test_observability_round_trips_through_existing_run_store(self) -> None:
         request = _request()

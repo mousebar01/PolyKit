@@ -1,6 +1,8 @@
 /**
- * Low-poly, local geometry for dense scatter assets and offline fallbacks.
- * Every prototype is normalized to one unit tall with its base at y = 0.
+ * Preview/test geometry fixture for deterministic planning experiments.
+ * Production WorldCanvas never consumes this module; final meshes come from
+ * Blender workspace artifacts. Every prototype is normalized to one unit tall
+ * with its base at y = 0.
  */
 
 import * as THREE from 'three'
@@ -278,4 +280,3 @@ export function proceduralMaterial(emissive?: string): THREE.MeshStandardMateria
     ...(emissive ? { emissive: new THREE.Color(emissive), emissiveIntensity: 0.6 } : {}),
   })
 }
-

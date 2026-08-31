@@ -73,17 +73,17 @@ def _discover_node_packs() -> Dict[str, Tuple[type, dict, Path]]:
         if not manifest_path.exists():
             print(f"[Registry] Skipping '{pack_dir.name}': missing manifest.json")
             continue
-        if not generator_path.exists():
-            print(f"[Registry] Skipping '{pack_dir.name}': missing generator.py")
-            continue
 
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("type", "model") != "model":
-                print(
-                    f"[Registry] Skipping '{pack_dir.name}': type "
-                    f"'{manifest.get('type')}' is not handled by this registry"
-                )
+                # Process packs are discovered and executed by node_catalog;
+                # this registry owns model generators only. Do not emit a
+                # misleading missing-generator warning for Blender/process
+                # packs on every server startup.
+                continue
+            if not generator_path.exists():
+                print(f"[Registry] Skipping '{pack_dir.name}': missing generator.py")
                 continue
 
             pack_id = manifest["id"]

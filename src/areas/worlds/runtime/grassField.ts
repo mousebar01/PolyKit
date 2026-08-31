@@ -1,9 +1,10 @@
 /**
- * Deterministic, stylized grass field built from a BuiltTerrain heightfield.
+ * Deterministic, stylized grass field fixture built from a BuiltTerrain
+ * heightfield.
  *
  * The world compiler remains the source of truth. This module only turns its
- * samples into one instanced render mesh; it does not create or persist new
- * world data.
+ * samples into one instanced preview mesh; production worlds use Blender
+ * workspace artifacts instead and never export this geometry.
  */
 
 import * as THREE from 'three'

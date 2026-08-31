@@ -1,9 +1,30 @@
-# Worlds: Three.js presentation
+# Worlds: Three.js presentation and preview
 
 PolyKit's Worlds experiment is a local, server-owned adaptation of useful ideas
 from `fal-worldclaw` and the [WorldClaw paper](https://arxiv.org/abs/2608.05248).
-Three.js is the presentation and interaction layer; the FastAPI workflow runtime
-is the only place that executes model/process nodes and owns durable artifacts.
+Blender-backed process nodes are the only production modeling path. Three.js is
+only a presentation/interaction client for the exported GLB; it is not a
+modeling or export runtime. The FastAPI workflow runtime is the only place that
+executes model/process nodes and owns durable artifacts.
+
+There are two deliberately different viewport paths:
+
+- `ScenePlanCanvas` loads Blender/GLB assets when they are attached. Its boxes
+  are a blockout fallback for an unresolved or unavailable asset.
+- `WorldCanvas` only loads attached `mode: "workspace-mesh"` artifacts. It does
+  not synthesize terrain, water, grass, or asset geometry in the browser. A
+  missing or unloadable GLB is rendered as incomplete/empty and must not be
+  treated as a successful build.
+
+The files under `src/areas/worlds/runtime/` still contain deterministic terrain
+and placement planning plus low-poly preview/test fixtures. They are not a
+production mesh path: their output is never exported, persisted as production
+mesh evidence, or used to replace a Blender artifact in `WorldCanvas`.
+
+The server-side `scene-composer` and `mesh-exporter` nodes perform GLB/export
+work. They do not delegate modeling to browser Three.js code. This distinction
+keeps a fast local blockout useful without allowing a browser placeholder to be
+mistaken for the production Blender result.
 
 World building is caller-neutral: Web, CLI, automation, or another HTTP client
 may author the same semantic contracts and invoke the same World APIs. There is
@@ -13,8 +34,10 @@ no embedded Agent state machine or MCP world-tool layer.
 
 - `WorldSpec + seed` deterministically compiles to a terrain heightfield.
 - Placement rules resolve into terrain-aware instances.
-- Scatter prototypes use local low-poly geometry, so the preview works with no
-  cloud key and no network request.
+- A world viewport loads Blender-produced workspace meshes. Missing assets stay
+  visibly incomplete instead of being replaced by a browser-generated model.
+  Legacy `proceduralHint` values remain schema/test data only and are not used
+  to synthesize production geometry.
 - Schema-v2 world documents keep intent, BuildSpec, ScenePlan, GameSpec, quality
   facts, and workspace artifact references.
 - Asset and structure generation is submitted through the canonical
@@ -36,7 +59,7 @@ canonical runtime.
 
 | Concern | PolyKit location |
 | --- | --- |
-| Seeded noise, terrain, placement, procedural geometry | `src/areas/worlds/runtime/` |
+| Seeded noise, terrain and placement planning (plus test-only preview fixtures) | `src/areas/worlds/runtime/` |
 | Generated-scene viewer and inspector | `src/areas/worlds/components/WorldAssetViewer.tsx`, `WorldCanvas.tsx` |
 | Editable scene state and API adapter | `src/areas/worlds/worldStore.ts`, `worldApi.ts` |
 | World domain helpers / persistence | `api/services/world_domain.py`, `api/services/world_store.py` |

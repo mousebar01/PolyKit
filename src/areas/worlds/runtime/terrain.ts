@@ -1,9 +1,9 @@
 /**
  * Deterministic WorldSpec -> heightfield compiler.
  *
- * The result is a compact, renderer-agnostic representation. A Three.js
- * terrain mesh, placement pass, or a future local workflow can all consume
- * the same samples without making another generation request.
+ * The result is a compact, renderer-agnostic planning representation. A
+ * Blender terrain workflow or another approved backend can consume the same
+ * samples without making another generation request.
  */
 
 import { clamp, lerp, Noise2D, smoothstep } from './noise'
@@ -340,4 +340,3 @@ function carveRivers(
   }
   return distances
 }
-

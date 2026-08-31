@@ -1,9 +1,10 @@
 # EmbodiedGen 能力复刻边界
 
 这份表把 `/home/sy/EmbodiedGen` 当前仓库的能力，映射到 PolyKit 的单一运行时。
-目标是复刻它的“输入/输出契约和编排思想”。Blender 现在可以作为可选的场景
-构建/离线渲染后端接入，但不取代 FastAPI 的任务状态和资产持久化，也不把 Blender、
-Gradio 或仿真环境直接复制进产品。
+目标是复刻它的“输入/输出契约和编排思想”。World/structure 的生产建模和离线
+渲染走 Blender process backend；独立的文本/图片资产仍可由已安装的本地模型节点
+生成。两者都不取代 FastAPI 的任务状态和资产持久化，也不把 Blender、Gradio 或
+仿真环境直接复制进产品。
 
 | 参考能力 | EmbodiedGen 的实现 | PolyKit 当前落点 | 决策 |
 | --- | --- | --- | --- |
@@ -20,7 +21,7 @@ Gradio 或仿真环境直接复制进产品。
 | 物理属性/碰撞/URDF | `URDFGenerator`、CoACD、仿真验证 | 当前 GLB 展示链不改变；碰撞/URDF 作为后续独立 process pack | 不改变现有 Three.js 资产契约 |
 | 模拟器导出 | URDF → MJCF/USD，适配 SAPIEN、Isaac、MuJoCo 等 | 暂不作为 Web 展示必需能力 | 后续按目标模拟器增加导出节点 |
 | affordance/抓取 | 部件语义、分割、6-DoF 抓取与成功率评估 | 当前产品不做机器人运行 | 不引入，避免扩大产品目标 |
-| 对话式编辑 | Claude Code slash command + bounded skill call | 内置 Agent + PolyKit MCP + FastAPI canonical workflow APIs | 复刻交互理念，保留 PolyKit Agent runtime |
+| 对话式编辑 | Claude Code slash command + bounded skill call | External Agent / Chat / CLI + PolyKit MCP + FastAPI canonical workflow APIs | 复刻交互理念，不在 PolyKit 内嵌 Agent runtime |
 
 ## Blender MCP 的接入边界
 
@@ -45,7 +46,7 @@ PolyKit 采用下面的边界：
 - `/workflow-runs/*` 和 `/workflow-definitions/*` 是唯一的新增工作流入口；不新建一套
   Gradio/CLI 运行时。
 - Three.js 只读取世界文档和 workspace 资产负责交互展示。ScenePlan 预览支持盒状占位
-  和可用 GLB 的真实网格，但不在浏览器启动模型；Blender 负责可选的离线最终渲染。
+  和可用 GLB 的真实网格，但不在浏览器启动模型；Blender 负责生产建模和离线最终渲染。
 - 资产名称使用稳定的 `objectId`/`assetId`，文件名只是路径；检索结果可通过 sidecar
   提供别名和类别，避免把误匹配写进世界文档。
 - `seed` 和诊断信息随计划保存，确保同一份计划可复现并能解释放置失败。

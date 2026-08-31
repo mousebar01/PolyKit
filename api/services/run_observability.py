@@ -164,6 +164,13 @@ def observe_workflow_checkpoint(job: Any) -> None:
 
             node = nodes.get(node_id)
             if isinstance(node, dict):
+                # A retry resumes the same durable run after a failed attempt.
+                # Clear the prior attempt's diagnostic when the node starts
+                # again so a successful retry cannot expose stale error data.
+                if node.get("status") in {"failed", "cancelled"}:
+                    node["status"] = "pending"
+                    node["error"] = None
+                    node["finished_at"] = None
                 label = step[: matched.start()].strip()
                 is_cached = label.startswith("Cached ")
                 is_completed_source = label.startswith(("Text input", "Loading image", "Loading mesh"))
@@ -288,6 +295,7 @@ def inspect_workflow_run(job: Any) -> dict[str, Any]:
         "evidence": [],
         "events": [],
     }
+    process_metadata = _meta(job).get("process_metadata")
     return {
         "version": int(obs.get("version") or OBSERVABILITY_VERSION),
         "run_id": getattr(job, "job_id", ""),
@@ -300,6 +308,11 @@ def inspect_workflow_run(job: Any) -> dict[str, Any]:
         "nodes": dict(obs.get("nodes") or {}),
         "artifacts": list(obs.get("artifacts") or []),
         "evidence": list(obs.get("evidence") or []),
+        # Process-node metadata is run evidence (for example Blender's
+        # constructionValidation), not orchestration state. Expose it in the
+        # read-only inspection projection so callers can verify what the
+        # backend actually produced.
+        "process_metadata": dict(process_metadata) if isinstance(process_metadata, Mapping) else {},
         "events": list(obs.get("events") or []),
         "output_url": getattr(job, "output_url", None),
         "error": getattr(job, "error", None),

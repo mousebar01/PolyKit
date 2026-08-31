@@ -29,6 +29,8 @@ function roleColor(role: string): string {
 }
 
 function PlanBox({ instance, object }: { instance: ScenePlanInstance; object: ScenePlanObject }): JSX.Element {
+  // Blockout-only fallback for planning before a Blender asset is available.
+  // This geometry is never persisted, exported, or accepted as build evidence.
   const dimensions = object.size.map((value) => Math.max(0.05, value * instance.scale)) as [number, number, number]
   const container = object.role === 'room' || object.role === 'background'
   return (

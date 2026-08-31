@@ -52,18 +52,21 @@ conversion. Every generated mesh is tagged with `polyKitZone`
 
 Before export, the Blender script checks the world-space bounding boxes of the
 semantic zones. Interior props must stay inside the cabin floor plan and above
-the floor; exterior snow and trees must stay outside the cabin boundary; and a
-presentation camera must be present and aimed at the set. A failed check stops
-the node instead of publishing a misleading GLB. The result metadata contains
-the validation report for downstream checks.
+the floor, and a failed attachment or containment check stops the node instead
+of publishing a misleading GLB. Generated objects carry `polyKitZone` and
+`polyKitRole` custom properties, and the result metadata contains the
+construction report for downstream checks.
 
-The saved `.blend` also switches any available 3D Viewport to the presentation
-camera. This is only an inspection convenience—the active render camera is
-still stored on the scene and Three.js receives the regular GLB. The cabin
-recipe keeps the left-wall door as a native Boolean opening, uses Array-owned
-floor seams and roof rafters, adds a physically connected porch threshold, and
-uses separate procedural wood/fabric responses. It clears old hidden objects
-before rebuilding and validates those relationships before publishing.
+The saved `.blend` stores the presentation and inspection cameras. This is only
+an inspection convenience—the active render camera is still stored on the scene
+and Three.js receives the regular GLB. The cabin recipe derives roof/wall
+placement from shared width, depth, pitch, thickness, and overhang parameters,
+adds a physically connected porch threshold, and uses separate wood/fabric
+materials for structural and interior parts. Openings, Arrays, curves, and
+other finishing operations are available as separate Blender production nodes;
+they are not silently claimed by the base cabin recipe. The builder clears old
+objects before rebuilding and validates its declared relationships before
+publishing.
 Existing `.blend` files are snapshots; rerun the template to regenerate them
 with the current recipe.
 

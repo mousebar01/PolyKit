@@ -177,6 +177,25 @@ def _workflow_metadata(run: Mapping[str, Any] | None) -> Mapping[str, Any] | Non
     return nested if isinstance(nested, Mapping) else None
 
 
+def _construction_process_evidence(run: Mapping[str, Any] | None) -> tuple[str | None, Mapping[str, Any] | None]:
+    """Return Blender construction evidence persisted by a completed run."""
+    if not isinstance(run, Mapping):
+        return None, None
+    meta = run.get("meta")
+    if not isinstance(meta, Mapping):
+        return None, None
+    process_metadata = meta.get("process_metadata")
+    if not isinstance(process_metadata, Mapping):
+        return None, None
+    for raw_node_id, raw_metadata in process_metadata.items():
+        if not isinstance(raw_metadata, Mapping):
+            continue
+        validation = raw_metadata.get("constructionValidation")
+        if isinstance(validation, Mapping):
+            return str(raw_node_id), validation
+    return None, None
+
+
 def _validate_construction(
     world_id: str,
     world: Mapping[str, Any],
@@ -200,10 +219,25 @@ def _validate_construction(
     run_status = run.get("status") if isinstance(run, Mapping) else None
     run_recipe = run_metadata.get("workflow_recipe") if isinstance(run_metadata, Mapping) else None
     run_world_id = run_metadata.get("world_id") if isinstance(run_metadata, Mapping) else None
+    evidence_node_id, blender_validation = _construction_process_evidence(run)
     if run_status != "done":
         issues.append(_issue("construction-run-missing", "error", "A completed building-construction Workflow Run is required."))
     elif run_recipe != "building-construction" or run_world_id != world_id:
         issues.append(_issue("construction-run-mismatch", "error", "Workflow Run does not prove construction for this world."))
+    else:
+        if blender_validation is None:
+            issues.append(_issue(
+                "construction-run-evidence-missing",
+                "error",
+                "The completed run has no Blender construction-validation evidence.",
+            ))
+        elif str(blender_validation.get("status") or "").lower() != "pass":
+            issues.append(_issue(
+                "construction-run-evidence-failed",
+                "error",
+                "Blender construction validation did not pass for the completed run.",
+                subject_id=evidence_node_id,
+            ))
 
     build = runtime.get("build")
     buildings = build.get("buildings") if isinstance(build, Mapping) else None
@@ -220,6 +254,12 @@ def _validate_construction(
             "domain_status": domain_status,
             "run_id": run.get("run_id") if isinstance(run, Mapping) else None,
             "run_status": run_status,
+            "blender_validation_status": (
+                blender_validation.get("status")
+                if blender_validation is not None
+                else None
+            ),
+            "blender_validation_node_id": evidence_node_id,
         },
     )
 

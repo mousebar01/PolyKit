@@ -37,15 +37,33 @@
           "i18n": { "zh-CN": { "label": "输出名称", "tooltip": "组合场景资产使用的名称。" } }
         },
         {
+          "id": "coordinate_system",
+          "label": "Placement Coordinates",
+          "type": "select",
+          "default": "glTF-Y-up",
+          "options": [
+            { "value": "glTF-Y-up", "label": "glTF / Three.js Y-up" },
+            { "value": "Blender-Z-up", "label": "Blender Z-up (convert)" }
+          ],
+          "tooltip": "Mesh inputs are GLB/glTF. Choose Blender Z-up only when placement vectors were authored in Blender coordinates.",
+          "i18n": {
+            "zh-CN": {
+              "label": "摆放坐标系",
+              "tooltip": "网格输入仍是 GLB/glTF；只有摆放向量按 Blender 坐标编写时才选择 Blender Z-up。"
+            },
+            "en-US": { "label": "Placement Coordinates" }
+          }
+        },
+        {
           "id": "placements",
           "label": "Placements (JSON)",
           "type": "string",
           "default": "",
-          "tooltip": "Optional JSON map by file name: {\"lighthouse.glb\":{\"position\":[2,0,0],\"rotation\":[0,0.78,0],\"size\":[1,2,1],\"scale\":1.2}}. Position is a ground contact point; rotation uses radians.",
+          "tooltip": "Optional JSON map by file name: {\"lighthouse.glb\":{\"position\":[2,0,0],\"rotation\":[0,0.78,0],\"size\":[1,2,1],\"scale\":1.2}}. Coordinates follow Placement Coordinates above; rotation uses radians.",
           "i18n": {
             "zh-CN": {
               "label": "摆放（JSON）",
-              "tooltip": "可选 JSON，按文件名设置位置、旋转、目标尺寸和缩放。position 是接触地面的点，旋转单位为弧度。"
+              "tooltip": "可选 JSON，按文件名设置位置、旋转、目标尺寸和缩放。坐标系由上方的摆放坐标系决定；旋转单位为弧度。"
             },
             "en-US": { "label": "Placements (JSON)" }
           }

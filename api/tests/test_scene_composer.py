@@ -59,11 +59,39 @@ class SceneComposerTests(unittest.TestCase):
             scene = trimesh.load(composed, force="scene")
             self.assertEqual(len(scene.geometry), 2)
             self.assertEqual(scene.metadata["polyKit"]["sourceCount"], 2)
+            self.assertEqual(scene.metadata["polyKit"]["coordinateSystem"], "glTF-Y-up")
+            self.assertIn("ground_y", scene.metadata["polyKit"]["placementConvention"])
             lamp_nodes = [name for name in scene.graph.nodes_geometry if name.startswith("lamp/")]
             self.assertEqual(len(lamp_nodes), 1)
             transform, _ = scene.graph[lamp_nodes[0]]
             self.assertAlmostEqual(float(transform[0, 3]), 2.0, places=5)
             self.assertAlmostEqual(float(scene.bounds[0][1]), 0.0, places=5)
+
+    def test_source_processor_converts_blender_z_up_placement_vectors(self) -> None:
+        from services.process_runner import run_processor
+
+        with tempfile.TemporaryDirectory(prefix="polykit-scene-composer-axis-") as temp_dir:
+            root = Path(temp_dir)
+            source = root / "stair.glb"
+            trimesh.creation.box(extents=(1, 1, 1)).export(source)
+            output = run_processor(
+                self.source_pack,
+                "processor.py",
+                {"filePath": str(source)},
+                {
+                    "output_name": "axis-check",
+                    "coordinate_system": "Blender-Z-up",
+                    "placements": json.dumps({"stair.glb": {"position": [2, 3, 4], "rotation": [0, 0, 0]}}),
+                },
+                str(root / "workspace"),
+                str(root / "tmp"),
+            )
+            scene = trimesh.load(Path(str(output["filePath"])), force="scene")
+            transform, _ = scene.graph[next(name for name in scene.graph.nodes_geometry if name.startswith("stair/"))]
+            self.assertAlmostEqual(float(transform[0, 3]), 2.0, places=5)
+            self.assertAlmostEqual(float(transform[1, 3]), 4.5, places=5)
+            self.assertAlmostEqual(float(transform[2, 3]), -3.0, places=5)
+            self.assertEqual(scene.metadata["polyKit"]["inputCoordinateSystem"], "Blender-Z-up")
 
     def test_workflow_engine_fans_in_mesh_references_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

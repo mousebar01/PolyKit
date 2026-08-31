@@ -301,7 +301,7 @@ npm run web:build
 src/                 React 应用、页面区域、共享组件和状态
 src/areas/assets/    资产库与 3D 查看器
 src/areas/workflows/ 工作流画布、节点和模板
-src/areas/worlds/    Three.js world runtime / viewer
+src/areas/worlds/    World domain planning / Three.js viewer
 src/areas/settings/  应用、网络、存储和集成设置
 api/                 FastAPI 服务、路由和执行引擎
 node-packs/          官方 Node Pack 源码

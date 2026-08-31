@@ -68,10 +68,16 @@ pass merely because a single preview angle hides an intersection. A mesh-aware
 backend can add tighter hull/collider checks later while keeping the same
 ScenePlan contract.
 
-Instance rotations use Three.js/ScenePlan XYZ Euler radians. Instance
-positions are ground/contact points; object sizes use the same scene units as
-the asset workflow. The composition node fits each source mesh to its semantic
-size, centres it in X/Z, and keeps its lowest vertex at the contact point.
+ScenePlan uses the right-handed Y-up coordinates shared by Three.js and glTF:
+`position` is `[x, ground_y, z]`, with the second component as vertical height.
+Instance rotations use Three.js/ScenePlan XYZ Euler radians. Instance positions
+are ground/contact points; object sizes use the same scene units as the asset
+workflow. The composition node fits each source mesh to its semantic size,
+centres it in X/Z, and keeps its lowest vertex at the contact point.
+The composition node accepts Blender-Z-up placement vectors only when its
+`coordinate_system` parameter is explicitly set to `Blender-Z-up`; the default
+is `glTF-Y-up`. This prevents a Blender viewport vector from silently placing
+parts underground in the exported scene.
 
 When `resolve_assets` is enabled, the server searches `Workflows/` for mesh
 assets using names, aliases, categories, and optional `*.asset.json` sidecars.

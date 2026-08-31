@@ -162,6 +162,26 @@ def _materialize_cached_preview(value: Any, preview_dir: Path, counter: Optional
     )
 
 
+def _record_process_metadata(job: Any, node_id: str, value: Any) -> None:
+    """Persist process-node evidence alongside the durable WorkflowRun.
+
+    Process packs return small JSON metadata (for example Blender version and
+    construction validation). Keeping it on the run makes that evidence
+    queryable after the node checkpoint is restored, without adding a second
+    task state store or copying it into the World document.
+    """
+    raw_metadata = value.get("metadata") if isinstance(value, dict) else None
+    if not isinstance(raw_metadata, dict):
+        return
+    current = getattr(job, "meta", None)
+    meta = dict(current) if isinstance(current, dict) else {}
+    process_metadata = meta.get("process_metadata")
+    process = dict(process_metadata) if isinstance(process_metadata, dict) else {}
+    process[str(node_id)] = dict(raw_metadata)
+    meta["process_metadata"] = process
+    job.meta = meta
+
+
 class ArtifactNodeOutputCache(NodeOutputCache):
     """Cross-run cache whose file-backed outputs outlive individual run dirs.
 
@@ -507,6 +527,7 @@ class WorkflowEngine:
                 cached = self.node_cache.get(sig)
                 if cached is not None:
                     outputs[node_id] = cached
+                    _record_process_metadata(job, node_id, outputs[node_id])
                     job.step = f"Cached {node.class_type} ({idx + 1}/{total})"
                     _checkpoint(node_id, outputs[node_id], sig)
                     continue
@@ -594,6 +615,8 @@ class WorkflowEngine:
                         persistent=False,
                         origin="model",
                     )
+
+            _record_process_metadata(job, node_id, outputs[node_id])
 
             if cacheable_now and sig is not None:
                 self.node_cache.set(sig, outputs[node_id])

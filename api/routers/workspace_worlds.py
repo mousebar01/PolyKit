@@ -166,7 +166,11 @@ def _build_scene_composition_workflow(
         class_type="scene-composer/compose",
         inputs={
             "mesh": mesh_refs,
-            "params": {"output_name": output_name, "placements": placements},
+            "params": {
+                "output_name": output_name,
+                "placements": placements,
+                "coordinate_system": "glTF-Y-up",
+            },
         },
     )
     nodes["output"] = WorkflowExecutionNode(

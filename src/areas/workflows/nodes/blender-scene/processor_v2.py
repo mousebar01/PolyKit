@@ -151,6 +151,7 @@ scene['polyKitPreset'] = 'winter_cabin_v2'
 scene['polyKitSource'] = 'blender-mcp-official'
 scene['polyKitBrief'] = SCENE_BRIEF
 scene['polyKitBuildSpec'] = json.dumps(BUILDING_SPEC, separators=(',', ':'))
+scene['polyKitBlenderVersion'] = bpy.app.version_string
 scene['polyKitCoordinateSystem'] = 'Blender Z-up meters; BuildSpec anchors are PolyKit Y-up meters'
 try:
     scene.unit_settings.system = 'METRIC'
@@ -167,11 +168,15 @@ ARCH = collection('Architecture')
 FURNITURE = collection('Furniture')
 LIGHTING = collection('Lighting')
 
+def principled(mat):
+    nodes = mat.node_tree.nodes
+    return nodes.get('Principled BSDF') or next((node for node in nodes if node.bl_idname == 'ShaderNodeBsdfPrincipled'), None)
+
 def material(name, color, roughness=0.75, metallic=0.0, emission=None):
     mat = bpy.data.materials.new(name)
     mat.diffuse_color = (*color, 1.0)
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    bsdf = principled(mat)
     if bsdf:
         bsdf.inputs['Base Color'].default_value = (*color, 1.0)
         bsdf.inputs['Roughness'].default_value = roughness
@@ -205,6 +210,7 @@ def cube(name, location, dimensions, mat, role, target=ARCH, rotation=(0.0, 0.0,
     obj.data.materials.append(mat)
     obj['polyKitRole'] = role
     obj['polyKitSemanticName'] = name
+    obj['polyKitZone'] = 'architecture' if target == ARCH else 'interior'
     move(obj, target)
     if bevel:
         modifier = obj.modifiers.new('Soft edges', 'BEVEL')
@@ -218,6 +224,7 @@ def cylinder(name, location, radius, depth, mat, role, target=FURNITURE):
     obj.name = name
     obj.data.materials.append(mat)
     obj['polyKitRole'] = role
+    obj['polyKitZone'] = 'architecture' if target == ARCH else 'interior'
     move(obj, target)
     return obj
 
@@ -283,6 +290,13 @@ def closest_distance(obj, point):
         return float('inf')
     return ((matrix @ nearest) - point).length
 
+def world_bounds(obj):
+    corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+    return (
+        Vector((min(point.x for point in corners), min(point.y for point in corners), min(point.z for point in corners))),
+        Vector((max(point.x for point in corners), max(point.y for point in corners), max(point.z for point in corners))),
+    )
+
 part_objects = {
     'floor': floor,
     'left-wall': left_wall,
@@ -326,6 +340,17 @@ construction_validation = {
     'attachments': attachment_results,
     'contract': 'BuildSpec anchor contact plus evaluated Blender mesh nearest-surface distance',
 }
+for obj in bpy.context.scene.objects:
+    if obj.type != 'MESH' or obj.get('polyKitZone') != 'interior':
+        continue
+    minimum, maximum = world_bounds(obj)
+    if minimum.x < -W / 2.0 - TOL or maximum.x > W / 2.0 + TOL or minimum.y < -D / 2.0 - TOL or maximum.y > D / 2.0 + TOL:
+        construction_errors.append('interior_outside_floor:' + obj.name)
+    if minimum.z < -FT - TOL:
+        construction_errors.append('interior_below_floor:' + obj.name)
+if construction_errors:
+    construction_validation['status'] = 'error'
+    construction_validation['errors'] = construction_errors
 scene['polyKitConstructionValidation'] = json.dumps(construction_validation, separators=(',', ':'))
 if construction_errors:
     raise RuntimeError('construction validation failed: ' + ', '.join(construction_errors))
@@ -419,6 +444,7 @@ def b64(path):
 result = {
     'scene_name': SCENE_NAME,
     'preset': 'winter_cabin_v2',
+    'blender_version': bpy.app.version_string,
     'object_count': len([obj for obj in scene.objects if obj.type == 'MESH']),
     'build_spec': BUILDING_SPEC,
     'construction_validation': construction_validation,
@@ -536,6 +562,7 @@ def main() -> None:
                 "filePath": str(glb_path),
                 "sidecars": sidecars,
                 "metadata": {
+                    "blenderVersion": result.get("blender_version"),
                     "buildSpec": {"kind": "polykit.build-spec", "version": 1, "environment": None, "buildings": [result.get("build_spec") or building_spec]},
                     "constructionValidation": validation,
                 },

@@ -23,7 +23,7 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
   const { t } = useI18n()
   const apiUrl = useAppStore((state) => state.apiUrl)
   const {
-    document, terrain, instances, selectedProtoId, saving, error,
+    document, instances, selectedProtoId, saving, error,
     setSelectedProtoId, save, clearError,
   } = useWorldStore()
   const [infoOpen, setInfoOpen] = useState(false)
@@ -54,10 +54,9 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-card">
-        {renderableEnvironment && terrain ? (
+        {renderableEnvironment ? (
           <WorldCanvas
             spec={environmentSpec}
-            terrain={terrain}
             instances={instances}
             selectedProtoId={selectedProtoId}
             artifacts={document.artifacts}

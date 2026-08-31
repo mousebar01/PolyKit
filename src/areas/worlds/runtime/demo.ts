@@ -1,9 +1,9 @@
 import type { WorldSpec } from './types'
 
 /**
- * Small, keyless fixture for local previews and deterministic smoke tests.
- * It intentionally exercises terrain masks, rivers, all placement modes, and
- * procedural scatter hints without making a remote API call.
+ * Small, keyless planner fixture for deterministic smoke tests. It exercises
+ * terrain masks, rivers, and placement rules without making a remote API call;
+ * it is not a production mesh source.
  */
 export const DEMO_SPEC: WorldSpec = {
   name: 'Emberfall Reach',
@@ -210,4 +210,3 @@ export const DEMO_SPEC: WorldSpec = {
     { subject: 'keep', relation: 'overlooking', object: 'vale' },
   ],
 }
-

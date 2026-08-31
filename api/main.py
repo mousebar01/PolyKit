@@ -87,7 +87,8 @@ app.include_router(world_artifacts.router)
 app.include_router(node_types.router)
 
 
-@app.api_route("/workspace/{full_path:path}", methods=["GET", "HEAD"])
+@app.get("/workspace/{full_path:path}", operation_id="serve_workspace_file_get")
+@app.head("/workspace/{full_path:path}", operation_id="serve_workspace_file_head")
 async def serve_workspace_file(full_path: str):
     from services.workspace_paths import resolve_workspace_path
 

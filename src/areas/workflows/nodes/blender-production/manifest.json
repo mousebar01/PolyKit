@@ -38,11 +38,11 @@
       "id": "array-stairs",
       "name": "Array Stairs",
       "output": "mesh",
-      "description": "Builds a parametric stair flight using an Array modifier and semantic rail parts.",
+      "description": "Builds a parametric stair flight using an Array modifier and semantic rail parts; run and rise are metres per step, and the caller owns landing placement.",
       "params_schema": [
         { "id": "steps", "label": "Steps", "type": "int", "default": 12, "min": 2, "max": 200 },
-        { "id": "run", "label": "Run", "type": "float", "default": 0.28, "min": 0.05, "max": 3.0 },
-        { "id": "rise", "label": "Rise", "type": "float", "default": 0.18, "min": 0.03, "max": 1.0 },
+        { "id": "run", "label": "Run (m/step)", "type": "float", "default": 0.28, "min": 0.05, "max": 3.0, "tooltip": "Horizontal travel per step in metres." },
+        { "id": "rise", "label": "Rise (m/step)", "type": "float", "default": 0.18, "min": 0.03, "max": 1.0, "tooltip": "Vertical rise per step in metres; match the receiving landing height." },
         { "id": "width", "label": "Width", "type": "float", "default": 1.2, "min": 0.2, "max": 10.0 },
         { "id": "railings", "label": "Add Railings", "type": "boolean", "default": true },
         { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }

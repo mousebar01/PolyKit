@@ -22,8 +22,11 @@ def error(message: str) -> None:
     emit({"type": "error", "message": message})
 
 
-def done(path: Path) -> None:
-    emit({"type": "done", "result": {"filePath": str(path)}})
+def done(path: Path, *, metadata: dict[str, Any] | None = None) -> None:
+    result: dict[str, Any] = {"filePath": str(path)}
+    if metadata:
+        result["metadata"] = metadata
+    emit({"type": "done", "result": result})
 
 
 def _slug(value: str) -> str:
@@ -70,7 +73,29 @@ def _placement_for(placements: object, index: int, path: Path) -> dict[str, Any]
     return candidate
 
 
-def _placement_matrix(placement: dict[str, Any], path: Path, *, scale_multiplier: float = 1.0):
+def _normalise_coordinate_system(value: object) -> str:
+    raw = str(value or "glTF-Y-up").strip().lower().replace("_", "-")
+    if raw in {"gltf-y-up", "gltf", "y-up", "yup", "canonical"}:
+        return "glTF-Y-up"
+    if raw in {"blender-z-up", "blender", "z-up", "zup"}:
+        return "Blender-Z-up"
+    raise ValueError("coordinate_system must be 'glTF-Y-up' or 'Blender-Z-up'")
+
+
+def _to_gltf_position(position: tuple[float, float, float], coordinate_system: str) -> tuple[float, float, float]:
+    if coordinate_system == "Blender-Z-up":
+        # Blender's X/Y/Z frame maps to glTF's X/Z/-Y frame.
+        return position[0], position[2], -position[1]
+    return position
+
+
+def _placement_matrix(
+    placement: dict[str, Any],
+    path: Path,
+    *,
+    scale_multiplier: float = 1.0,
+    coordinate_system: str = "glTF-Y-up",
+):
     import numpy as np
     from trimesh.transformations import euler_matrix, translation_matrix
 
@@ -86,7 +111,7 @@ def _placement_matrix(placement: dict[str, Any], path: Path, *, scale_multiplier
             raise ValueError(f"placement {path.name}.{key} must contain finite numbers")
         return result  # type: ignore[return-value]
 
-    position = vector("position", (0.0, 0.0, 0.0))
+    position = _to_gltf_position(vector("position", (0.0, 0.0, 0.0)), coordinate_system)
     rotation = vector("rotation", (0.0, 0.0, 0.0))
     scale = placement.get("scale", 1.0)
     if isinstance(scale, (int, float)):
@@ -107,7 +132,13 @@ def _placement_matrix(placement: dict[str, Any], path: Path, *, scale_multiplier
     # same unit here means a composed GLB and the live plan preview agree.
     radians = rotation
     scale_matrix = np.diag([*scale_vector, 1.0])
-    return translation_matrix(position) @ euler_matrix(*radians, axes="sxyz") @ scale_matrix
+    rotation_matrix = euler_matrix(*radians, axes="sxyz")
+    if coordinate_system == "Blender-Z-up":
+        basis = np.asarray(((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0)))
+        frame = np.eye(4)
+        frame[:3, :3] = basis
+        rotation_matrix = frame @ rotation_matrix @ frame.T
+    return translation_matrix(position) @ rotation_matrix @ scale_matrix
 
 
 def _bounds_after_transform(bounds: Any, transform: Any):
@@ -154,7 +185,13 @@ def _fit_scale(scene: Any, placement: dict[str, Any], path: Path) -> float:
     return min(target[index] / source_size[index] for index in range(3))
 
 
-def _merge(paths: list[Path], output: Path, placements: object | None = None) -> tuple[int, int]:
+def _merge(
+    paths: list[Path],
+    output: Path,
+    placements: object | None = None,
+    *,
+    coordinate_system: str = "glTF-Y-up",
+) -> tuple[int, int]:
     import trimesh
     from trimesh.transformations import translation_matrix
 
@@ -172,7 +209,12 @@ def _merge(paths: list[Path], output: Path, placements: object | None = None) ->
             fit_scale = _fit_scale(scene, placement, path)
             authored = dict(placement)
             authored["position"] = [0.0, 0.0, 0.0]
-            authored_transform = _placement_matrix(authored, path, scale_multiplier=fit_scale)
+            authored_transform = _placement_matrix(
+                authored,
+                path,
+                scale_multiplier=fit_scale,
+                coordinate_system=coordinate_system,
+            )
             transformed_min, transformed_max, _ = _bounds_after_transform(scene.bounds, authored_transform)
             target_position = placement.get("position", (0.0, 0.0, 0.0))
             if not isinstance(target_position, (list, tuple)) or len(target_position) != 3:
@@ -180,6 +222,7 @@ def _merge(paths: list[Path], output: Path, placements: object | None = None) ->
             target = tuple(float(value) for value in target_position)
             if not all(math.isfinite(value) for value in target):
                 raise ValueError(f"placement {path.name}.position must contain finite numbers")
+            target = _to_gltf_position(target, coordinate_system)
             center = ((transformed_min[0] + transformed_max[0]) / 2.0, transformed_min[1], (transformed_min[2] + transformed_max[2]) / 2.0)
             placement_transform = translation_matrix(
                 (target[0] - center[0], target[1] - center[1], target[2] - center[2])
@@ -204,7 +247,16 @@ def _merge(paths: list[Path], output: Path, placements: object | None = None) ->
     if geometry_count == 0:
         raise ValueError("no mesh geometry was found in the connected assets")
     result.metadata.setdefault("polyKit", {})
-    result.metadata["polyKit"].update({"composition": "scene-composer", "sourceCount": len(paths)})
+    result.metadata["polyKit"].update({
+        "composition": "scene-composer",
+        "sourceCount": len(paths),
+        # Mesh assets are exchanged through glTF/Three.js coordinates. Keep
+        # the placement convention explicit in the artifact so inspectors and
+        # downstream agents do not mistake the vector for Blender Z-up data.
+        "coordinateSystem": "glTF-Y-up",
+        "placementConvention": "position=[x,ground_y,z]; x/z are placement-centre coordinates",
+        "inputCoordinateSystem": coordinate_system,
+    })
     output.parent.mkdir(parents=True, exist_ok=True)
     result.export(output)
     return geometry_count, face_count
@@ -227,11 +279,27 @@ def main() -> None:
         progress(10, f"Loading {len(paths)} mesh assets…")
         name = _slug(str(params.get("output_name") or "scene"))
         output = workspace_dir / f"{name}_{uuid.uuid4().hex[:8]}_composed.glb"
-        geometry_count, face_count = _merge(paths, output, params.get("placements"))
+        coordinate_system = _normalise_coordinate_system(params.get("coordinate_system"))
+        geometry_count, face_count = _merge(
+            paths,
+            output,
+            params.get("placements"),
+            coordinate_system=coordinate_system,
+        )
         progress(90, f"Writing {geometry_count} scene objects…")
         emit({"type": "log", "message": f"Composed {len(paths)} assets, {geometry_count} objects, {face_count} triangles"})
         progress(100, "Scene composition ready")
-        done(output)
+        done(
+            output,
+            metadata={
+                "composition": "scene-composer",
+                "coordinateSystem": "glTF-Y-up",
+                "placementConvention": "position=[x,ground_y,z]; x/z are placement-centre coordinates",
+                "sourceCount": len(paths),
+                "geometryCount": geometry_count,
+                "faceCount": face_count,
+            },
+        )
     except Exception as exc:
         error(f"scene-composer: {exc}")
 

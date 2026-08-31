@@ -10,7 +10,10 @@ interface TerrainGrassProps {
   terrain: BuiltTerrain
 }
 
-/** Render-only stylized grass field driven by the canonical world heightfield. */
+/**
+ * Legacy planning/test preview only. Production WorldCanvas loads Blender
+ * workspace artifacts and never mounts this browser-generated field.
+ */
 export default function TerrainGrass({ spec, terrain }: TerrainGrassProps): JSX.Element | null {
   const field = useMemo(() => buildTerrainGrass(spec, terrain), [spec, terrain])
 
