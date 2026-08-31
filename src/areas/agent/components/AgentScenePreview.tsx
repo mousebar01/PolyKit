@@ -69,12 +69,12 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
 
       const nextDocument = await loadWorld(next.id)
       setDocument(nextDocument)
-      const build = nextDocument.runtime.build
-      if (isRenderableWorldSpec(build)) {
-        const nextTerrain = buildTerrain(build, { resolution: 72 })
+      const environment = nextDocument.runtime.build.environment
+      if (isRenderableWorldSpec(environment)) {
+        const nextTerrain = buildTerrain(environment, { resolution: 72 })
         setTerrain(nextTerrain)
         const configured = nextDocument.runtime.compiled.instances
-        setInstances(configured.length > 0 ? configured : solvePlacements(build, nextTerrain))
+        setInstances(configured.length > 0 ? configured : solvePlacements(environment, nextTerrain))
       } else {
         setTerrain(null)
         setInstances([])
@@ -99,9 +99,9 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
     () => document ? currentRuntimeStage(document.runtime.state) : null,
     [document],
   )
-  const buildSpec = document?.runtime.build
+  const environmentSpec = document?.runtime.build.environment
   const scenePlan = document?.runtime.scene
-  const renderableBuild = Boolean(document && terrain && isRenderableWorldSpec(buildSpec))
+  const renderableEnvironment = Boolean(document && terrain && isRenderableWorldSpec(environmentSpec))
   const renderableScene = isRenderableScenePlan(scenePlan)
 
   return (
@@ -142,12 +142,12 @@ export default function AgentScenePreview({ width }: AgentScenePreviewProps): JS
           <div className="absolute right-3 top-12 z-30 w-[min(280px,calc(100%-24px))] rounded-md border border-divider bg-background/90 px-3 py-2.5 text-[11px] text-muted-foreground backdrop-blur-sm">
             <p className="truncate font-medium text-foreground">{document?.name ?? summary?.name ?? (zh ? '等待 Agent 规划场景' : 'Waiting for the Agent to plan a scene')}</p>
             <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">{document?.id ?? summary?.id ?? (zh ? '尚未创建场景' : 'No scene created')}</p>
-            {(renderableBuild || renderableScene) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
+            {(renderableEnvironment || renderableScene) && <p className="mt-2 border-t border-divider pt-2 text-[10px] leading-relaxed text-muted-foreground/85">{t('worlds.controls')}</p>}
           </div>
         )}
 
-        {renderableBuild && document && terrain && isRenderableWorldSpec(buildSpec) ? (
-          <WorldCanvas spec={buildSpec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
+        {renderableEnvironment && document && terrain && isRenderableWorldSpec(environmentSpec) ? (
+          <WorldCanvas spec={environmentSpec} terrain={terrain} instances={instances} selectedProtoId={null} artifacts={document.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : renderableScene ? (
           <ScenePlanCanvas plan={scenePlan} artifacts={document?.artifacts} backgroundColor={WORLD_VIEWER_BACKGROUND_COLOR} />
         ) : document ? (
