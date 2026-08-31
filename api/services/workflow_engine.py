@@ -6,12 +6,20 @@ carries typed file-backed mesh or image artifacts. Meshes publish through
 preview sink). Run-specific storage and cancellation live in an explicit
 ExecutionContext. Deterministic node outputs are cached across runs in the
 current server process using a bounded workspace-backed cache.
+
+WorkflowRun durability is separate from that opportunistic cache: every
+completed node is checkpointed into run-owned storage and may be restored after
+process restart. ``polykit.interrupt`` suspends the run without occupying the
+execution slot; an external signal resumes the same run id.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import shutil
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -44,6 +52,16 @@ from services.image_artifacts import (
 from services.model_node_executor import run_model_node
 from services.node_catalog import process_node_pack
 from services.runtime_paths import runtime_paths
+from services.workflow_execution import (
+    INTERRUPT_NODE,
+    consume_signal,
+    initialize_workflow_execution,
+    mark_step_completed,
+    mark_step_started,
+    mark_step_waiting,
+    pending_signal,
+    restore_completed_steps,
+)
 from services.workflow_executor import (
     IMAGE_NODE,
     IMAGE_OUTPUT_NODE,
@@ -64,6 +82,13 @@ from services.workflow_executor import (
     select_execution_prompt,
     topological_order,
 )
+
+
+@dataclass(frozen=True)
+class WorkflowWait:
+    node_id: str
+    signal_name: str
+    prompt: str
 
 
 def _stat_identity(path: Path) -> tuple[str, int, int] | tuple[str, str]:
@@ -149,8 +174,6 @@ class ArtifactNodeOutputCache(NodeOutputCache):
         super().__init__()
         self.max_entries = max(1, int(max_entries))
         self._cache_root = runtime_paths.workspace / ".node-cache"
-        # A process-local index cannot safely reuse files left by an older
-        # process because node implementations may have changed. Start clean.
         shutil.rmtree(self._cache_root, ignore_errors=True)
         self._cache_root.mkdir(parents=True, exist_ok=True)
 
@@ -209,9 +232,6 @@ class ArtifactNodeOutputCache(NodeOutputCache):
     def prune(self) -> None:
         """Evict old cache directories before a new serialized run begins."""
         root = self._root()
-        # The cache is disposable and may be removed by clear_workflow_cache()
-        # or an external cleanup between runs. Recreate it instead of letting a
-        # missing directory abort the whole workflow.
         try:
             root.mkdir(parents=True, exist_ok=True)
             dirs = [path for path in root.iterdir() if path.is_dir()]
@@ -223,9 +243,6 @@ class ArtifactNodeOutputCache(NodeOutputCache):
         try:
             dirs.sort(key=lambda path: path.stat().st_mtime_ns)
         except FileNotFoundError:
-            # A concurrent cache clear can remove an entry after it was listed.
-            # Nothing needs evicting in that case; the next run will rebuild
-            # the cache root and repopulate only live entries.
             root.mkdir(parents=True, exist_ok=True)
             return
         for stale in dirs[: len(dirs) - self.max_entries]:
@@ -235,6 +252,7 @@ class ArtifactNodeOutputCache(NodeOutputCache):
         value = self._store.get(sig)
         if value is None:
             return None
+
         def _artifact_exists(artifact_value: Any) -> bool:
             if isinstance(artifact_value, MeshArtifact):
                 return mesh_value_exists(artifact_value)
@@ -247,8 +265,7 @@ class ArtifactNodeOutputCache(NodeOutputCache):
             return True
 
         for artifact_value in value.values():
-            exists = _artifact_exists(artifact_value)
-            if not exists:
+            if not _artifact_exists(artifact_value):
                 self._store.pop(sig, None)
                 return None
         cache_dir = self._root() / sig
@@ -302,7 +319,7 @@ class WorkflowEngine:
         persist: Callable[[], None],
         cancel_event: Optional[threading.Event],
         is_cancelled: Callable[[], bool],
-    ) -> Optional[Path]:
+    ) -> Optional[Path] | WorkflowWait:
         loop = asyncio.get_running_loop()
         context = ExecutionContext.create(
             run_id=job_id,
@@ -319,19 +336,50 @@ class WorkflowEngine:
         execution_prompt = select_execution_prompt(request)
         order = topological_order(execution_prompt)
         total = max(len(order), 1)
+        initialize_workflow_execution(job, request, order, workspace_root=runtime_paths.workspace)
 
-        outputs: Dict[str, Dict[str, Any]] = {}
-        ref_sigs: Dict[str, str] = {}
+        outputs, ref_sigs = restore_completed_steps(job, workspace_root=runtime_paths.workspace)
         cacheable: Dict[str, bool] = {}
         sink_values: Dict[str, Any] = {}
         output_sink_ids: list[str] = []
+        for restored_id, restored in outputs.items():
+            node = execution_prompt.get(restored_id)
+            if node is None or node.class_type not in SINK_NODES:
+                continue
+            if "image" in restored:
+                sink_values[restored_id] = restored["image"]
+            elif "mesh" in restored:
+                sink_values[restored_id] = restored["mesh"]
+            if node.class_type == OUTPUT_NODE:
+                output_sink_ids.append(restored_id)
+        persist()
+
+        def _checkpoint(node_id: str, node_outputs: Mapping[str, Any], signature: str) -> None:
+            mark_step_completed(
+                job,
+                node_id,
+                node_outputs,
+                input_signature=signature,
+                workspace_root=runtime_paths.workspace,
+            )
+            ref_sigs[node_id] = signature
+            persist()
 
         for idx, node_id in enumerate(order):
             if context.cancelled():
                 cleanup_artifact_root(artifact_root)
                 return None
             node = execution_prompt[node_id]
-            job.progress = max(job.progress, round(90 * idx / total))
+            start = round(90 * idx / total)
+            end = round(90 * (idx + 1) / total)
+
+            if node_id in outputs:
+                job.progress = max(job.progress, end)
+                job.step = f"Restored {node.class_type} ({idx + 1}/{total})"
+                persist()
+                continue
+
+            job.progress = max(job.progress, start)
             persist()
 
             def _resolve(value: Any) -> Any:
@@ -346,18 +394,44 @@ class WorkflowEngine:
             def _resolve_legacy(value: Any) -> Any:
                 return unwrap_image_value(unwrap_mesh_value(_resolve(value)))
 
-            start = round(90 * idx / total)
-            end = round(90 * (idx + 1) / total)
+            if node.class_type == INTERRUPT_NODE:
+                raw_params = _resolve(node.inputs.get("params", {}))
+                params = raw_params if isinstance(raw_params, dict) else {}
+                signal_name = str(params.get("signal_name") or params.get("signalName") or node_id).strip() or node_id
+                gate_prompt = str(params.get("prompt") or params.get("message") or "Approval required to continue.")[:2000]
+                signal = pending_signal(job, node_id, signal_name)
+                if signal is None:
+                    mark_step_waiting(job, node_id, signal_name=signal_name, prompt=gate_prompt)
+                    job.status = "waiting"
+                    job.step = f"Waiting for signal '{signal_name}'"
+                    persist()
+                    return WorkflowWait(node_id=node_id, signal_name=signal_name, prompt=gate_prompt)
+
+                mark_step_started(job, node_id)
+                outputs[node_id] = {"signal": signal.get("payload")}
+                base_signature = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
+                payload_json = json.dumps(signal.get("payload"), sort_keys=True, separators=(",", ":"), default=str)
+                signature = hashlib.sha256(f"{base_signature}|{payload_json}".encode("utf-8")).hexdigest()
+                _checkpoint(node_id, outputs[node_id], signature)
+                consume_signal(job, str(signal.get("id") or ""))
+                job.status = "running"
+                persist()
+                continue
+
+            mark_step_started(job, node_id)
+            persist()
 
             if node.class_type == IMAGE_NODE:
                 outputs[node_id] = {"image": _decode_image_payload(_resolve(node.inputs.get("image")))}
-                ref_sigs[node_id] = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
+                signature = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
                 job.step = f"Loading image ({idx + 1}/{total})"
+                _checkpoint(node_id, outputs[node_id], signature)
                 continue
             if node.class_type == TEXT_NODE:
                 outputs[node_id] = {"text": _resolve(node.inputs.get("text", ""))}
-                ref_sigs[node_id] = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
+                signature = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
                 job.step = f"Text input ({idx + 1}/{total})"
+                _checkpoint(node_id, outputs[node_id], signature)
                 continue
             if node.class_type == MESH_NODE:
                 payload = _resolve(node.inputs.get("mesh"))
@@ -371,8 +445,9 @@ class WorkflowEngine:
                         origin="workspace" if workspace_source else "upload",
                     )
                 }
-                ref_sigs[node_id] = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
+                signature = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
                 job.step = f"Loading mesh ({idx + 1}/{total})"
+                _checkpoint(node_id, outputs[node_id], signature)
                 continue
 
             if node.class_type in SINK_NODES:
@@ -405,9 +480,6 @@ class WorkflowEngine:
                     if artifact_kind == "mesh":
                         artifact = _materialize_cached_preview(artifact, artifact_root / "preview")
                     elif artifact_kind == "image":
-                        # Image previews are also useful workflow products. Keep
-                        # the image sink lightweight in the editor while making
-                        # its final result durable in the selected collection.
                         try:
                             artifact = publish_image_value(artifact, coll_dir)
                         except OSError as exc:
@@ -415,6 +487,8 @@ class WorkflowEngine:
                 outputs[node_id] = {input_name: artifact}
                 sink_values[node_id] = artifact
                 job.meta = {**(getattr(job, "meta", None) or {}), "artifact_kind": artifact_kind}
+                signature = self.node_cache.signature(node.class_type, node.inputs, ref_sigs)
+                _checkpoint(node_id, outputs[node_id], signature)
                 continue
 
             cacheable_now = self.cache_enabled and _is_deterministic(
@@ -433,9 +507,8 @@ class WorkflowEngine:
                 cached = self.node_cache.get(sig)
                 if cached is not None:
                     outputs[node_id] = cached
-                    ref_sigs[node_id] = sig
                     job.step = f"Cached {node.class_type} ({idx + 1}/{total})"
-                    persist()
+                    _checkpoint(node_id, outputs[node_id], sig)
                     continue
 
             process = process_node_pack(node.class_type)
@@ -455,12 +528,6 @@ class WorkflowEngine:
                     phase_cb,
                 )
                 outputs[node_id] = dict(legacy_out)
-                # Process nodes may return auxiliary artifacts (for example a
-                # Blender .blend file and a rendered PNG beside the primary
-                # GLB). Publish them into the selected collection before the
-                # run-owned artifact directory is cleaned up. They are not
-                # wired as graph values; the primary typed output remains the
-                # node's mesh/image artifact.
                 raw_sidecars = legacy_out.get("sidecars")
                 if isinstance(raw_sidecars, list):
                     published_sidecars: list[Path] = []
@@ -532,13 +599,11 @@ class WorkflowEngine:
                 self.node_cache.set(sig, outputs[node_id])
                 cached = self.node_cache.get(sig)
                 if cached is not None:
-                    # Continue this DAG from the stable cache copy so the
-                    # run-owned materialisation can be reclaimed normally.
                     outputs[node_id] = cached
-            ref_sigs[node_id] = sig if sig is not None else self.node_cache.signature(
+            signature = sig if sig is not None else self.node_cache.signature(
                 node.class_type, node.inputs, ref_sigs
             )
-            persist()
+            _checkpoint(node_id, outputs[node_id], signature)
 
         selected: Any = None
         if request.output_node_id and request.output_node_id in sink_values:
@@ -562,3 +627,11 @@ class WorkflowEngine:
                 cleanup_artifact_root(artifact_root)
 
         return final_artifact
+
+
+__all__ = [
+    "ArtifactNodeOutputCache",
+    "WorkflowEngine",
+    "WorkflowWait",
+    "clear_workflow_cache",
+]
