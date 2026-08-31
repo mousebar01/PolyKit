@@ -1,7 +1,7 @@
 """Compile world-domain operations into canonical Workflow Engine requests."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
@@ -66,6 +66,14 @@ def _structure_params(building: Mapping[str, Any], *, render_preview: bool) -> d
     return result
 
 
+def _ids(values: Sequence[str] | None) -> list[str]:
+    result: list[str] = []
+    for value in values or []:
+        if isinstance(value, str) and value.strip() and value.strip() not in result:
+            result.append(value.strip())
+    return result
+
+
 def build_structure_workflow(
     world: Mapping[str, Any],
     *,
@@ -112,4 +120,82 @@ def build_structure_workflow(
     )
 
 
-__all__ = ["build_structure_workflow"]
+def build_repair_parts_workflow(
+    world: Mapping[str, Any],
+    *,
+    world_id: str,
+    source_mesh_workspace_path: str,
+    building_id: str,
+    part_ids: Sequence[str],
+    attachment_ids: Sequence[str],
+    collection: str = "Scenes",
+    render_preview: bool = True,
+) -> WorkflowExecutionRequest:
+    """Compile one bounded BuildSpec part repair against an existing final GLB.
+
+    This workflow does not mutate World/BuildSpec and does not expand scope. The
+    Blender backend receives exact part/attachment ids plus the authoritative
+    building spec and may only adjust those selected parts.
+    """
+
+    runtime = _runtime(world)
+    building = _first_building(runtime, building_id)
+    selected_id = str(building.get("id") or "building")
+    selected_parts = _ids(part_ids)
+    selected_attachments = _ids(attachment_ids)
+    if not selected_parts:
+        raise WorldStoreError("Scoped part repair requires at least one BuildSpec part id")
+    source_path = str(source_mesh_workspace_path or "").strip()
+    if not source_path:
+        raise WorldStoreError("Scoped part repair requires an authoritative source mesh path")
+
+    repair_params = {
+        "repair_mode": "parts",
+        "repair_strategy": "translation-anchor-snap-v1",
+        "scene_name": f"{selected_id}_repair",
+        "building_spec": dict(building),
+        "part_ids": selected_parts,
+        "attachment_ids": selected_attachments,
+        "render_preview": bool(render_preview),
+    }
+    nodes = {
+        "source": WorkflowExecutionNode(
+            class_type="polykit.mesh",
+            inputs={
+                "mesh": {
+                    "kind": "workspace_path",
+                    "path": source_path,
+                }
+            },
+        ),
+        "repair": WorkflowExecutionNode(
+            class_type="blender-scene/repair-parts",
+            inputs={
+                "mesh": ["source", "mesh"],
+                "params": repair_params,
+            },
+        ),
+        "output": WorkflowExecutionNode(
+            class_type="polykit.output",
+            inputs={"mesh": ["repair", "mesh"]},
+        ),
+    }
+    return WorkflowExecutionRequest(
+        workflow_id="building-part-repair",
+        prompt=nodes,
+        output_node_id="output",
+        collection=normalize_collection(collection),
+        metadata={
+            "world_id": world_id,
+            "building_id": selected_id,
+            "workflow_recipe": "building-part-repair",
+            "artifact_kind": "scene",
+            "source_mesh_workspace_path": source_path,
+            "repair_part_ids": selected_parts,
+            "repair_attachment_ids": selected_attachments,
+            "repair_strategy": "translation-anchor-snap-v1",
+        },
+    )
+
+
+__all__ = ["build_repair_parts_workflow", "build_structure_workflow"]
