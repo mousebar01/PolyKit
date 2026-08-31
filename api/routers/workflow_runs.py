@@ -2,7 +2,7 @@ import asyncio
 import json
 import traceback
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -21,7 +21,16 @@ from services.run_observability import (
 )
 from services.node_catalog import is_known
 from services.process_runner import ProcessExecutionError
-from services.workflow_engine import WorkflowEngine
+from services.workflow_engine import WorkflowEngine, WorkflowWait
+from services.workflow_execution import (
+    current_waiting,
+    execution_summary,
+    initialize_workflow_execution,
+    load_workflow_execution_request,
+    mark_current_step_failed,
+    prepare_execution_resume,
+    submit_signal,
+)
 from services.workflow_executor import (
     SINK_NODES,
     WorkflowError,
@@ -42,7 +51,7 @@ def _require_known_class_type(class_type: str) -> None:
 
 
 async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> None:
-    """Execute a workflow DAG in the shared single-GPU server job slot."""
+    """Execute or resume a workflow DAG in the shared single-GPU server job slot."""
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, run_coordinator.generation_lock.acquire)
     run_coordinator.set_active(job_id)
@@ -56,6 +65,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
             return
         job = run_coordinator.jobs[job_id]
         job.status = "running"
+        job.error = None
         mark_workflow_run_started(job)
         run_coordinator.persist(job)
 
@@ -64,7 +74,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
             run_coordinator.persist(job)
 
         engine = WorkflowEngine()
-        final_artifact = await engine.run(
+        result = await engine.run(
             job_id=job_id,
             request=request,
             job=job,
@@ -75,6 +85,14 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
 
         if run_coordinator.is_cancelled(job_id):
             return
+        if isinstance(result, WorkflowWait):
+            job.status = "waiting"
+            job.step = f"Waiting for signal '{result.signal_name}'"
+            job.error = None
+            run_coordinator.persist(job)
+            return
+
+        final_artifact = result
         if final_artifact is None or not final_artifact.exists():
             raise WorkflowError("Workflow completed without an output artifact")
 
@@ -95,6 +113,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         if run_coordinator.is_cancelled(job_id):
             return
         job = run_coordinator.jobs[job_id]
+        mark_current_step_failed(job, str(exc))
         job.status = "error"
         job.error = str(exc)
         finalize_workflow_run(job, status="error", error=job.error)
@@ -109,6 +128,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         except UnicodeEncodeError:
             print(msg.encode("ascii", errors="replace").decode("ascii"))
         job = run_coordinator.jobs[job_id]
+        mark_current_step_failed(job, str(exc))
         job.status = "error"
         job.error = tb.strip()
         finalize_workflow_run(job, status="error", error=str(exc))
@@ -134,6 +154,11 @@ class WorkflowRunStatus(BaseModel):
     error: Optional[str] = None
     scene_candidate: Optional[dict] = None
     meta: Optional[dict] = None
+
+
+class WorkflowSignalRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    payload: Any = None
 
 
 class TextToAssetRequest(BaseModel):
@@ -336,6 +361,7 @@ async def execute_workflow(
             ),
         },
     )
+    initialize_workflow_execution(job, request, order, workspace_root=runtime_paths.workspace)
     init_workflow_observability(job, request, execution_prompt, order)
     run_coordinator.register(job)
     model_runtime_registry.begin_generation(job_id)
@@ -346,6 +372,78 @@ async def execute_workflow(
         "workflow_id": request.workflow_id,
         "queued_nodes": len(execution_prompt),
     }
+
+
+def _queue_existing_run(job_id: str, request: WorkflowExecutionRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    job = run_coordinator.jobs[job_id]
+    prepare_execution_resume(job)
+    run_coordinator.clear_completed(job_id)
+    run_coordinator.ensure_cancel_event(job_id)
+    job.status = "pending"
+    job.error = None
+    job.step = "Queued for resume"
+    run_coordinator.persist(job)
+    model_runtime_registry.begin_generation(job_id)
+    background_tasks.add_task(_run_workflow_dag, job_id, request)
+    return {"run_id": job_id, "status": "pending", "resumed": True}
+
+
+@router.post("/{run_id}/signals")
+async def signal_run(run_id: str, signal: WorkflowSignalRequest, background_tasks: BackgroundTasks):
+    """Deliver the expected signal and resume the same durable WorkflowRun."""
+    job = run_coordinator.jobs.get(run_id)
+    if job is None:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if job.status != "waiting":
+        raise HTTPException(409, "WorkflowRun is not waiting for a signal")
+    try:
+        accepted = submit_signal(job, name=signal.name, payload=signal.payload)
+        request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    run_coordinator.persist(job)
+    result = _queue_existing_run(run_id, request, background_tasks)
+    return {**result, "signal_id": accepted["id"], "signal_name": accepted["name"]}
+
+
+@router.post("/{run_id}/retry")
+async def retry_run(run_id: str, background_tasks: BackgroundTasks):
+    """Retry only incomplete steps using completed run-owned checkpoints."""
+    job = run_coordinator.jobs.get(run_id)
+    if job is None:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if job.status not in {"error", "interrupted"}:
+        raise HTTPException(409, "Only failed or interrupted WorkflowRuns can be retried")
+    try:
+        request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _queue_existing_run(run_id, request, background_tasks)
+
+
+async def recover_interrupted_workflow_runs() -> None:
+    """Requeue interrupted canonical workflows after FastAPI startup.
+
+    Legacy image-generation jobs have no durable workflow execution snapshot and
+    remain interrupted instead of being guessed/replayed.
+    """
+    for job in list(run_coordinator.jobs.values()):
+        if job.status != "interrupted":
+            continue
+        try:
+            request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
+            prepare_execution_resume(job)
+        except ValueError:
+            run_coordinator.mark_completed(job)
+            continue
+        run_coordinator.clear_completed(job.job_id)
+        run_coordinator.ensure_cancel_event(job.job_id)
+        job.status = "pending"
+        job.error = None
+        job.step = "Recovering interrupted workflow"
+        run_coordinator.persist(job)
+        model_runtime_registry.begin_generation(job.job_id)
+        asyncio.create_task(_run_workflow_dag(job.job_id, request))
 
 
 @router.post("/text-to-asset")
@@ -396,11 +494,14 @@ async def list_runs(limit: int = 20, workflow_id: Optional[str] = None, collecti
 
 @router.get("/{run_id}/inspect")
 async def inspect_run(run_id: str):
-    """Return the persisted node/event/artifact timeline for one Workflow Run."""
+    """Return persisted telemetry plus authoritative durable execution steps."""
     job = run_coordinator.jobs.get(run_id)
     if not job:
         raise HTTPException(404, f"Run {run_id} not found")
-    return inspect_workflow_run(job)
+    value = inspect_workflow_run(job)
+    value["execution"] = execution_summary(job)
+    value["waiting"] = current_waiting(job)
+    return value
 
 
 @router.get("/{run_id}", response_model=WorkflowRunStatus)
