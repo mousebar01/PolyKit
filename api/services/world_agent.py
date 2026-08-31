@@ -1,4 +1,9 @@
-"""Agent-facing helpers for the strict spec-first world runtime."""
+"""Agent-facing helpers for schema-v2 world domain documents.
+
+Workflow/task progress is intentionally absent here. Agent Workflow Protocol owns
+steps, retries and resume state; this module only creates worlds and binds domain
+artifacts.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,19 +13,7 @@ from typing import Any
 from services.world_store import WorldStoreError, new_world_id, validate_workspace_relative_path
 
 
-WORLD_STAGE_IDS = (
-    "intent",
-    "blockout",
-    "structure",
-    "environment",
-    "assets",
-    "materials",
-    "lighting",
-    "gameplay",
-    "optimization",
-)
-WORLD_STAGE_STATUSES = ("locked", "ready", "running", "passed", "failed")
-WORLD_GATE_IDS = ("construction", "visual", "gameplay")
+WORLD_QUALITY_GATE_IDS = ("construction", "visual", "gameplay")
 
 
 def _now() -> str:
@@ -59,7 +52,7 @@ def _default_game_spec() -> dict[str, Any]:
     }
 
 
-def _initial_runtime(prompt: str, timestamp: str) -> dict[str, Any]:
+def _initial_runtime(prompt: str) -> dict[str, Any]:
     return {
         "version": 1,
         "intent": {"prompt": prompt},
@@ -67,16 +60,9 @@ def _initial_runtime(prompt: str, timestamp: str) -> dict[str, Any]:
         "scene": None,
         "compiled": {"instances": []},
         "game": _default_game_spec(),
-        "state": {
-            "stages": [
-                {"id": stage_id, "status": "ready" if index == 0 else "locked"}
-                for index, stage_id in enumerate(WORLD_STAGE_IDS)
-            ],
-            "gates": {
-                gate_id: {"status": "pending", "issues": []}
-                for gate_id in WORLD_GATE_IDS
-            },
-            "updated_at": timestamp,
+        "quality": {
+            gate_id: {"status": "pending", "issues": []}
+            for gate_id in WORLD_QUALITY_GATE_IDS
         },
     }
 
@@ -87,7 +73,7 @@ def create_world_document(
     prompt: str | None = None,
     parent_world_id: str | None = None,
 ) -> dict[str, Any]:
-    """Allocate a fresh schema-v2 world with one resumable runtime state."""
+    """Allocate a fresh schema-v2 world containing domain state only."""
 
     world_id = new_world_id()
     timestamp = _now()
@@ -100,7 +86,7 @@ def create_world_document(
         "name": title,
         "created_at": timestamp,
         "updated_at": timestamp,
-        "runtime": _initial_runtime(intent, timestamp),
+        "runtime": _initial_runtime(intent),
         "artifacts": {},
     }
     if parent_world_id and parent_world_id.strip():
@@ -180,87 +166,8 @@ def attach_world_artifact(
     return result
 
 
-def update_world_stage(
-    world: Mapping[str, Any],
-    *,
-    stage_id: str,
-    status: str,
-    note: str | None = None,
-    prompt: str | None = None,
-) -> dict[str, Any]:
-    """Advance one spec-first pass and unlock the next pass on success."""
-
-    safe_stage = _require_text(stage_id, "stage_id")
-    if safe_stage not in WORLD_STAGE_IDS:
-        raise WorldStoreError(
-            f"Unknown world stage {safe_stage!r}; expected one of {', '.join(WORLD_STAGE_IDS)}"
-        )
-    safe_status = _require_text(status, "status")
-    if safe_status not in WORLD_STAGE_STATUSES:
-        raise WorldStoreError(
-            f"Unknown world stage status {safe_status!r}; expected one of {', '.join(WORLD_STAGE_STATUSES)}"
-        )
-
-    result = dict(world)
-    runtime = _runtime(result)
-    state = runtime.get("state")
-    if not isinstance(state, Mapping):
-        raise WorldStoreError("World runtime requires state")
-    state_copy = dict(state)
-    raw_stages = state_copy.get("stages")
-    if not isinstance(raw_stages, list):
-        raise WorldStoreError("World runtime state requires an ordered stages list")
-
-    stage_map = {
-        value.get("id"): dict(value)
-        for value in raw_stages
-        if isinstance(value, Mapping) and value.get("id") in WORLD_STAGE_IDS
-    }
-    if tuple(stage_id for stage_id in WORLD_STAGE_IDS if stage_id in stage_map) != WORLD_STAGE_IDS:
-        raise WorldStoreError("World runtime state is missing one or more required stages")
-
-    stage = stage_map[safe_stage]
-    current_status = stage.get("status")
-    if current_status == "locked" and safe_status in {"running", "passed", "failed"}:
-        raise WorldStoreError(f"World stage {safe_stage!r} is locked; pass the previous stage first")
-    if safe_status == "ready" and current_status == "locked":
-        raise WorldStoreError(f"World stage {safe_stage!r} cannot be manually unlocked")
-
-    timestamp = _now()
-    stage["status"] = safe_status
-    if note is not None:
-        stage["note"] = note.strip()
-    stage["updated_at"] = timestamp
-
-    stage_index = WORLD_STAGE_IDS.index(safe_stage)
-    if safe_status == "passed" and stage_index + 1 < len(WORLD_STAGE_IDS):
-        next_stage = stage_map[WORLD_STAGE_IDS[stage_index + 1]]
-        if next_stage.get("status") == "locked":
-            next_stage["status"] = "ready"
-            next_stage["updated_at"] = timestamp
-    elif safe_status == "failed":
-        for later_id in WORLD_STAGE_IDS[stage_index + 1 :]:
-            later = stage_map[later_id]
-            if later.get("status") != "passed":
-                later["status"] = "locked"
-                later["updated_at"] = timestamp
-
-    state_copy["stages"] = [stage_map[stage_name] for stage_name in WORLD_STAGE_IDS]
-    state_copy["updated_at"] = timestamp
-    runtime["state"] = state_copy
-    if prompt is not None:
-        runtime["intent"] = {"prompt": prompt.strip()}
-
-    result["runtime"] = runtime
-    result["updated_at"] = timestamp
-    return result
-
-
 __all__ = [
-    "WORLD_GATE_IDS",
-    "WORLD_STAGE_IDS",
-    "WORLD_STAGE_STATUSES",
+    "WORLD_QUALITY_GATE_IDS",
     "attach_world_artifact",
     "create_world_document",
-    "update_world_stage",
 ]
