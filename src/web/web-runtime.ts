@@ -1,4 +1,4 @@
-import type { AgentSettings, AgentSettingsPatch, DownloadSourceSettings, ProxySettings, Workflow } from '@shared/types/runtime.d'
+import type { DownloadSourceSettings, ProxySettings, Workflow } from '@shared/types/runtime.d'
 
 // Browser deployments normally share an origin with FastAPI. This override
 // supports remote UI / GPU server deployments.
@@ -20,7 +20,6 @@ type WebSettings = {
   hfToken?: string
   proxy?: ProxySettings
   sources?: DownloadSourceSettings
-  agent: AgentSettings
 }
 
 const defaultSettings: WebSettings = {
@@ -30,14 +29,6 @@ const defaultSettings: WebSettings = {
   nodePacksDir: 'browser://node-packs',
   proxy: { enabled: false, url: '', username: '', password: '', bypass: '' },
   sources: { huggingfaceEndpoint: '', pypiIndexUrl: '', pytorchIndexUrl: '' },
-  agent: {
-    enabled: true,
-    defaultProvider: '',
-    defaultModel: '',
-    thinkingLevel: 'medium',
-    toolProfile: 'blender',
-    sessionDir: 'server://agent/sessions',
-  },
 }
 
 function settingsKey(): string {
@@ -50,7 +41,6 @@ function getStoredSettings(): WebSettings {
     return {
       ...defaultSettings,
       ...stored,
-      agent: { ...defaultSettings.agent, ...(stored.agent ?? {}) },
     }
   } catch {
     return defaultSettings
@@ -62,7 +52,6 @@ function setStoredSettings(patch: Partial<WebSettings>): WebSettings {
   const next = {
     ...current,
     ...patch,
-    agent: patch.agent ? { ...current.agent, ...patch.agent } : current.agent,
   }
   localStorage.setItem(settingsKey(), JSON.stringify(next))
   return next
@@ -294,28 +283,6 @@ const webRuntime = {
         } catch {
           // Older server without the endpoint — keep the locally stored value.
         }
-        let agent = getStoredSettings().agent
-        try {
-          const remote = await json<{
-            enabled?: boolean
-            default_provider?: string
-            default_model?: string
-            thinking_level?: AgentSettings['thinkingLevel']
-            tool_profile?: AgentSettings['toolProfile']
-            session_dir?: string
-          }>('/settings/agent')
-          agent = {
-            ...agent,
-            enabled: remote.enabled ?? agent.enabled,
-            defaultProvider: remote.default_provider ?? agent.defaultProvider,
-            defaultModel: remote.default_model ?? agent.defaultModel,
-            thinkingLevel: remote.thinking_level ?? agent.thinkingLevel,
-            toolProfile: remote.tool_profile ?? agent.toolProfile,
-            sessionDir: remote.session_dir ?? agent.sessionDir,
-          }
-        } catch {
-          // Keep local defaults when connected to an older server.
-        }
         return {
           ...getStoredSettings(),
           modelsDir: paths.models_dir,
@@ -323,7 +290,6 @@ const webRuntime = {
           ...(paths.node_packs_dir ? { nodePacksDir: paths.node_packs_dir } : {}),
           proxy,
           sources,
-          agent,
         }
       } catch {
         return getStoredSettings()
@@ -368,40 +334,6 @@ const webRuntime = {
           }),
         })
         if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`)
-      }
-      if (patch.agent !== undefined) {
-        const agentPatch = patch.agent as AgentSettingsPatch
-        const response = await request('/settings/agent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            enabled: agentPatch.enabled,
-            default_provider: agentPatch.defaultProvider,
-            default_model: agentPatch.defaultModel,
-            thinking_level: agentPatch.thinkingLevel,
-            tool_profile: agentPatch.toolProfile,
-          }),
-        })
-        if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`)
-        const remote = await response.json() as {
-          enabled?: boolean
-          default_provider?: string
-          default_model?: string
-          thinking_level?: AgentSettings['thinkingLevel']
-          tool_profile?: AgentSettings['toolProfile']
-          session_dir?: string
-        }
-        const current = next.agent
-        next.agent = {
-          ...current,
-          enabled: remote.enabled ?? current.enabled,
-          defaultProvider: remote.default_provider ?? current.defaultProvider,
-          defaultModel: remote.default_model ?? current.defaultModel,
-          thinkingLevel: remote.thinking_level ?? current.thinkingLevel,
-          toolProfile: remote.tool_profile ?? current.toolProfile,
-          sessionDir: remote.session_dir ?? current.sessionDir,
-        }
-        localStorage.setItem(settingsKey(), JSON.stringify(next))
       }
       return next
     },
