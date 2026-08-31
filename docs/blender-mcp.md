@@ -45,3 +45,8 @@ workspace artifacts. When a Blender result becomes a product asset, it should
 be saved or copied into the server-owned workspace and then registered through
 the normal workflow/asset APIs; the browser does not connect to Blender
 directly.
+
+For a complete runnable example, see
+[`blender-scene-workflow.md`](blender-scene-workflow.md). It uses the same MCP
+bridge from a FastAPI process node and publishes a GLB, Blender file, and PNG
+preview into the workspace.

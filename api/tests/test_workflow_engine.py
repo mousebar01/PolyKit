@@ -237,6 +237,53 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
         finally:
             loop.close()
 
+    def test_process_sidecars_are_published_with_primary_mesh(self) -> None:
+        """Auxiliary Blender artifacts survive cleanup of the run directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_paths.update(workspace_dir=root)
+            artifact_dir = root / ".artifacts" / "sidecar-job" / "process-workspace"
+            artifact_dir.mkdir(parents=True)
+            mesh = artifact_dir / "cabin.glb"
+            blend = artifact_dir / "cabin.blend"
+            preview = artifact_dir / "cabin.png"
+            mesh.write_bytes(b"glb")
+            blend.write_bytes(b"blend")
+            preview.write_bytes(b"png")
+            request = WorkflowExecutionRequest(
+                collection="Workflows",
+                prompt={
+                    "brief": _node("polykit.text", {"text": "cabin"}),
+                    "build": _node("blender-scene/build", {"text": ["brief", "text"]}),
+                    "out": _node("polykit.output", {"mesh": ["build", "mesh"]}),
+                },
+            )
+            process_tuple = (Path(temp_dir), {"entry": "processor.py"}, {"id": "build", "output": "mesh"})
+            job = SimpleNamespace(progress=0, step="")
+            loop = asyncio.new_event_loop()
+            try:
+                with mock.patch("services.workflow_engine.process_node_pack", return_value=process_tuple), mock.patch(
+                    "services.workflow_engine._run_process_node",
+                    return_value={"mesh": mesh, "sidecars": [blend, preview]},
+                ):
+                    result = loop.run_until_complete(
+                        WorkflowEngine(node_cache=ArtifactNodeOutputCache(), cache_enabled=False).run(
+                            job_id="sidecar-job",
+                            request=request,
+                            job=job,
+                            persist=lambda: None,
+                            cancel_event=threading.Event(),
+                            is_cancelled=lambda: False,
+                        )
+                    )
+            finally:
+                loop.close()
+
+            self.assertIsNotNone(result)
+            self.assertTrue((root / "Workflows" / "cabin.glb").is_file())
+            self.assertTrue((root / "Workflows" / "cabin.blend").is_file())
+            self.assertTrue((root / "Workflows" / "cabin.png").is_file())
+
 
 class MapOverListTests(ModelRuntimeMixin, unittest.TestCase):
     def test_model_node_runs_per_list_item(self) -> None:

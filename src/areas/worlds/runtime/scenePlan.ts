@@ -31,6 +31,16 @@ export interface ScenePlanInstance {
   roomId?: string | null
 }
 
+export interface ScenePlanRelation {
+  subject: string
+  type: string
+  object: string
+  distance?: number
+  tolerance?: number
+  clearance?: number
+  side?: 'left' | 'right' | 'front' | 'back'
+}
+
 export interface ScenePlanBounds {
   width: number
   depth: number
@@ -45,6 +55,17 @@ export interface ScenePlanDiagnostic {
   [key: string]: unknown
 }
 
+export interface ScenePlanLayoutQuality {
+  status: 'pass' | 'needs_review' | 'invalid' | string
+  cameraIndependent?: boolean
+  checkedInstances?: number
+  checkedRelations?: number
+  errors?: number
+  warnings?: number
+  checks?: string[]
+  [key: string]: unknown
+}
+
 export interface ScenePlan {
   schemaVersion?: number
   kind: 'polykit.scene-plan'
@@ -54,10 +75,10 @@ export interface ScenePlan {
   seed?: number
   bounds: ScenePlanBounds
   objects: ScenePlanObject[]
-  relations?: Array<{ subject: string; type: string; object: string }>
+  relations?: ScenePlanRelation[]
   instances: ScenePlanInstance[]
   diagnostics?: ScenePlanDiagnostic[]
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> & { layoutQuality?: ScenePlanLayoutQuality }
 }
 
 function isFinitePositive(value: unknown): value is number {
@@ -91,4 +112,3 @@ export function isRenderableScenePlan(value: unknown): value is ScenePlan {
     && instance.scale > 0
   ))
 }
-

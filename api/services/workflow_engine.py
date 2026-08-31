@@ -455,6 +455,31 @@ class WorkflowEngine:
                     phase_cb,
                 )
                 outputs[node_id] = dict(legacy_out)
+                # Process nodes may return auxiliary artifacts (for example a
+                # Blender .blend file and a rendered PNG beside the primary
+                # GLB). Publish them into the selected collection before the
+                # run-owned artifact directory is cleaned up. They are not
+                # wired as graph values; the primary typed output remains the
+                # node's mesh/image artifact.
+                raw_sidecars = legacy_out.get("sidecars")
+                if isinstance(raw_sidecars, list):
+                    published_sidecars: list[Path] = []
+                    for raw_sidecar in raw_sidecars:
+                        source = Path(str(raw_sidecar)).resolve()
+                        try:
+                            source.relative_to(context.paths.artifact_root.resolve())
+                        except ValueError:
+                            continue
+                        if not source.is_file():
+                            continue
+                        destination = context.paths.collection_dir / source.name
+                        try:
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, destination)
+                        except OSError as exc:
+                            raise WorkflowError(f"Could not publish process sidecar: {exc}") from exc
+                        published_sidecars.append(destination)
+                    outputs[node_id]["sidecars"] = published_sidecars
                 if "mesh" in legacy_out:
                     outputs[node_id]["mesh"] = wrap_mesh_value(
                         legacy_out["mesh"],

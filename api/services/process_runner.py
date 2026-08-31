@@ -7,7 +7,7 @@ lines on stdout:
 
     {"type": "progress", "percent": N, "label": "..."}
     {"type": "log", "message": "..."}
-    {"type": "done", "result": {"filePath": "...", "text": "..."}}
+    {"type": "done", "result": {"filePath": "...", "text": "...", "sidecars": ["..."], "metadata": {}}}
     {"type": "error", "message": "..."}
 
 This lets the FastAPI control plane execute process nodes generically without
@@ -59,7 +59,7 @@ def run_processor(
     log_cb: Optional[LogCallback] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> Dict[str, object]:
-    """Run one process node and return its ``{filePath?, text?}`` result.
+    """Run one process node and return its ``{filePath?, text?, sidecars?, metadata?}`` result.
 
     Raises ProcessExecutionError on missing entries, processor errors,
     cancellation, or a subprocess that exits without a ``done`` message.

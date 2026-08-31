@@ -35,6 +35,8 @@ RELATION_TYPES = (
     "away_from",
     "overlooking",
 )
+SUPPORT_RELATION_TYPES = ("floor", "on", "inside", "in_room")
+SPATIAL_RELATION_TYPES = ("near", "beside", "away_from", "overlooking")
 OBJECT_ROLES = ("room", "background", "context", "hero", "manipulated", "distractor")
 
 
@@ -150,6 +152,13 @@ class SceneRelation(BaseModel):
     subject: str = Field(min_length=1, max_length=120)
     type: str = Field(min_length=1, max_length=40)
     object: str = Field(min_length=1, max_length=120)
+    # Optional geometric evidence for the relation.  Keeping these fields on
+    # the edge (rather than burying them in an opaque constraints dictionary)
+    # gives the Agent and the validator one unambiguous vocabulary.
+    distance: float | None = Field(default=None, gt=0, le=10000)
+    tolerance: float = Field(default=0.35, ge=0, le=10000)
+    clearance: float = Field(default=0.0, ge=0, le=10000)
+    side: Literal["left", "right", "front", "back"] | None = None
 
     @field_validator("subject", "object", mode="before")
     @classmethod
@@ -163,6 +172,16 @@ class SceneRelation(BaseModel):
         if relation not in RELATION_TYPES:
             raise ValueError(f"Unknown relation '{relation}'; expected one of {', '.join(RELATION_TYPES)}")
         return relation
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _normalise_side(cls, value: Any):
+        if value is None or value == "":
+            return None
+        side = str(value).strip().lower()
+        if side not in {"left", "right", "front", "back"}:
+            raise ValueError("side must be one of left, right, front, back")
+        return side
 
 
 class SceneInstance(BaseModel):
@@ -235,7 +254,7 @@ class ScenePlan(BaseModel):
                 raise ValueError("A scene relation cannot reference the same object twice")
         support_by_subject: dict[str, list[SceneRelation]] = {}
         for relation in self.relations:
-            if relation.type in {"floor", "on", "inside", "in_room"}:
+            if relation.type in SUPPORT_RELATION_TYPES:
                 support_by_subject.setdefault(relation.subject, []).append(relation)
         conflicting = next(
             (object_id for object_id, relations in support_by_subject.items() if len(relations) > 1),
@@ -347,6 +366,7 @@ def _inside_parent_bounds(
     object_by_id: dict[str, SceneObject],
     *,
     vertical: bool,
+    margin: float = 0.0,
 ) -> bool:
     """Conservative AABB containment used when no mesh hull is available.
 
@@ -364,9 +384,10 @@ def _inside_parent_bounds(
     parent_half_z = parent_object.size[2] * parent.scale / 2.0
     cx, cy, cz = instance.position
     px, py, pz = parent.position
+    margin = max(0.0, float(margin))
     if not (
-        px - parent_half_x + child_half_x <= cx <= px + parent_half_x - child_half_x
-        and pz - parent_half_z + child_half_z <= cz <= pz + parent_half_z - child_half_z
+        px - parent_half_x + child_half_x + margin <= cx <= px + parent_half_x - child_half_x - margin
+        and pz - parent_half_z + child_half_z + margin <= cz <= pz + parent_half_z - child_half_z - margin
     ):
         return False
     if not vertical:
@@ -374,8 +395,87 @@ def _inside_parent_bounds(
     child_height = child.size[1] * instance.scale
     parent_height = parent_object.size[1] * parent.scale
     return (
-        py <= cy <= py + parent_height - child_height
+        py + margin <= cy <= py + parent_height - child_height - margin
     )
+
+
+def _object_clearance(obj: SceneObject) -> float:
+    """Read an optional per-object stand-off without making JSON coordinates opaque."""
+
+    raw = obj.constraints.get("clearance", 0.0)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) and value >= 0 else 0.0
+
+
+def _relation_distance(
+    relation: SceneRelation,
+    subject: SceneObject,
+    target: SceneObject,
+    *,
+    subject_scale: float = 1.0,
+    target_scale: float = 1.0,
+) -> float:
+    """Return a predictable horizontal distance for relative placement.
+
+    Agents may provide an explicit distance in scene units.  The defaults are
+    derived from semantic dimensions so a larger chair is not placed at the
+    same absolute offset as a small cup.
+    """
+
+    if relation.distance is not None:
+        return float(relation.distance)
+    subject_radius = max(subject.size[0], subject.size[2]) * subject_scale / 2.0
+    target_radius = max(target.size[0], target.size[2]) * target_scale / 2.0
+    clearance = max(relation.clearance, _object_clearance(subject), _object_clearance(target))
+    if relation.type == "near":
+        return subject_radius + target_radius + max(clearance, 0.35)
+    if relation.type == "beside":
+        return subject_radius + target_radius + clearance
+    if relation.type == "overlooking":
+        return subject_radius + target_radius + max(clearance, 1.0)
+    # away_from is a minimum, not a target.  A full diameter plus a little
+    # breathing room prevents two independent hero objects from merging.
+    return (subject_radius + target_radius) * 2.0 + max(clearance, 0.75)
+
+
+def _relation_margin(relation: SceneRelation) -> float:
+    # Tolerance is used to judge the final relation; it must not shrink a
+    # support footprint during placement.  Only explicit clearance is a
+    # physical stand-off.
+    return max(0.0, float(relation.clearance))
+
+
+def _horizontal_distance(a: SceneInstance, b: SceneInstance) -> float:
+    return math.hypot(a.position[0] - b.position[0], a.position[2] - b.position[2])
+
+
+def _clamp_inside_parent(
+    x: float,
+    z: float,
+    instance: SceneInstance,
+    parent: SceneInstance,
+    relation: SceneRelation,
+    object_by_id: dict[str, SceneObject],
+) -> tuple[float, float]:
+    """Keep a supported object's contact point inside its semantic parent."""
+
+    child = object_by_id[instance.object_id]
+    parent_object = object_by_id[parent.object_id]
+    child_half_x = child.size[0] * instance.scale / 2.0
+    child_half_z = child.size[2] * instance.scale / 2.0
+    margin = _relation_margin(relation)
+    min_x = parent.position[0] - parent_object.size[0] * parent.scale / 2.0 + child_half_x + margin
+    max_x = parent.position[0] + parent_object.size[0] * parent.scale / 2.0 - child_half_x - margin
+    min_z = parent.position[2] - parent_object.size[2] * parent.scale / 2.0 + child_half_z + margin
+    max_z = parent.position[2] + parent_object.size[2] * parent.scale / 2.0 - child_half_z - margin
+    if min_x <= max_x:
+        x = max(min_x, min(max_x, x))
+    if min_z <= max_z:
+        z = max(min_z, min(max_z, z))
+    return x, z
 
 
 def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: int = 96) -> ScenePlan:
@@ -412,7 +512,7 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             dependencies = [
                 item.object
                 for item in relation_map.get(object_id, [])
-                if item.type in {"floor", "on", "inside", "in_room", "near", "beside", "overlooking"}
+                if item.type in {*SUPPORT_RELATION_TYPES, *SPATIAL_RELATION_TYPES}
             ]
             if not dependencies or all(parent_id in placed_ids for parent_id in dependencies):
                 ready.append((indexed_objects[object_id][0], candidate_object))
@@ -440,8 +540,13 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
                 continue
 
         relations = relation_map.get(obj.id, [])
-        support = next((item for item in relations if item.type in {"floor", "on", "inside", "in_room", "near", "beside", "overlooking"}), None)
+        support = next((item for item in relations if item.type in SUPPORT_RELATION_TYPES), None)
+        spatial = next((item for item in relations if item.type in SPATIAL_RELATION_TYPES), None)
         parent = parent_instance(support.object) if support else None
+        spatial_parent = parent_instance(spatial.object) if spatial else None
+        scale = float(obj.constraints.get("scale", 1.0) or 1.0)
+        if not math.isfinite(scale) or scale <= 0:
+            scale = 1.0
         y = 0.0
         x = 0.0
         z = 0.0
@@ -458,20 +563,43 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
                 if support.type == "inside":
                     # Start at the container's lower centre; the containment
                     # retry loop below distributes siblings if needed.
-                    y = py
+                    y = py + _relation_margin(support)
                 elif support.type == "in_room":
                     y = py
-            else:
-                radius = max(parent_obj.size[0], parent_obj.size[2]) * parent.scale / 2 + max(obj.size[0], obj.size[2]) / 2 + 0.55
-                angle = rng.random() * math.tau
-                x, z = px + math.cos(angle) * radius, pz + math.sin(angle) * radius
-                if support.type == "overlooking":
-                    room_id = parent.room_id or parent.object_id
-        elif obj.role in {"room", "background"}:
+
+        # Spatial relations are secondary to support/floor relations.  In
+        # particular, "chair floor room + near stove" must stay in the room
+        # while also being near the stove instead of silently ignoring one
+        # edge of the graph.
+        spatial_yaw = 0.0
+        if spatial_parent and spatial:
+            tx, ty, tz = spatial_parent.position
+            target_obj = object_by_id[spatial_parent.object_id]
+            distance = _relation_distance(
+                spatial,
+                obj,
+                target_obj,
+                subject_scale=scale,
+                target_scale=spatial_parent.scale,
+            )
+            angle = rng.random() * math.tau
+            if spatial.side:
+                # ScenePlan uses X right, Y up, Z forward.  Keep side labels
+                # stable across Blender (Z-up) and Three.js (Y-up export).
+                angle = {"left": math.pi, "right": 0.0, "front": math.pi / 2, "back": -math.pi / 2}[spatial.side]
+            elif spatial.type == "away_from":
+                angle += math.pi
+            x = tx + math.cos(angle) * distance
+            z = tz + math.sin(angle) * distance
+            if not parent:
+                y = ty
+            if spatial.type == "overlooking":
+                spatial_yaw = math.atan2(tx - x, tz - z)
+        elif not (parent and support) and obj.role in {"room", "background"}:
             # A container is centered by default.  Its dimensions describe
             # the available volume rather than a prop that needs spacing.
             x, z = 0.0, 0.0
-        else:
+        elif not (parent and support):
             # Deterministic expanding grid for independent floor objects.
             columns = max(1, int(math.sqrt(max(len(plan.objects), 1))))
             row, column = divmod(floor_cursor, columns)
@@ -483,10 +611,13 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             id=f"instance_{obj.id}",
             objectId=obj.id,
             position=(x, y, z),
-            rotation=(0.0, 0.0, 0.0),
-            scale=float(obj.constraints.get("scale", 1.0) or 1.0),
+            rotation=(0.0, spatial_yaw, 0.0),
+            scale=scale,
             roomId=room_id,
         )
+        if parent and support:
+            x, z = _clamp_inside_parent(x, z, candidate, parent, support, object_by_id)
+            candidate = candidate.model_copy(update={"position": (x, y, z)})
 
         # A supported object shares the parent's footprint by definition.  The
         # reference placer checks a child against sibling boxes on the parent,
@@ -499,12 +630,13 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             else set()
         )
         contained = True
-        if parent and support and support.type in {"inside", "in_room"}:
+        if parent and support and support.type in SUPPORT_RELATION_TYPES:
             contained = _inside_parent_bounds(
                 candidate,
                 parent,
                 object_by_id,
                 vertical=support.type == "inside",
+                margin=_relation_margin(support),
             )
         if not _inside_bounds(candidate, plan) or not contained or _overlaps(
             candidate,
@@ -524,13 +656,24 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
                         max(-plan.bounds.depth / 2 + obj.size[2] / 2, min(plan.bounds.depth / 2 - obj.size[2] / 2, z + math.sin(angle) * radius)),
                     )
                 })
+                if parent and support:
+                    trial_x, trial_z = _clamp_inside_parent(
+                        trial.position[0],
+                        trial.position[2],
+                        trial,
+                        parent,
+                        support,
+                        object_by_id,
+                    )
+                    trial = trial.model_copy(update={"position": (trial_x, y, trial_z)})
                 trial_contained = True
-                if parent and support and support.type in {"inside", "in_room"}:
+                if parent and support and support.type in SUPPORT_RELATION_TYPES:
                     trial_contained = _inside_parent_bounds(
                         trial,
                         parent,
                         object_by_id,
                         vertical=support.type == "inside",
+                        margin=_relation_margin(support),
                     )
                 if _inside_bounds(trial, plan) and trial_contained and not _overlaps(
                     trial,
@@ -557,7 +700,152 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
         "severity": "info",
         "message": f"Placed {len(placed)} object(s) with deterministic seed {plan.seed}.",
     })
-    return plan.model_copy(update={"instances": placed, "diagnostics": diagnostics})
+    result = plan.model_copy(update={"instances": placed, "diagnostics": diagnostics})
+    return _audit_scene_layout(result)
+
+
+def _audit_scene_layout(plan: ScenePlan) -> ScenePlan:
+    """Audit the whole plan in world space, independently of any camera.
+
+    The audit deliberately uses conservative semantic AABBs because meshes may
+    not exist when the Agent first compiles a plan.  A Blender/Three.js backend
+    can add mesh-hull checks later without changing this contract.
+    """
+
+    object_by_id = {item.id: item for item in plan.objects}
+    instance_by_id = {item.object_id: item for item in plan.instances}
+    diagnostics = [item for item in plan.diagnostics if item.get("code") != "layout-quality"]
+    errors = sum(1 for item in diagnostics if item.get("severity") == "error")
+    warnings = sum(1 for item in diagnostics if item.get("severity") == "warning")
+
+    def report(
+        severity: str,
+        message: str,
+        *,
+        object_id: str | None = None,
+        relation: SceneRelation | None = None,
+        **details: Any,
+    ) -> None:
+        nonlocal errors, warnings
+        if severity == "error":
+            errors += 1
+        elif severity == "warning":
+            warnings += 1
+        item: dict[str, Any] = {"code": "layout-quality", "severity": severity, "message": message}
+        if object_id:
+            item["object_id"] = object_id
+        if relation:
+            item["relation"] = {
+                "subject": relation.subject,
+                "type": relation.type,
+                "object": relation.object,
+            }
+        item.update(details)
+        diagnostics.append(item)
+
+    for instance in plan.instances:
+        if instance.object_id not in object_by_id:
+            report("error", "Instance references an unknown scene object.", object_id=instance.object_id)
+            continue
+        if not _inside_bounds(instance, plan):
+            report(
+                "error",
+                "Object footprint or height leaves the declared scene bounds.",
+                object_id=instance.object_id,
+            )
+
+    for relation in plan.relations:
+        subject = instance_by_id.get(relation.subject)
+        target = instance_by_id.get(relation.object)
+        subject_obj = object_by_id.get(relation.subject)
+        target_obj = object_by_id.get(relation.object)
+        if not subject or not target or not subject_obj or not target_obj:
+            report("error", "Relation has no compiled instance for one of its endpoints.", object_id=relation.subject, relation=relation)
+            continue
+
+        if relation.type in SUPPORT_RELATION_TYPES:
+            if relation.type == "on":
+                contained = _inside_parent_bounds(subject, target, object_by_id, vertical=False, margin=_relation_margin(relation))
+                expected_y = target.position[1] + target_obj.size[1] * target.scale
+                contact_error = abs(subject.position[1] - expected_y)
+                if not contained:
+                    report("error", "Object placed on a surface is not contained by the support footprint.", object_id=relation.subject, relation=relation)
+                if contact_error > max(0.05, relation.tolerance):
+                    report("error", "Object does not touch the top surface at the requested contact height.", object_id=relation.subject, relation=relation, error=round(contact_error, 4))
+            else:
+                contained = _inside_parent_bounds(
+                    subject,
+                    target,
+                    object_by_id,
+                    vertical=relation.type == "inside",
+                    margin=_relation_margin(relation),
+                )
+                if not contained:
+                    report("error", "Object leaves the declared parent footprint or volume.", object_id=relation.subject, relation=relation)
+                if relation.type in {"floor", "in_room"}:
+                    contact_error = abs(subject.position[1] - target.position[1])
+                    if contact_error > max(0.05, relation.tolerance):
+                        report("warning", "Object is not aligned with the parent floor plane.", object_id=relation.subject, relation=relation, error=round(contact_error, 4))
+            continue
+
+        distance = _horizontal_distance(subject, target)
+        expected = _relation_distance(
+            relation,
+            subject_obj,
+            target_obj,
+            subject_scale=subject.scale,
+            target_scale=target.scale,
+        )
+        tolerance = max(0.1, relation.tolerance)
+        if relation.type == "near" and distance > expected + tolerance:
+            report("error", "Object is farther from its near target than the declared tolerance.", object_id=relation.subject, relation=relation, distance=round(distance, 4), max_distance=round(expected + tolerance, 4))
+        elif relation.type == "beside":
+            minimum = max(0.0, subject_obj.size[0] * subject.scale / 2 + target_obj.size[0] * target.scale / 2 + relation.clearance)
+            if distance < minimum - tolerance:
+                report("error", "Beside relation penetrates the target footprint.", object_id=relation.subject, relation=relation, distance=round(distance, 4), min_distance=round(minimum, 4))
+        elif relation.type == "away_from" and distance < expected - tolerance:
+            report("error", "Object is closer than the declared away-from distance.", object_id=relation.subject, relation=relation, distance=round(distance, 4), min_distance=round(expected - tolerance, 4))
+        elif relation.type == "overlooking":
+            if distance > expected + tolerance:
+                report("error", "Overlooking object is outside the declared viewing distance.", object_id=relation.subject, relation=relation, distance=round(distance, 4), max_distance=round(expected + tolerance, 4))
+            expected_yaw = math.atan2(target.position[0] - subject.position[0], target.position[2] - subject.position[2])
+            yaw_error = abs((subject.rotation[1] - expected_yaw + math.pi) % math.tau - math.pi)
+            if yaw_error > 0.7:
+                report("warning", "Overlooking object is not oriented toward its target.", object_id=relation.subject, relation=relation, yaw_error=round(yaw_error, 4))
+
+    # Pairwise 2D footprint collisions are useful even when no explicit
+    # relation was supplied.  Parent/child support edges and room containers
+    # are excluded because their footprints intentionally overlap.
+    support_edges = {(item.subject, item.object) for item in plan.relations if item.type in SUPPORT_RELATION_TYPES}
+    collidable = [
+        instance
+        for instance in plan.instances
+        if instance.object_id in object_by_id and object_by_id[instance.object_id].role not in {"room", "background"}
+    ]
+    for index, current in enumerate(collidable):
+        for other in collidable[index + 1 :]:
+            if (current.object_id, other.object_id) in support_edges or (other.object_id, current.object_id) in support_edges:
+                continue
+            if _overlaps(current, [other], object_by_id, 0.0):
+                report(
+                    "warning",
+                    "Object footprints overlap without a supporting relation.",
+                    object_id=current.object_id,
+                    other_object_id=other.object_id,
+                )
+
+    status = "pass" if errors == 0 and warnings == 0 else ("needs_review" if errors == 0 else "invalid")
+    metadata = dict(plan.metadata)
+    metadata["layoutQuality"] = {
+        "status": status,
+        "cameraIndependent": True,
+        "checkedInstances": len(plan.instances),
+        "checkedRelations": len(plan.relations),
+        "errors": errors,
+        "warnings": warnings,
+        "checks": ["scene_bounds", "support_contact", "containment", "relations", "pairwise_footprints"],
+    }
+    return plan.model_copy(update={"diagnostics": diagnostics, "metadata": metadata})
 
 
 def compile_scene_plan(
@@ -669,8 +957,10 @@ def apply_scene_plan_to_world(world: Mapping[str, Any], plan: Mapping[str, Any])
 __all__ = [
     "OBJECT_ROLES",
     "RELATION_TYPES",
+    "SPATIAL_RELATION_TYPES",
     "SCENE_PLAN_KIND",
     "SCENE_PLAN_SCHEMA_VERSION",
+    "SUPPORT_RELATION_TYPES",
     "SceneAssetRef",
     "SceneBounds",
     "SceneInstance",

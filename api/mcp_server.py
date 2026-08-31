@@ -378,7 +378,10 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Record progress for one WorldClaw-inspired stage without executing it. Stages "
                 "are intent, plan, terrain, placement, assets, materials, and refine. Use this "
-                "to make the Agent's coarse-to-fine orchestration visible and resumable."
+                "to make the Agent's coarse-to-fine orchestration visible and resumable. During "
+                "materials, Poly Haven Textures (https://polyhaven.com/textures) may be used as an "
+                "explicit source; record the asset id, map set, UV scale, and provenance instead of "
+                "putting the URL into a visual generation prompt."
             ),
             inputSchema={
                 "type": "object",

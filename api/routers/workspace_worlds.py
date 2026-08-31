@@ -90,6 +90,11 @@ def _build_scene_composition_workflow(
         plan = spec.get("scene_plan") if isinstance(spec, dict) else None
     if not isinstance(plan, dict):
         raise ScenePlanError("World has no compiled scene_plan")
+    quality = plan.get("metadata", {}).get("layoutQuality") if isinstance(plan.get("metadata"), dict) else None
+    if isinstance(quality, dict) and quality.get("status") == "invalid":
+        raise ScenePlanError(
+            "Scene plan layout is invalid; fix its bounds or spatial relations before composing."
+        )
 
     raw_objects = plan.get("objects")
     raw_instances = plan.get("instances")
@@ -171,6 +176,7 @@ def _build_scene_composition_workflow(
             "artifact_kind": "scene",
             "missing_objects": missing,
             "composition": "scene-composer",
+            "layout_quality": quality if isinstance(quality, dict) else None,
         },
     )
 

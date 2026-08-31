@@ -13,7 +13,7 @@ import {
   type Edge,
   type OnConnectStartParams,
 } from '@xyflow/react'
-import { FolderPlus } from 'lucide-react'
+import { Blocks, FolderPlus, LayoutTemplate } from 'lucide-react'
 import { getDefaultAssetLibraryService } from '@areas/assets/assetLibraryService'
 import type { ProjectedAssetLibraryEntry } from '@areas/assets/assetLibraryProjection'
 import AssetLibraryEntryCard from '@areas/assets/components/AssetLibraryEntryCard'
@@ -228,6 +228,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
 }) {
   const { t } = useI18n()
   const [search, setSearch]       = useState('')
+  const [libraryView, setLibraryView] = useState<'nodes' | 'templates'>('nodes')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [width, setWidth]         = useState(260)
   const dragging = useRef(false)
@@ -260,7 +261,6 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
   const filteredBuiltinNodes = PANEL_BUILTIN_NODES.filter((n) => !query || t(n.labelKey).toLowerCase().includes(query))
   const filteredBuiltinExts  = allNodePacks.filter((e) => e.builtin && (!query || e.name.toLowerCase().includes(query)))
   const baseCount            = filteredBuiltinNodes.length + filteredBuiltinExts.length
-  const baseVisible          = !query || baseCount > 0
 
   // Installed node-pack ids — used to gate templates that need them installed.
   const installedPackIds = useMemo(
@@ -285,6 +285,12 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
   const filteredTemplates = allTemplates.filter(
     (template) => !query || `${template.name} ${template.description}`.toLowerCase().includes(query),
   )
+  const filteredNonBuiltinCount = [...nonBuiltinMap.values()].reduce(
+    (count, group) => count + group.nodes.filter((node) => !query || node.name.toLowerCase().includes(query)).length,
+    0,
+  )
+  const filteredNodeCount = baseCount + filteredNonBuiltinCount
+  const nodesVisible = !query || filteredNodeCount > 0
   const templatesVisible = !query || filteredTemplates.length > 0
 
   return (
@@ -305,9 +311,37 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                 </svg>
               </span>
               <div className="min-w-0">
-                <h2 className="text-xs font-semibold text-foreground">{t('workflows.nodes')}</h2>
+                <h2 className="text-xs font-semibold text-foreground">{libraryView === 'nodes' ? t('workflows.nodes') : t('workflows.templates')}</h2>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">{t('workflows.nodeLibraryHint')}</p>
               </div>
+            </div>
+            <div role="tablist" aria-label={t('workflows.nodes')} className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted/60 p-1">
+              <Button
+                type="button"
+                role="tab"
+                aria-selected={libraryView === 'nodes'}
+                variant={libraryView === 'nodes' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setLibraryView('nodes')}
+                className="h-8 justify-start gap-1.5 px-2.5 text-[11px]"
+              >
+                <Blocks className="size-3.5" />
+                <span>{t('workflows.nodes')}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">{allNodePacks.length + PANEL_BUILTIN_NODES.length}</span>
+              </Button>
+              <Button
+                type="button"
+                role="tab"
+                aria-selected={libraryView === 'templates'}
+                variant={libraryView === 'templates' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setLibraryView('templates')}
+                className="h-8 justify-start gap-1.5 px-2.5 text-[11px]"
+              >
+                <LayoutTemplate className="size-3.5" />
+                <span>{t('workflows.templates')}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">{allTemplates.length}</span>
+              </Button>
             </div>
           </div>
 
@@ -338,7 +372,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
           <div className="flex-1 overflow-y-auto px-3 py-2.5 flex flex-col gap-1">
 
             {/* ── Base group ── */}
-            {baseVisible && (
+            {libraryView === 'nodes' && nodesVisible && (
               <div>
                 <ExtGroupHeader
                   title={t('workflows.base')}
@@ -384,16 +418,8 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
             )}
 
             {/* ── Templates (validated workflows) ── */}
-            {templatesVisible && (
-              <div>
-                <ExtGroupHeader
-                  title={t('workflows.templates')}
-                  expanded={isExpanded('templates', filteredTemplates.length > 0)}
-                  onToggle={() => toggleGroup('templates')}
-                  count={allTemplates.length}
-                />
-                {isExpanded('templates', filteredTemplates.length > 0) && (
-                  <div className={`grid ${gridClass} gap-2.5 mt-2 mb-4`}>
+            {libraryView === 'templates' && templatesVisible && (
+              <div className={`grid ${gridClass} gap-2.5 mt-1 mb-4`}>
                     {filteredTemplates.map((template) => {
                       const missing = (template.requires ?? []).filter((id) => !installedPackIds.has(id))
                       return missing.length === 0 ? (
@@ -427,13 +453,11 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
                         </button>
                       )
                     })}
-                  </div>
-                )}
               </div>
             )}
 
             {/* ── Non-builtin node pack groups ── */}
-            {[...nonBuiltinMap.entries()].map(([extId, { nodePackName, nodes }]) => {
+            {libraryView === 'nodes' && [...nonBuiltinMap.entries()].map(([extId, { nodePackName, nodes }]) => {
               const filtered = nodes.filter((e) => !query || e.name.toLowerCase().includes(query))
               if (query && filtered.length === 0) return null
               const displayNodes = query ? filtered : nodes
@@ -477,9 +501,7 @@ function NodeLibraryPanel({ allNodePacks, open, onUseTemplate }: {
             })}
 
             {/* Empty state */}
-            {query && baseCount === 0 && filteredTemplates.length === 0 && [...nonBuiltinMap.values()].every((g) =>
-              !g.nodes.some((e) => e.name.toLowerCase().includes(query))
-            ) && (
+            {query && ((libraryView === 'nodes' && !nodesVisible) || (libraryView === 'templates' && !templatesVisible)) && (
               <p className="pt-4 text-center text-[11px] text-muted-foreground">{t('workflows.noResults', { query })}</p>
             )}
 

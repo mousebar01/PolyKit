@@ -55,9 +55,18 @@ Create a world first, then compile a plan:
 ```
 
 The compiler supports `floor`, `on`, `inside`, `in_room`, `near`, `beside`,
-`away_from`, and `overlooking`. It uses object dimensions, a seeded placement
-order, and 2D footprint checks. It is not a physics engine or a navmesh
-generator.
+`away_from`, and `overlooking`. Support relations establish a contact plane or
+containing volume; spatial relations are then solved relative to their target.
+Relations may include `distance`, `tolerance`, `clearance`, and a cardinal
+`side`. It uses object dimensions, a seeded placement order, and 2D footprint
+checks. It is not a physics engine or a navmesh generator.
+
+Every solved plan receives `metadata.layoutQuality`. The server audits scene
+bounds, support contact, containment, all declared spatial relations, and
+pairwise footprint overlap. The audit is camera-independent: a plan does not
+pass merely because a single preview angle hides an intersection. A mesh-aware
+backend can add tighter hull/collider checks later while keeping the same
+ScenePlan contract.
 
 Instance rotations use Three.js/ScenePlan XYZ Euler radians. Instance
 positions are ground/contact points; object sizes use the same scene units as

@@ -70,6 +70,54 @@ class ScenePlannerTests(unittest.TestCase):
         self.assertEqual(kettle["position"][2], stove["position"][2])
         self.assertGreater(kettle["position"][1], stove["position"][1])
 
+    def test_spatial_relation_is_secondary_to_floor_support(self):
+        plan = compile_scene_plan(
+            {
+                "bounds": {"width": 10, "depth": 10, "height": 4},
+                "objects": [
+                    {"id": "room", "name": "Room", "role": "room", "size": [8, 4, 8]},
+                    {"id": "stove", "name": "Stove", "role": "hero", "size": [1, 1.5, 1]},
+                    {"id": "chair", "name": "Chair", "role": "context", "size": [1, 1, 1]},
+                ],
+                "relations": [
+                    {"subject": "stove", "type": "floor", "object": "room"},
+                    {"subject": "chair", "type": "floor", "object": "room"},
+                    {"subject": "chair", "type": "near", "object": "stove", "distance": 2.0},
+                ],
+            }
+        )
+        stove = next(item for item in plan["instances"] if item["objectId"] == "stove")
+        chair = next(item for item in plan["instances"] if item["objectId"] == "chair")
+        self.assertEqual(chair["roomId"], "room")
+        self.assertLessEqual(
+            ((chair["position"][0] - stove["position"][0]) ** 2 + (chair["position"][2] - stove["position"][2]) ** 2) ** 0.5,
+            2.35,
+        )
+        self.assertEqual(plan["metadata"]["layoutQuality"]["status"], "pass")
+
+    def test_away_from_relation_is_a_minimum_distance(self):
+        plan = compile_scene_plan(
+            {
+                "bounds": {"width": 12, "depth": 12, "height": 3},
+                "seed": 5,
+                "objects": [
+                    {"id": "room", "name": "Room", "role": "room", "size": [10, 3, 10]},
+                    {"id": "stove", "name": "Stove", "role": "hero", "size": [1, 1, 1]},
+                    {"id": "bed", "name": "Bed", "role": "context", "size": [2, 1, 2]},
+                ],
+                "relations": [
+                    {"subject": "stove", "type": "floor", "object": "room"},
+                    {"subject": "bed", "type": "floor", "object": "room"},
+                    {"subject": "bed", "type": "away_from", "object": "stove", "distance": 4.0},
+                ],
+            }
+        )
+        stove = next(item for item in plan["instances"] if item["objectId"] == "stove")
+        bed = next(item for item in plan["instances"] if item["objectId"] == "bed")
+        distance = ((bed["position"][0] - stove["position"][0]) ** 2 + (bed["position"][2] - stove["position"][2]) ** 2) ** 0.5
+        self.assertGreaterEqual(distance, 3.65)
+        self.assertNotEqual(plan["metadata"]["layoutQuality"]["status"], "invalid")
+
     def test_inside_relation_keeps_child_inside_container_volume(self):
         plan = compile_scene_plan(
             {
@@ -247,6 +295,29 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(request.prompt["compose"].inputs["mesh"], [["asset_lamp", "mesh"]])
         self.assertEqual(request.metadata["missing_objects"], [])
+
+    async def test_composition_builder_rejects_invalid_camera_independent_layout(self):
+        mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
+        mesh.parent.mkdir(parents=True, exist_ok=True)
+        mesh.write_bytes(b"glb")
+        world = {
+            "schema_version": 1,
+            "kind": "polykit.world",
+            "id": "cabin",
+            "scene_plan": {
+                "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
+                "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
+                "metadata": {"layoutQuality": {"status": "invalid", "cameraIndependent": True}},
+            },
+        }
+        with self.assertRaises(ScenePlanError):
+            _build_scene_composition_workflow(
+                world,
+                world_id="cabin",
+                collection="Scenes",
+                output_name="cabin",
+                allow_missing=False,
+            )
 
     async def test_compose_route_delegates_to_canonical_workflow_run(self):
         mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"

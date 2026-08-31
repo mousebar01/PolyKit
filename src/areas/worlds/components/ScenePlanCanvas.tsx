@@ -1,7 +1,10 @@
-import { Component, Suspense, useMemo, type ReactNode } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls, useGLTF } from '@react-three/drei'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { OrbitControls, PointerLockControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
+import { Gamepad2 } from 'lucide-react'
+import { Button } from '@shared/components/ui/button'
+import { useI18n } from '@shared/i18n'
 import type { ScenePlan, ScenePlanInstance, ScenePlanObject } from '../runtime/scenePlan'
 import { workspaceUrl } from '../worldApi'
 
@@ -92,6 +95,119 @@ class PlanAssetErrorBoundary extends Component<{ children: ReactNode; fallback: 
   }
 }
 
+interface WalkCollider {
+  centerX: number
+  centerZ: number
+  halfX: number
+  halfZ: number
+}
+
+function WalkthroughController({
+  plan,
+  active,
+  onLockedChange,
+}: {
+  plan: ScenePlan
+  active: boolean
+  onLockedChange: (locked: boolean) => void
+}): JSX.Element {
+  const { camera } = useThree()
+  const keys = useRef<Record<string, boolean>>({})
+  const colliders = useMemo<WalkCollider[]>(() => {
+    const objectById = new Map(plan.objects.map((object) => [object.id, object]))
+    return plan.instances.flatMap((instance) => {
+      const object = objectById.get(instance.objectId)
+      // Surface-mounted props are above the walking plane.  The simplified
+      // collider deliberately uses semantic dimensions instead of detailed
+      // render meshes, as recommended by the game-systems reference.
+      if (!object || object.role === 'room' || object.role === 'background' || instance.position[1] > 0.2) return []
+      return [{
+        centerX: instance.position[0],
+        centerZ: instance.position[2],
+        halfX: object.size[0] * instance.scale / 2,
+        halfZ: object.size[2] * instance.scale / 2,
+      }]
+    })
+  }, [plan])
+  const spawn = useMemo<[number, number, number]>(() => {
+    const objectById = new Map(plan.objects.map((object) => [object.id, object]))
+    const roomInstance = plan.instances.find((instance) => {
+      const object = objectById.get(instance.objectId)
+      return object?.role === 'room'
+    })
+    const room = roomInstance ? objectById.get(roomInstance.objectId) : undefined
+    if (!roomInstance || !room) return [0, Math.min(1.6, Math.max(1, plan.bounds.height * 0.42)), 0]
+    return [
+      roomInstance.position[0],
+      Math.min(1.6, Math.max(1, room.size[1] * roomInstance.scale * 0.42)),
+      roomInstance.position[2] - room.size[2] * roomInstance.scale * 0.32,
+    ]
+  }, [plan])
+  const forward = useMemo(() => new THREE.Vector3(), [])
+  const right = useMemo(() => new THREE.Vector3(), [])
+  const movement = useMemo(() => new THREE.Vector3(), [])
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), [])
+  const playerRadius = 0.28
+
+  useEffect(() => {
+    const onBlur = () => { keys.current = {} }
+    const handleKey = (event: KeyboardEvent, pressed: boolean) => {
+      if (!['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return
+      keys.current[event.code] = pressed
+      if (active) event.preventDefault()
+    }
+    const onKeyDown = (event: KeyboardEvent) => handleKey(event, true)
+    const onKeyUp = (event: KeyboardEvent) => handleKey(event, false)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [active])
+
+  useEffect(() => {
+    if (!active) {
+      if (document.pointerLockElement) document.exitPointerLock()
+      onLockedChange(false)
+      return
+    }
+    camera.position.set(...spawn)
+    camera.rotation.set(0, Math.PI, 0)
+    camera.rotation.order = 'YXZ'
+  }, [active, camera, onLockedChange, spawn])
+
+  useFrame((_, delta) => {
+    if (!active) return
+    const forwardAmount = (keys.current.KeyW || keys.current.ArrowUp ? 1 : 0) - (keys.current.KeyS || keys.current.ArrowDown ? 1 : 0)
+    const rightAmount = (keys.current.KeyD || keys.current.ArrowRight ? 1 : 0) - (keys.current.KeyA || keys.current.ArrowLeft ? 1 : 0)
+    if (forwardAmount === 0 && rightAmount === 0) return
+    camera.getWorldDirection(forward)
+    forward.y = 0
+    if (forward.lengthSq() < 0.0001) return
+    forward.normalize()
+    right.crossVectors(forward, up).normalize()
+    movement.set(0, 0, 0).addScaledVector(forward, forwardAmount).addScaledVector(right, rightAmount)
+    if (movement.lengthSq() < 0.0001) return
+    movement.normalize().multiplyScalar(Math.min(delta, 0.05) * 2.8)
+
+    const blocked = (x: number, z: number): boolean => colliders.some((collider) => (
+      Math.abs(x - collider.centerX) < collider.halfX + playerRadius
+      && Math.abs(z - collider.centerZ) < collider.halfZ + playerRadius
+    ))
+    const limitX = Math.max(playerRadius, plan.bounds.width / 2 - playerRadius)
+    const limitZ = Math.max(playerRadius, plan.bounds.depth / 2 - playerRadius)
+    const nextX = Math.max(-limitX, Math.min(limitX, camera.position.x + movement.x))
+    const nextZ = Math.max(-limitZ, Math.min(limitZ, camera.position.z + movement.z))
+    if (!blocked(nextX, camera.position.z)) camera.position.x = nextX
+    if (!blocked(camera.position.x, nextZ)) camera.position.z = nextZ
+  })
+
+  return <PointerLockControls selector='[data-viewport-canvas="true"]' onLock={() => onLockedChange(true)} onUnlock={() => onLockedChange(false)} minPolarAngle={Math.PI * 0.28} maxPolarAngle={Math.PI * 0.72} pointerSpeed={0.75} />
+}
+
 function ScenePlanWorld({ plan, artifacts = {} }: { plan: ScenePlan; artifacts?: ScenePlanCanvasProps['artifacts'] }): JSX.Element {
   const objectById = useMemo(() => new Map(plan.objects.map((object) => [object.id, object])), [plan.objects])
   const extent = Math.max(plan.bounds.width, plan.bounds.depth, plan.bounds.height)
@@ -120,6 +236,10 @@ function ScenePlanWorld({ plan, artifacts = {} }: { plan: ScenePlan; artifacts?:
 }
 
 export default function ScenePlanCanvas({ plan, backgroundColor = '#151b23', artifacts }: ScenePlanCanvasProps): JSX.Element {
+  const { language } = useI18n()
+  const zh = language === 'zh-CN'
+  const [walkthrough, setWalkthrough] = useState(false)
+  const [locked, setLocked] = useState(false)
   const controlsTarget: [number, number, number] = [0, Math.max(plan.bounds.height * 0.18, 0.5), 0]
   const extent = Math.max(plan.bounds.width, plan.bounds.depth, plan.bounds.height)
   return (
@@ -135,22 +255,48 @@ export default function ScenePlanCanvas({ plan, backgroundColor = '#151b23', art
       >
         <color attach="background" args={[backgroundColor]} />
         <ScenePlanWorld plan={plan} artifacts={artifacts} />
-        <OrbitControls
-          makeDefault
-          enableDamping
-          dampingFactor={0.08}
-          enablePan
-          enableZoom
-          enableRotate
-          keyEvents
-          zoomToCursor
-          mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: undefined }}
-          maxPolarAngle={Math.PI * 0.49}
-          minDistance={Math.max(0.2, extent * 0.12)}
-          maxDistance={Math.max(100, extent * 12)}
-          target={controlsTarget}
-        />
+        {walkthrough ? (
+          <WalkthroughController plan={plan} active onLockedChange={setLocked} />
+        ) : (
+          <OrbitControls
+            makeDefault
+            enableDamping
+            dampingFactor={0.08}
+            enablePan
+            enableZoom
+            enableRotate
+            keyEvents
+            zoomToCursor
+            mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: undefined }}
+            maxPolarAngle={Math.PI * 0.49}
+            minDistance={Math.max(0.2, extent * 0.12)}
+            maxDistance={Math.max(100, extent * 12)}
+            target={controlsTarget}
+          />
+        )}
       </Canvas>
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={`size-8 border border-divider bg-background/85 text-muted-foreground backdrop-blur-sm hover:bg-background hover:text-foreground ${walkthrough ? 'bg-primary/15 text-primary' : ''}`}
+          aria-pressed={walkthrough}
+          aria-label={zh ? '场景漫游' : 'Walk scene'}
+          title={zh ? '场景漫游' : 'Walk scene'}
+          onClick={() => {
+            setWalkthrough((value) => !value)
+            setLocked(false)
+          }}
+        >
+          <Gamepad2 className="size-4" aria-hidden="true" />
+        </Button>
+        {walkthrough && (
+          <span className="rounded-md border border-divider bg-background/85 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-sm">
+            {locked ? (zh ? 'WASD / Esc 退出' : 'WASD / Esc to exit') : (zh ? '点击画布开始漫游' : 'Click canvas to walk')}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

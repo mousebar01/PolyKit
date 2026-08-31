@@ -1,0 +1,46 @@
+{
+  "templateId": "blender-cabin-reference",
+  "nodePackId": "blender-scene",
+  "requires": ["blender-scene"],
+  "name": "Blender Winter Cabin",
+  "description": "Build a warm, stylized winter cabin through the official Blender MCP bridge and export a GLB plus preview beside it.",
+  "nodes": [
+    {
+      "id": "scene-brief",
+      "type": "textNode",
+      "position": { "x": 80, "y": 220 },
+      "data": {
+        "enabled": true,
+        "params": {
+          "text": "A compact winter cabin interior: pale wood floor, timber walls, frosted windows, bed, table, shelves, and a cast-iron stove with warm firelight."
+        }
+      }
+    },
+    {
+      "id": "build-scene",
+      "type": "nodePackNode",
+      "position": { "x": 430, "y": 220 },
+      "data": {
+        "nodePackId": "blender-scene/build",
+        "enabled": true,
+        "params": {
+          "preset": "cabin",
+          "scene_name": "winter_cabin_reference",
+          "render_preview": true,
+          "render_width": 768,
+          "render_height": 512
+        }
+      }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 800, "y": 220 },
+      "data": { "enabled": true, "params": {} }
+    }
+  ],
+  "edges": [
+    { "id": "brief-to-build", "source": "scene-brief", "sourceHandle": "output", "target": "build-scene", "targetHandle": "input-0" },
+    { "id": "build-to-output", "source": "build-scene", "sourceHandle": "output", "target": "scene-output" }
+  ]
+}

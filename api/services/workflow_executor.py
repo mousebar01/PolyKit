@@ -636,7 +636,14 @@ async def _run_process_node(
     result = await loop.run_in_executor(None, _run)
     out_kind = node_manifest.get("output", "mesh")
     if out_kind in {"mesh", "image"} and result.get("filePath"):
-        return {out_kind: Path(str(result["filePath"]))}
+        output: Dict[str, Any] = {out_kind: Path(str(result["filePath"]))}
+        raw_sidecars = result.get("sidecars")
+        if isinstance(raw_sidecars, list):
+            output["sidecars"] = [Path(str(value)) for value in raw_sidecars if str(value or "").strip()]
+        raw_metadata = result.get("metadata")
+        if isinstance(raw_metadata, dict):
+            output["metadata"] = dict(raw_metadata)
+        return output
     if out_kind == "text" and result.get("text") is not None:
         return {"text": str(result["text"])}
     raise WorkflowError(f"Process node '{class_type}' produced no {out_kind} output")
