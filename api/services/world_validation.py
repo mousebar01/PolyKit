@@ -78,9 +78,12 @@ def _scene_objects(runtime: Mapping[str, Any]) -> tuple[Mapping[str, Any] | None
     if not isinstance(scene, Mapping):
         return None, set()
     raw_objects = scene.get("objects")
+    if not isinstance(raw_objects, list):
+        return scene, set()
     ids = {
         str(item.get("id"))
-        for item in raw_objects if isinstance(raw_objects, list) and isinstance(item, Mapping) and isinstance(item.get("id"), str)
+        for item in raw_objects
+        if isinstance(item, Mapping) and isinstance(item.get("id"), str)
     }
     return scene, ids
 
