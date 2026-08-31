@@ -181,6 +181,27 @@ class SpatialValidationTests(unittest.TestCase):
         mesh_check = next(item for item in bundle["checks"] if item["id"] == "spatial.final-mesh")
         self.assertEqual(mesh_check["status"], "not_evaluated")
 
+    def test_image_artifact_is_not_accepted_as_spatial_mesh(self) -> None:
+        image_path = self.root / "Workflows" / "preview.png"
+        Image.new("RGB", (16, 16), (0, 0, 0)).save(image_path)
+        run = {
+            "run_id": "run-1",
+            "status": "done",
+            "meta": {
+                "observability": {
+                    "artifacts": [{"kind": "artifact", "workspace_path": "Workflows/preview.png"}]
+                }
+            },
+        }
+        bundle = build_world_spatial_bundle(
+            "world-1",
+            self._world(),
+            run,
+            workspace_root=self.root,
+        )
+        self.assertEqual(bundle["status"], "needs_review")
+        self.assertIsNone(bundle["snapshot"])
+
     def test_p0_world_object_requires_compiled_instance(self) -> None:
         self._write_cabin()
         world = self._world()
