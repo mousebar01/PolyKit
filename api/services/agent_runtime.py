@@ -1,7 +1,7 @@
 """Lifecycle and loopback transport for the embedded Agent runtime.
 
 The Agent UI is part of the Web client, but its session engine remains an
-isolated Node process because the pi SDK is a Node/TypeScript runtime.  This
+isolated Node process because the pi SDK is a Node/TypeScript runtime. This
 service starts that process on demand and keeps FastAPI as the only public
 boundary exposed to browsers and desktop clients.
 """
@@ -45,6 +45,33 @@ class AgentRuntime:
                 raise AgentRuntimeError("Agent runtime did not become ready")
             return self._port, self._token
 
+    @staticmethod
+    def _ensure_runtime_dependencies(root: Path, jiti: Path) -> None:
+        if jiti.is_file():
+            return
+
+        agent_root = root / "agent"
+        package_lock = agent_root / "package-lock.json"
+        if not package_lock.is_file():
+            raise AgentRuntimeError(f"Agent runtime dependencies are missing and no lockfile exists: {package_lock}")
+
+        npm = "npm.cmd" if os.name == "nt" else "npm"
+        print("[Agent] Installing embedded runtime dependencies...", flush=True)
+        try:
+            result = subprocess.run(
+                [npm, "ci", "--prefix", str(agent_root)],
+                cwd=str(root),
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError as exc:
+            raise AgentRuntimeError(f"Failed to start npm for Agent runtime dependencies: {exc}") from exc
+
+        if result.returncode != 0 or not jiti.is_file():
+            raise AgentRuntimeError(
+                f"Failed to install Agent runtime dependencies (npm exit code {result.returncode})"
+            )
+
     def _start_sync(self) -> None:
         self._stop_sync()
         root = Path(__file__).resolve().parents[2]
@@ -52,8 +79,7 @@ class AgentRuntime:
         jiti = root / "agent" / "node_modules" / "jiti" / "lib" / "jiti-cli.mjs"
         if not server.is_file():
             raise AgentRuntimeError(f"Agent runtime is missing: {server}")
-        if not jiti.is_file():
-            raise AgentRuntimeError(f"Agent runtime dependencies are missing: {jiti}")
+        self._ensure_runtime_dependencies(root, jiti)
 
         token = secrets.token_urlsafe(32)
         session_root = runtime_paths.data / "agent" / "sessions"
