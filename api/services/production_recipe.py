@@ -1,6 +1,6 @@
 """Compile validation repair scopes into ordinary PolyKit workflow drafts.
 
-Production recipes are advisory compilation artifacts, not execution state.  The
+Production recipes are advisory compilation artifacts, not execution state. The
 compiler never starts a WorkflowRun, retries work, or mutates a World document.
 It also never pretends a backend can honor a narrower repair scope than it really
 supports: scope expansion requires an explicit opt-in from the caller.
@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from services.world_store import WorldStoreError
-from services.world_workflows import build_structure_workflow
+from services.world_workflows import build_repair_parts_workflow, build_structure_workflow
 
 
 PRODUCTION_RECIPE_KIND = "polykit.production-recipe"
@@ -75,6 +75,78 @@ def _building_id_for_scope(world: Mapping[str, Any], scope: Mapping[str, Any]) -
     return None
 
 
+def _building(world: Mapping[str, Any], building_id: str) -> Mapping[str, Any] | None:
+    for item in _buildings(world):
+        if item.get("id") == building_id:
+            return item
+    return None
+
+
+def _source_mesh_workspace_path(validation: Mapping[str, Any]) -> str | None:
+    """Find the authoritative final-mesh path embedded by the spatial judge."""
+
+    found: list[str] = []
+
+    def visit(value: Any) -> None:
+        if found:
+            return
+        if isinstance(value, Mapping):
+            if value.get("id") == "spatial.final-mesh":
+                metrics = value.get("metrics")
+                path = metrics.get("workspace_path") if isinstance(metrics, Mapping) else None
+                if isinstance(path, str) and path.strip():
+                    found.append(path.strip())
+                    return
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+
+    visit(validation.get("details"))
+    return found[0] if found else None
+
+
+def _local_scope_ids(
+    world: Mapping[str, Any],
+    *,
+    building_id: str,
+    scope: Mapping[str, Any],
+) -> tuple[list[str], list[str]]:
+    """Validate exact part/relationship ids against the current BuildSpec."""
+
+    building = _building(world, building_id)
+    if building is None:
+        raise WorldStoreError(f"BuildSpec has no building '{building_id}'")
+    anchors = building.get("anchors")
+    known_parts = {
+        str(item.get("partId") or item.get("part_id"))
+        for item in anchors or []
+        if isinstance(item, Mapping) and (item.get("partId") or item.get("part_id"))
+    } if isinstance(anchors, list) else set()
+    attachments = building.get("attachments")
+    known_relationships = {
+        str(item.get("id"))
+        for item in attachments or []
+        if isinstance(item, Mapping) and isinstance(item.get("id"), str) and item.get("id")
+    } if isinstance(attachments, list) else set()
+
+    part_ids = _ids(scope.get("affected_object_ids"))
+    relationship_ids = _ids(scope.get("affected_relationship_ids"))
+    if not part_ids or not relationship_ids:
+        raise ValueError("Local construction repair requires explicit part and relationship ids")
+    unknown_parts = [item for item in part_ids if item not in known_parts]
+    unknown_relationships = [item for item in relationship_ids if item not in known_relationships]
+    if unknown_parts or unknown_relationships:
+        details: list[str] = []
+        if unknown_parts:
+            details.append("parts=" + ",".join(unknown_parts))
+        if unknown_relationships:
+            details.append("relationships=" + ",".join(unknown_relationships))
+        raise ValueError("Repair scope is stale or does not match current BuildSpec: " + "; ".join(details))
+    return part_ids, relationship_ids
+
+
 def _required_capability(scope: Mapping[str, Any]) -> str:
     causal = str(scope.get("causal_system") or "")
     mapping = {
@@ -106,21 +178,71 @@ def _workflow_definition(
     prompt = execution_request.get("prompt")
     if not isinstance(prompt, Mapping):
         raise ValueError("Execution request has no prompt graph")
-    brief = prompt.get("brief")
-    build = prompt.get("build")
-    output = prompt.get("output")
-    if not all(isinstance(item, Mapping) for item in (brief, build, output)):
-        raise ValueError("Building repair workflow is missing canonical brief/build/output nodes")
-    brief_inputs = brief.get("inputs") if isinstance(brief, Mapping) else None
-    build_inputs = build.get("inputs") if isinstance(build, Mapping) else None
-    params = build_inputs.get("params") if isinstance(build_inputs, Mapping) else None
+    workflow_recipe = str(execution_request.get("workflow_id") or "")
     now = datetime.now(timezone.utc).isoformat()
     workflow_id = f"repair-{world_id}-{repair_scope_id.split(':')[-1]}"
-    return {
-        "id": workflow_id,
-        "name": "Repair World Construction",
-        "description": "Compiled from PolyKit validation evidence. Review scope metadata before running.",
-        "nodes": [
+
+    if workflow_recipe == "building-part-repair":
+        source = prompt.get("source")
+        repair = prompt.get("repair")
+        output = prompt.get("output")
+        if not all(isinstance(item, Mapping) for item in (source, repair, output)):
+            raise ValueError("Part repair workflow is missing source/repair/output nodes")
+        source_inputs = source.get("inputs") if isinstance(source, Mapping) else None
+        mesh_value = source_inputs.get("mesh") if isinstance(source_inputs, Mapping) else None
+        source_path = mesh_value.get("path") if isinstance(mesh_value, Mapping) else ""
+        repair_inputs = repair.get("inputs") if isinstance(repair, Mapping) else None
+        params = repair_inputs.get("params") if isinstance(repair_inputs, Mapping) else None
+        nodes = [
+            {
+                "id": "source",
+                "type": "meshNode",
+                "position": {"x": 80, "y": 220},
+                "data": {"enabled": True, "params": {"filePath": str(source_path or "")}},
+            },
+            {
+                "id": "repair",
+                "type": "nodePackNode",
+                "position": {"x": 430, "y": 220},
+                "data": {
+                    "nodePackId": "blender-scene/repair-parts",
+                    "enabled": True,
+                    "params": dict(params or {}),
+                },
+            },
+            {
+                "id": "output",
+                "type": "outputNode",
+                "position": {"x": 800, "y": 220},
+                "data": {"enabled": True, "params": {}},
+            },
+        ]
+        edges = [
+            {
+                "id": "source-to-repair",
+                "source": "source",
+                "sourceHandle": "output",
+                "target": "repair",
+                "targetHandle": "input-0",
+            },
+            {
+                "id": "repair-to-output",
+                "source": "repair",
+                "sourceHandle": "output",
+                "target": "output",
+            },
+        ]
+        name = "Repair World Parts"
+    else:
+        brief = prompt.get("brief")
+        build = prompt.get("build")
+        output = prompt.get("output")
+        if not all(isinstance(item, Mapping) for item in (brief, build, output)):
+            raise ValueError("Building repair workflow is missing canonical brief/build/output nodes")
+        brief_inputs = brief.get("inputs") if isinstance(brief, Mapping) else None
+        build_inputs = build.get("inputs") if isinstance(build, Mapping) else None
+        params = build_inputs.get("params") if isinstance(build_inputs, Mapping) else None
+        nodes = [
             {
                 "id": "brief",
                 "type": "textNode",
@@ -146,8 +268,8 @@ def _workflow_definition(
                 "position": {"x": 800, "y": 220},
                 "data": {"enabled": True, "params": {}},
             },
-        ],
-        "edges": [
+        ]
+        edges = [
             {
                 "id": "brief-to-build",
                 "source": "brief",
@@ -161,7 +283,15 @@ def _workflow_definition(
                 "sourceHandle": "output",
                 "target": "output",
             },
-        ],
+        ]
+        name = "Repair World Construction"
+
+    return {
+        "id": workflow_id,
+        "name": name,
+        "description": "Compiled from PolyKit validation evidence. Review scope metadata before running.",
+        "nodes": nodes,
+        "edges": edges,
         "createdAt": now,
         "updatedAt": now,
         "metadata": {
@@ -267,17 +397,87 @@ def compile_repair_recipe(
         "compiled_scope": {"locality": "building", "building_id": building_id},
         "scope_expanded": requested_local,
     }
-    if requested_local and not allow_scope_expansion:
-        return _blocked(
-            base,
-            code="repair-scope-expansion-required",
-            message=(
-                "The current Blender backend can rebuild the containing building but cannot yet "
-                "honor this object/relationship repair scope."
-            ),
-            required_capability="blender-scene/repair-parts",
-            available_fallback=fallback,
-        )
+
+    if requested_local:
+        try:
+            part_ids, relationship_ids = _local_scope_ids(
+                world,
+                building_id=building_id,
+                scope=scope,
+            )
+        except (WorldStoreError, ValueError) as exc:
+            return _blocked(
+                base,
+                code="repair-scope-stale",
+                message=str(exc),
+                required_capability="blender-scene/repair-parts",
+            )
+        source_mesh = _source_mesh_workspace_path(validation)
+        if source_mesh:
+            try:
+                request = build_repair_parts_workflow(
+                    world,
+                    world_id=world_id,
+                    source_mesh_workspace_path=source_mesh,
+                    building_id=building_id,
+                    part_ids=part_ids,
+                    attachment_ids=relationship_ids,
+                    collection=collection,
+                    render_preview=render_preview,
+                )
+            except (WorldStoreError, ValueError) as exc:
+                return _blocked(
+                    base,
+                    code="repair-workflow-unavailable",
+                    message=str(exc),
+                    required_capability="blender-scene/repair-parts",
+                )
+
+            compiled_scope = {
+                "locality": locality,
+                "building_id": building_id,
+                "part_ids": part_ids,
+                "relationship_ids": relationship_ids,
+            }
+            request.metadata.update(
+                {
+                    "production_recipe_id": recipe_id,
+                    "repair_scope_id": repair_scope_id,
+                    "desired_repair_scope": scope,
+                    "compiled_repair_scope": compiled_scope,
+                    "scope_expanded": False,
+                }
+            )
+            execution = request.model_dump()
+            result = dict(base)
+            result.update(
+                {
+                    "status": "ready",
+                    "compiled_scope": compiled_scope,
+                    "scope_expanded": False,
+                    "workflow_definition": _workflow_definition(
+                        execution,
+                        recipe_id=recipe_id,
+                        world_id=world_id,
+                        repair_scope_id=repair_scope_id,
+                        scope_expanded=False,
+                    ),
+                    "execution_request": execution,
+                }
+            )
+            return result
+
+        if not allow_scope_expansion:
+            return _blocked(
+                base,
+                code="repair-source-mesh-missing",
+                message=(
+                    "The local repair backend needs the authoritative final GLB from the validator run. "
+                    "No source mesh path was present in validation evidence."
+                ),
+                required_capability="spatial.final-mesh",
+                available_fallback=fallback,
+            )
 
     try:
         request = build_structure_workflow(
