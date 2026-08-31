@@ -67,10 +67,10 @@ class RunStore:
                    SET status = 'interrupted',
                        error = COALESCE(error, 'Service restarted before the run completed'),
                        updated_at = ?,
-                       completed_at = COALESCE(completed_at, ?)
+                       completed_at = NULL
                  WHERE status IN ('pending', 'running')
                 """,
-                (now, now),
+                (now,),
             )
 
     def load(self) -> Dict[str, JobStatus]:
@@ -118,6 +118,10 @@ class RunStore:
                     completed_at,
                 ),
             )
+
+    def clear_completed(self, run_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE runs SET completed_at = NULL WHERE run_id = ?", (run_id,))
 
     def delete(self, run_id: str) -> None:
         with self._connect() as conn:
