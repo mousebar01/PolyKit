@@ -25,12 +25,46 @@ class PolyKitMcpTests(unittest.TestCase):
         tools = asyncio.run(server_module.list_tools())
         names = [tool.name for tool in tools]
         self.assertEqual(len(names), len(set(names)))
+        self.assertIn("polykit_skill_list", names)
+        self.assertIn("polykit_skill_get", names)
+        self.assertIn("polykit_skill_read_resource", names)
         self.assertIn("polykit_workflow_inspect", names)
         self.assertIn("polykit_world_validate", names)
         self.assertIn("polykit_world_build_structure", names)
         self.assertIn("polykit_world_compile_repair", names)
         forbidden = ("agent_workflow", "session_begin", "session_complete", "world_update_stage")
         self.assertFalse(any(token in name for name in names for token in forbidden))
+
+    def test_skill_tools_are_explicitly_read_only(self) -> None:
+        tools = {tool.name: tool for tool in asyncio.run(server_module.list_tools())}
+        self.assertIn("read-only", (tools["polykit_skill_list"].description or "").lower())
+        self.assertIn("does not authorize tools", tools["polykit_skill_get"].description or "")
+        self.assertIn("never executed", tools["polykit_skill_read_resource"].description or "")
+
+    def test_skill_catalog_and_content_are_get_only_proxies(self) -> None:
+        request = AsyncMock(side_effect=[
+            {"skills": [{"name": "reference-reconstruction"}]},
+            {"name": "reference-reconstruction", "instructions": "Use WorkflowRun"},
+            {"path": "references/guide one.md", "content": "guide"},
+        ])
+        with patch.object(server_module, "_request_json", request):
+            catalog = asyncio.run(server_module._dispatch("polykit_skill_list", {}))
+            skill = asyncio.run(server_module._dispatch("polykit_skill_get", {"name": "reference-reconstruction"}))
+            resource = asyncio.run(server_module._dispatch(
+                "polykit_skill_read_resource",
+                {"name": "reference-reconstruction", "path": "references/guide one.md"},
+            ))
+        self.assertEqual(catalog["skills"][0]["name"], "reference-reconstruction")
+        self.assertIn("WorkflowRun", skill["instructions"])
+        self.assertEqual(resource["content"], "guide")
+        self.assertEqual(request.await_args_list[0].args, ("GET", "/agent-skills"))
+        self.assertEqual(request.await_args_list[1].args, ("GET", "/agent-skills/reference-reconstruction"))
+        self.assertEqual(
+            request.await_args_list[2].args,
+            ("GET", "/agent-skills/reference-reconstruction/resources/references/guide%20one.md"),
+        )
+        for call in request.await_args_list:
+            self.assertNotIn("/workflow-runs/", call.args[1])
 
     def test_mcp_validator_enum_matches_visual_and_spatial_surface(self) -> None:
         self.assertIn("world.spatial.validate", server_module.WORLD_VALIDATORS)
