@@ -30,7 +30,7 @@ export async function loadWorld(worldId: string): Promise<WorldDocument> {
 
 /**
  * Return the saved scene records from the server-owned workspace library.
- * The library already filters unsafe/unsupported files, so the Agent preview
+ * The library already filters unsafe/unsupported files, so the world preview
  * can discover a newly-created scene without owning another persistence path.
  */
 export async function listWorlds(): Promise<WorldSummary[]> {

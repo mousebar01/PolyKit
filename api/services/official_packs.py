@@ -122,7 +122,7 @@ def _sync_model_pack(src: Path, dst: Path) -> bool:
 
 
 # Code files that, when changed, force a whole-directory re-sync of a process pack.
-_PROCESS_CODE_FILES = ("manifest.json", "processor.js", "processor.py")
+_PROCESS_CODE_FILES = ("manifest.json", "processor.js", "processor.py", "processor_v2.py")
 
 
 def _sync_process_pack(src: Path, dst: Path) -> bool:

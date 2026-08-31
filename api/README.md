@@ -38,8 +38,8 @@ curl http://127.0.0.1:8765/doctor
 The same server can be started through the stdlib-only CLI:
 
 ```bash
-python tools/polykit-cli/agent.py server --executor fake
-python tools/polykit-cli/agent.py doctor
+python tools/polykit-cli/polykit.py health
+python tools/polykit-cli/polykit.py doctor
 ```
 
 Default binding is loopback (`127.0.0.1`). Only bind to a public interface
@@ -59,13 +59,6 @@ behind authentication and TLS termination.
 | GET | `/model/downloaded` | Check weights on the server, including packs whose venv is not ready |
 | GET/POST | `/settings/sources` | Read or update optional Hugging Face, PyPI, and PyTorch artifact mirrors |
 | POST | `/settings/sources/test` | Probe one configured artifact source from the server |
-| GET/POST | `/settings/agent` | Read or update the native Agent runtime defaults and tool policy |
-| GET | `/agent/sessions` | List server-owned Agent conversations |
-| POST | `/agent/sessions` | Create a conversation in the PolyKit workspace |
-| GET | `/agent/sessions/{id}` | Read one conversation and its context |
-| POST | `/agent/sessions/{id}/commands` | Send a prompt or session command |
-| GET | `/agent/sessions/{id}/events` | Stream conversation events over SSE |
-| GET | `/agent/models` | List models available to the embedded Agent |
 | POST | `/node-packs/setup/{id}` | Repair an isolated node-pack environment (official packs in Web/headless mode) |
 | POST | `/workflow-runs/from-image` | Start a canonical image-to-3D run |
 | POST | `/workflow-runs/execute` | Submit a compiled workflow DAG |
@@ -77,7 +70,7 @@ behind authentication and TLS termination.
 | DELETE | `/workflow-definitions/{workflow_id}` | Delete one editable workflow graph |
 | GET | `/workspace-library/worlds/{world_id}` | Read one server-owned world plan/manifest |
 | PUT | `/workspace-library/worlds/{world_id}` | Create or replace one world plan/manifest |
-| POST | `/workspace-library/worlds` | Allocate a fresh scene record for one Agent generation |
+| POST | `/workspace-library/worlds` | Allocate a fresh server-owned World document |
 
 `/generate/*` remains mounted only as an explicit compatibility surface for
 older CLI callers. New product code must use `/workflow-runs/*`.
@@ -102,12 +95,11 @@ prompt. `POST /workflow-runs/execute` validates an acyclic graph of known node
 types and `[node_id, output_name]` references, then executes the DAG through
 `services.workflow_engine.WorkflowEngine`.
 
-The external MCP adapter in `api/mcp_server.py` also exposes `polykit_world_*`
-tools plus local image helpers. They let an Agent author and resume a
-WorldClaw-inspired plan, generate illustrations, remove image backgrounds,
-submit image-to-3D work with optional texture refinement, and attach completed
-workspace artifacts without introducing a second runtime or a hosted
-generation dependency.
+The external MCP adapter in `tools/polykit-mcp/server.py` exposes
+`polykit_world_*` tools plus local image helpers. External callers can author a
+World document, submit canonical WorkflowRuns, inspect execution evidence, and
+attach completed workspace artifacts without introducing a second runtime or a
+hosted generation dependency.
 
 Server-owned model/process nodes share the same `RunCoordinator`, single-GPU slot,
 cancellation signals, persistence, and workspace lifecycle. If a graph cannot

@@ -1,7 +1,7 @@
 """Strict schema-v2 vocabulary for server-owned world documents.
 
-A world stores product/domain state only. Agent workflow progress is persisted in
-``AgentWorkflowSession`` and must never be mirrored into ``WorldDocument``.
+A world stores product/domain state only. Workflow execution progress belongs to
+``WorkflowRun`` and must never be mirrored into ``WorldDocument``.
 """
 from __future__ import annotations
 

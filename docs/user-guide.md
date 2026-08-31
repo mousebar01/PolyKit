@@ -128,9 +128,10 @@ Preview / Export
 CLI 是 PolyKit API 的客户端，适合自动化、远程服务器和没有浏览器的环境。先启动服务，再执行：
 
 ```bash
-python tools/polykit-cli/agent.py health
-python tools/polykit-cli/agent.py doctor
-python tools/polykit-cli/agent.py workflow-run start --image ./input.png --wait
+python tools/polykit-cli/polykit.py health
+python tools/polykit-cli/polykit.py doctor
+python tools/polykit-cli/polykit.py asset from-image ./input.png
+python tools/polykit-cli/polykit.py workflow-run inspect <run-id>
 ```
 
 CLI 和 Web 使用同一套 `/workflow-runs/*` 执行接口，不维护另一套生成逻辑。完整命令见项目首页 [README.md](../README.md#cli)。

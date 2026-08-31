@@ -30,7 +30,7 @@ const SELECTION_OUTLINE_EDGE_STRENGTH = 2.5
 const SELECTION_OUTLINE_BLUR = false
 const SELECTION_OUTLINE_MULTISAMPLING = 0
 const SELECTION_OUTLINE_RESOLUTION_SCALE = 0.5
-/** Shared with the Agent scene preview so both empty and loaded viewports use
+/** Shared with the world scene preview so both empty and loaded viewports use
  * the same elevated blue-gray surface as the rest of the workspace. */
 export const VIEWER_BACKGROUND_COLOR = '#151b23'
 const VIEWER_GRID_MAJOR_COLOR = '#3a4658'

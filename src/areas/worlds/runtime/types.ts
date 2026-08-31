@@ -122,9 +122,9 @@ export interface WorldSpec {
 }
 
 /**
- * A newly-created scene is intentionally persisted before the Agent has
- * written its full plan. Keep that shell document out of the renderer until
- * all world fields are present.
+ * A newly-created scene is intentionally persisted before the full plan is
+ * available. Keep that shell document out of the renderer until all world
+ * fields are present.
  */
 export function isRenderableWorldSpec(value: unknown): value is WorldSpec {
   if (!value || typeof value !== 'object') return false

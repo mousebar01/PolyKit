@@ -247,9 +247,15 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
             mesh = artifact_dir / "cabin.glb"
             blend = artifact_dir / "cabin.blend"
             preview = artifact_dir / "cabin.png"
+            entry_view = artifact_dir / "cabin_view_entry.png"
+            hearth_view = artifact_dir / "cabin_view_hearth.png"
+            exterior_view = artifact_dir / "cabin_view_exterior.png"
             mesh.write_bytes(b"glb")
             blend.write_bytes(b"blend")
             preview.write_bytes(b"png")
+            entry_view.write_bytes(b"entry")
+            hearth_view.write_bytes(b"hearth")
+            exterior_view.write_bytes(b"exterior")
             request = WorkflowExecutionRequest(
                 collection="Workflows",
                 prompt={
@@ -264,7 +270,7 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
             try:
                 with mock.patch("services.workflow_engine.process_node_pack", return_value=process_tuple), mock.patch(
                     "services.workflow_engine._run_process_node",
-                    return_value={"mesh": mesh, "sidecars": [blend, preview]},
+                    return_value={"mesh": mesh, "sidecars": [blend, preview, entry_view, hearth_view, exterior_view]},
                 ):
                     result = loop.run_until_complete(
                         WorkflowEngine(node_cache=ArtifactNodeOutputCache(), cache_enabled=False).run(
@@ -283,6 +289,9 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
             self.assertTrue((root / "Workflows" / "cabin.glb").is_file())
             self.assertTrue((root / "Workflows" / "cabin.blend").is_file())
             self.assertTrue((root / "Workflows" / "cabin.png").is_file())
+            self.assertTrue((root / "Workflows" / "cabin_view_entry.png").is_file())
+            self.assertTrue((root / "Workflows" / "cabin_view_hearth.png").is_file())
+            self.assertTrue((root / "Workflows" / "cabin_view_exterior.png").is_file())
 
 
 class MapOverListTests(ModelRuntimeMixin, unittest.TestCase):

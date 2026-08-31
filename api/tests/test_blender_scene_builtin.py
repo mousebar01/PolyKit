@@ -60,6 +60,24 @@ class BlenderCabinV2Tests(unittest.TestCase):
         self.assertIn("construction validation failed", script)
         self.assertIn("polyKitBuildSpec", script)
 
+    def test_generated_blender_script_declares_inspection_views(self) -> None:
+        config = self.processor._cabin_config({})
+        building = self.processor._building_spec(config)
+        script = self.processor._scene_script(
+            "cabin_views_test",
+            "A compact cabin",
+            640,
+            480,
+            True,
+            config,
+            building,
+        )
+        compile(script, "<blender-cabin-views>", "exec")
+        self.assertIn("InspectionCameraHearth", script)
+        self.assertIn("InspectionCameraExterior", script)
+        self.assertIn("_view_' + view_name + '.png", script)
+        self.assertIn("preview_views_b64", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,7 +33,7 @@
     --accent-foreground: 215 28% 7%;
     --destructive: 4 74% 60%;
     --destructive-foreground: 0 0% 98%;
-    /* Keep the legacy Agent stylesheet's raw var(--border) declarations
+    /* Keep the legacy chat stylesheet's raw var(--border) declarations
        valid. Tailwind utilities use --ui-border below and remain HSL-based. */
     --border: hsl(215 18% 25%);
     --ui-border: 215 18% 25%;
@@ -106,7 +106,7 @@
     --bg-elevated: hsl(var(--popover));
     --bg-hover: hsl(var(--muted));
     --bg-selected: hsl(218 32% 21%);
-    /* The migrated Agent stylesheet uses raw color variables (var(--border))
+    /* The migrated chat stylesheet uses raw color variables (var(--border))
        instead of Tailwind's HSL token. Keep those values valid inside the
        scoped chat surface so the browser never falls back to its bright
        preflight border color. */

@@ -26,7 +26,8 @@ export interface WorldRuntimeGateState {
 
 /**
  * Derived facts about the current world. Workflow progress deliberately does
- * not live here; AgentWorkflowSession owns task/stage state.
+ * not live here; WorkflowRun owns execution state and external callers decide
+ * what to do next.
  */
 export interface WorldRuntimeQuality {
   construction: WorldRuntimeGateState

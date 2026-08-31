@@ -17,7 +17,7 @@ export interface WorldAssetArtifact {
  * Server-owned editable world document.
  *
  * Schema v2 has one runtime contract.  Build, semantic scene, compiled output,
- * gameplay and Agent progress are no longer mirrored as top-level fields.
+ * gameplay and workflow progress are no longer mirrored as top-level fields.
  */
 export interface WorldDocument {
   schema_version: 2

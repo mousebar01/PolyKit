@@ -105,6 +105,23 @@ class OfficialPacksSyncTests(unittest.TestCase):
         self.assertTrue((dst / "node_modules" / "dep" / "index.js").exists())
         self.assertTrue(is_official(dst))
 
+    def test_process_pack_sync_refreshes_processor_v2(self) -> None:
+        proc = self.builtin / "blender-scene"
+        proc.mkdir(parents=True)
+        (proc / "manifest.json").write_text(
+            json.dumps({"id": "blender-scene", "type": "process", "entry": "processor_v2.py"}),
+            encoding="utf-8",
+        )
+        (proc / "processor_v2.py").write_text("VERSION = 1\n", encoding="utf-8")
+
+        sync_official_packs(self.runtime)
+        dst = self.runtime / "blender-scene"
+        self.assertEqual((dst / "processor_v2.py").read_text(), "VERSION = 1\n")
+
+        (proc / "processor_v2.py").write_text("VERSION = 2\n", encoding="utf-8")
+        sync_official_packs(self.runtime)
+        self.assertEqual((dst / "processor_v2.py").read_text(), "VERSION = 2\n")
+
     def test_no_official_dir_is_noop(self) -> None:
         # Point both sources at empty dirs — hermetic, no repo fallback.
         empty = self.root / "empty"

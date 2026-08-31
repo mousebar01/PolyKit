@@ -348,13 +348,38 @@ look_at(key, (0.0, 0.0, 1.5))
 fill = light('Cool_Fill', 'AREA', (W*0.35, D*0.35, H*0.75), 220.0, (0.5, 0.68, 1.0), 3.0)
 look_at(fill, (0.0, 0.0, 1.7))
 
-data = bpy.data.cameras.new('PresentationCamera')
-camera = bpy.data.objects.new('PresentationCamera', data)
-LIGHTING.objects.link(camera)
-camera.location = (-W*0.42, -D*0.72, H*0.48)
-camera.data.lens = 34.0
-look_at(camera, (0.0, D*0.05, H*0.32))
-scene.camera = camera
+def camera(name, location, target, lens, view):
+    data = bpy.data.cameras.new(name)
+    obj = bpy.data.objects.new(name, data)
+    LIGHTING.objects.link(obj)
+    obj.location = location
+    obj.data.lens = lens
+    obj['polyKitInspectionView'] = view
+    look_at(obj, target)
+    return obj
+
+entry_camera = camera(
+    'PresentationCamera',
+    (-W*0.42, -D*0.72, H*0.48),
+    (0.0, D*0.05, H*0.32),
+    34.0,
+    'entry',
+)
+hearth_camera = camera(
+    'InspectionCameraHearth',
+    (W*0.48, -D*0.35, H*0.46),
+    (W*0.25, D*0.22, 1.35),
+    42.0,
+    'hearth',
+)
+exterior_camera = camera(
+    'InspectionCameraExterior',
+    (0.0, -D*2.0, H*0.78),
+    (0.0, 0.0, H*0.55),
+    45.0,
+    'exterior',
+)
+scene.camera = entry_camera
 try:
     scene.render.engine = 'BLENDER_EEVEE_NEXT'
 except Exception:
@@ -372,8 +397,21 @@ preview_path = root / (SCENE_NAME + '.png')
 scene.render.filepath = str(preview_path)
 bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
 bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT')
+preview_view_paths = {}
 if RENDER_PREVIEW:
     bpy.ops.render.render(write_still=True)
+    for view_name, view_camera in (
+        ('entry', entry_camera),
+        ('hearth', hearth_camera),
+        ('exterior', exterior_camera),
+    ):
+        scene.camera = view_camera
+        view_path = root / (SCENE_NAME + '_view_' + view_name + '.png')
+        scene.render.filepath = str(view_path)
+        bpy.ops.render.render(write_still=True)
+        preview_view_paths[view_name] = view_path
+    scene.camera = entry_camera
+    scene.render.filepath = str(preview_path)
 
 def b64(path):
     return base64.b64encode(path.read_bytes()).decode('ascii') if path.exists() else ''
@@ -387,6 +425,9 @@ result = {
     'glb_b64': b64(glb_path),
     'blend_b64': b64(blend_path),
     'preview_b64': b64(preview_path) if RENDER_PREVIEW else '',
+    'preview_views_b64': {
+        name: b64(path) for name, path in preview_view_paths.items()
+    },
 }
 '''
     return (
@@ -477,6 +518,15 @@ def main() -> None:
             if encoded:
                 path.write_bytes(base64.b64decode(encoded, validate=True))
                 sidecars.append(str(path))
+        preview_views = result.get("preview_views_b64")
+        if isinstance(preview_views, Mapping):
+            for view_name in ("entry", "hearth", "exterior"):
+                encoded = str(preview_views.get(view_name) or "")
+                if not encoded:
+                    continue
+                view_path = output_dir / f"{scene_name}_view_{view_name}.png"
+                view_path.write_bytes(base64.b64decode(encoded, validate=True))
+                sidecars.append(str(view_path))
         validation = result.get("construction_validation") if isinstance(result.get("construction_validation"), Mapping) else {}
         emit({"type": "log", "message": f"Cabin v2 construction validation: {validation.get('status', 'unknown')}"})
         progress(100, "Validated cabin ready")
