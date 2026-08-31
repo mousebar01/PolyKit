@@ -83,6 +83,7 @@ class RunCoordinator:
 
     def clear_completed(self, job_id: str) -> None:
         self.completed_at.pop(job_id, None)
+        self.run_store.clear_completed(job_id)
 
     def is_cancelled(self, job_id: str) -> bool:
         return job_id in self.cancelled
