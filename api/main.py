@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import agent, agent_workflows, export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library, workspace_worlds
+from routers import agent, export, legacy_generation, model, node_packs, node_types, optimize, settings, status, workflow_runs, workflow_store, workspace_library, workspace_worlds
 from services.runtime_paths import runtime_paths
 
 
@@ -74,7 +74,6 @@ app.add_middleware(
 
 app.include_router(status.router)
 app.include_router(agent.router)
-app.include_router(agent_workflows.router)
 app.include_router(settings.router)
 app.include_router(model.router, prefix="/model")
 app.include_router(legacy_generation.router, prefix="/generate")
