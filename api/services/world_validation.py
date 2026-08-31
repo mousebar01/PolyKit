@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from services.runtime_paths import runtime_paths
+from services.spatial_validation import build_world_spatial_bundle
 from services.visual_validation import (
     load_visual_validation_report,
     validate_visual_validation_report,
@@ -23,6 +24,7 @@ WORLD_VALIDATION_CAPABILITIES = {
     "world.spec.validate",
     "world.blockout.validate",
     "world.construction.validate",
+    "world.spatial.validate",
     "world.visual.validate",
     "world.gameplay.validate",
     "world.final.validate",
@@ -205,6 +207,62 @@ def _validate_construction(
     )
 
 
+def _spatial_issues(bundle: Mapping[str, Any]) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    checks = bundle.get("checks")
+    if not isinstance(checks, list):
+        return [_issue("spatial-checks-missing", "warning", "Spatial geometry checks are unavailable.")]
+    for item in checks:
+        if not isinstance(item, Mapping):
+            continue
+        status = item.get("status")
+        if status == "pass" or item.get("required") is not True:
+            continue
+        check_id = str(item.get("id") or "spatial-check")
+        subjects = item.get("subjects")
+        subject_id = str(subjects[0]) if isinstance(subjects, list) and subjects else None
+        if status == "fail":
+            severity = "error"
+        else:
+            severity = "warning"
+        issues.append(_issue(
+            check_id,
+            severity,
+            str(item.get("message") or "Spatial validation is unresolved."),
+            subject_id=subject_id,
+        ))
+    return issues
+
+
+def _validate_spatial(
+    world_id: str,
+    world: Mapping[str, Any],
+    run: Mapping[str, Any] | None,
+    *,
+    target: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    bundle = build_world_spatial_bundle(
+        world_id,
+        world,
+        run,
+        target=target,
+        workspace_root=runtime_paths.workspace,
+    )
+    return _report(
+        world_id,
+        "world.spatial.validate",
+        "spatial-validation-bundle",
+        _spatial_issues(bundle),
+        ref_suffix="runtime/quality/spatial",
+        details={
+            "bundle_status": bundle.get("status"),
+            "run_id": bundle.get("run_id"),
+            "checks": bundle.get("checks", []),
+            "snapshot": bundle.get("snapshot"),
+        },
+    )
+
+
 def _visual_report_reference(
     world: Mapping[str, Any],
     run: Mapping[str, Any] | None,
@@ -267,6 +325,8 @@ def _validate_visual(
         )
 
     validation: dict[str, Any] | None = None
+    spatial: dict[str, Any] | None = None
+    report: dict[str, Any] | None = None
     try:
         report = load_visual_validation_report(report_ref, workspace_root=runtime_paths.workspace)
         validation = validate_visual_validation_report(
@@ -275,6 +335,15 @@ def _validate_visual(
             run_id=expected_run_id,
             workspace_root=runtime_paths.workspace,
         )
+        target = report.get("target")
+        if isinstance(target, Mapping) and bool(target.get("require_spatial")):
+            spatial = build_world_spatial_bundle(
+                world_id,
+                world,
+                run,
+                target=target,
+                workspace_root=runtime_paths.workspace,
+            )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         issues.append(_issue(
             "visual-report-unreadable",
@@ -312,6 +381,9 @@ def _validate_visual(
                 "Visual validation has unresolved required checks.",
             ))
 
+    if spatial is not None:
+        issues.extend(_spatial_issues(spatial))
+
     return _report(
         world_id,
         "world.visual.validate",
@@ -324,6 +396,9 @@ def _validate_visual(
             "validation_status": validation.get("status") if validation else "fail",
             "summary": validation.get("summary", {}) if validation else {},
             "earliest_failure": validation.get("earliest_failure") if validation else None,
+            "authoritative_spatial_status": spatial.get("status") if spatial else "not_applicable",
+            "authoritative_spatial_checks": spatial.get("checks", []) if spatial else [],
+            "spatial_snapshot": spatial.get("snapshot") if spatial else None,
         },
     )
 
@@ -424,6 +499,7 @@ def _validate_final(
             "visual": visual["status"],
             "gameplay": gameplay["status"],
             "visual_earliest_failure": visual.get("details", {}).get("earliest_failure"),
+            "visual_spatial": visual.get("details", {}).get("authoritative_spatial_status"),
         },
     )
 
@@ -446,6 +522,8 @@ def validate_world(
         return _validate_blockout(world_id, world)
     if key == "world.construction.validate":
         return _validate_construction(world_id, world, run)
+    if key == "world.spatial.validate":
+        return _validate_spatial(world_id, world, run)
     if key == "world.visual.validate":
         return _validate_visual(world_id, world, run)
     if key == "world.gameplay.validate":
