@@ -104,7 +104,7 @@ async def list_tools() -> list[Tool]:
                 "world_id": _string("Optional World id for provenance."),
                 "proto_id": _string("Optional semantic object id for provenance."),
                 "image_params": {"type": "object", "description": "Optional image model params."},
-                "mesh_params": {"type": "object", "description": "Optional mesh model params."},
+                "mesh_params": {"type": "object", "description": "Optional mesh params."},
                 "texture_params": {"type": "object", "description": "Optional texture params."},
             }, ["prompt"]),
         ),
@@ -191,7 +191,8 @@ async def list_tools() -> list[Tool]:
             name="polykit_world_compile_repair",
             description=(
                 "Compile one authoritative validator repair scope into a ProductionRecipe and optional workflow payload. "
-                "This tool never starts a WorkflowRun; scope expansion requires explicit opt-in."
+                "This tool never starts a WorkflowRun; inspect the result and explicitly call polykit_workflow_execute if execution is wanted. "
+                "Scope expansion also requires explicit opt-in."
             ),
             inputSchema=_object_schema({
                 "world_id": _string("World id."),
