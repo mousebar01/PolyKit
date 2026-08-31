@@ -78,14 +78,29 @@ def get_agent_workflow_session(session_id: str) -> dict[str, Any]:
     return load_agent_workflow_session(session_id)
 
 
+def _executor_hint(step: AgentWorkflowStep) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "kind": step.type,
+        "inputs": dict(step.inputs),
+    }
+    if step.capability:
+        value["capability"] = step.capability
+    if step.workflow:
+        value["workflow"] = step.workflow
+    return value
+
+
 def next_agent_workflow_action(session_id: str) -> dict[str, Any]:
     definition, session = _load(session_id)
+    subject = session.subject.model_dump(mode="json")
     if session.status != "running" or session.current_step is None:
         return {
             "session_id": session.id,
             "workflow_id": session.workflow_id,
+            "subject": subject,
             "status": session.status,
             "step": None,
+            "executor": None,
             "action": "wait" if session.status.startswith("waiting_") else "none",
             "wait": session.wait.model_dump(mode="json") if session.wait else None,
         }
@@ -99,9 +114,11 @@ def next_agent_workflow_action(session_id: str) -> dict[str, Any]:
     return {
         "session_id": session.id,
         "workflow_id": session.workflow_id,
+        "subject": subject,
         "status": session.status,
         "action": "execute" if state.status == "ready" else "resume",
         "step": step.model_dump(mode="json"),
+        "executor": _executor_hint(step),
         "attempt": state.attempts + (1 if state.status == "ready" else 0),
         "max_attempts": definition.limits.max_attempts_per_step,
         "corrections": session.corrections,
