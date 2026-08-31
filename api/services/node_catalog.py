@@ -33,6 +33,12 @@ BUILTIN_NODES: Dict[str, Dict[str, Any]] = {
         "inputs": ["mesh"],
         "outputs": ["mesh"],
     },
+    "polykit.interrupt": {
+        "name": "Interrupt / Approval Gate",
+        "description": "Durable gate that releases execution until an external signal resumes the same WorkflowRun.",
+        "inputs": ["after"],
+        "outputs": ["signal"],
+    },
     "polykit.output": {
         "name": "Scene Output",
         "description": "Terminal sink that pushes a mesh into the 3D viewer.",
