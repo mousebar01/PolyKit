@@ -109,6 +109,8 @@ These rules prevent a numerically good image, a stale render, or an arbitrary lo
 
 The judge reads the final mesh artifact recorded by WorkflowRun observability and loads the delivered GLB with `trimesh`. It produces a `polykit.spatial-snapshot` containing final geometry nodes and world-space bounds, then crosses that geometry with server-owned World facts.
 
+Only explicit mesh/scene artifacts or known mesh file extensions are accepted as spatial mesh evidence. A PNG or other generic WorkflowRun artifact cannot satisfy the geometry gate.
+
 Current deterministic checks include:
 
 - final WorkflowRun GLB exists, is readable, and contains geometry;
