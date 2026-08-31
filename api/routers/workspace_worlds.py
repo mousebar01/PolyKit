@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from pydantic import BaseModel, Field
 
+from services.run_coordinator import run_coordinator
 from services.scene_planner import ScenePlanError, compile_scene_plan
 from services.world_agent import create_world_document
 from services.world_runtime import attach_scene_plan_to_runtime
@@ -17,6 +18,8 @@ from services.world_store import (
     get_world,
     save_world,
 )
+from services.world_validation import validate_world
+from services.world_workflows import build_structure_workflow
 from services.runtime_paths import runtime_paths
 from services.workspace_paths import normalize_collection, resolve_workspace_path
 
@@ -48,6 +51,17 @@ class SceneComposeRequest(BaseModel):
     collection: str = Field(default="Scenes", max_length=160)
     output_name: str = Field(default="scene", min_length=1, max_length=120)
     allow_missing: bool = False
+
+
+class WorldStructureRequest(BaseModel):
+    building_id: str | None = Field(default=None, max_length=160)
+    collection: str = Field(default="Scenes", max_length=160)
+    render_preview: bool = True
+
+
+class WorldValidationRequest(BaseModel):
+    capability: str = Field(min_length=1, max_length=160)
+    run_id: str | None = Field(default=None, max_length=160)
 
 
 def _scene_asset_path(world: dict[str, Any], object_id: str, object_data: dict[str, Any]) -> str | None:
@@ -160,12 +174,14 @@ def _build_scene_composition_workflow(
         inputs={"mesh": ["compose", "mesh"]},
     )
     return WorkflowExecutionRequest(
+        workflow_id="world-compose-scene",
         prompt=nodes,
         output_node_id="output",
         collection=normalize_collection(collection),
         metadata={
             "world_id": world_id,
             "artifact_kind": "scene",
+            "workflow_recipe": "world-compose-scene",
             "missing_objects": missing,
             "composition": "scene-composer",
             "layout_quality": quality if isinstance(quality, dict) else None,
@@ -234,6 +250,63 @@ async def compose_world_scene(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not compose scene: {exc}") from exc
+
+
+@router.post("/{world_id}/build-structure")
+async def build_world_structure(
+    world_id: str,
+    request: WorldStructureRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Compile one BuildSpec building into the existing Blender process node."""
+
+    try:
+        world = get_world(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="World was not found")
+        workflow = build_structure_workflow(
+            world,
+            world_id=world_id,
+            building_id=request.building_id,
+            collection=request.collection,
+            render_preview=request.render_preview,
+        )
+        from routers.workflow_runs import execute_workflow
+
+        return await execute_workflow(workflow, background_tasks)
+    except HTTPException:
+        raise
+    except (WorldStoreError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not build world structure: {exc}") from exc
+
+
+@router.post("/{world_id}/validate")
+async def validate_world_for_workflow(world_id: str, request: WorldValidationRequest):
+    """Return deterministic evidence and a transition outcome for one validator step."""
+
+    try:
+        world = get_world(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="World was not found")
+        run = None
+        if request.run_id:
+            job = run_coordinator.jobs.get(request.run_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=f"Run {request.run_id} was not found")
+            run = {
+                "run_id": job.job_id,
+                "status": job.status,
+                "progress": job.progress,
+                "error": job.error,
+                "meta": job.meta or {},
+            }
+        return validate_world(world_id, world, request.capability, run=run)
+    except HTTPException:
+        raise
+    except WorldStoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("")
