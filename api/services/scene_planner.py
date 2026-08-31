@@ -17,7 +17,6 @@ import math
 import random
 import re
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -152,9 +151,6 @@ class SceneRelation(BaseModel):
     subject: str = Field(min_length=1, max_length=120)
     type: str = Field(min_length=1, max_length=40)
     object: str = Field(min_length=1, max_length=120)
-    # Optional geometric evidence for the relation.  Keeping these fields on
-    # the edge (rather than burying them in an opaque constraints dictionary)
-    # gives the Agent and the validator one unambiguous vocabulary.
     distance: float | None = Field(default=None, gt=0, le=10000)
     tolerance: float = Field(default=0.35, ge=0, le=10000)
     clearance: float = Field(default=0.0, ge=0, le=10000)
@@ -327,9 +323,6 @@ def _overlaps(
     *,
     ignore_object_ids: set[str] | None = None,
 ) -> bool:
-    # Rooms and visual backgrounds are containers, not collidable props.  A
-    # floor object explicitly related to a room should be allowed to occupy
-    # the room's footprint.
     candidate_object = objects[candidate.object_id]
     if candidate_object.role in {"room", "background"}:
         return False
@@ -368,13 +361,7 @@ def _inside_parent_bounds(
     vertical: bool,
     margin: float = 0.0,
 ) -> bool:
-    """Conservative AABB containment used when no mesh hull is available.
-
-    EmbodiedGen computes a convex-hull surface from the loaded parent mesh. A
-    ScenePlan may be compiled before the GLB exists, so the portable contract
-    uses semantic object dimensions and keeps the child inside the parent's
-    footprint/volume until a mesh-aware backend is available.
-    """
+    """Conservative AABB containment used when no mesh hull is available."""
 
     child = object_by_id[instance.object_id]
     parent_object = object_by_id[parent.object_id]
@@ -394,14 +381,10 @@ def _inside_parent_bounds(
         return True
     child_height = child.size[1] * instance.scale
     parent_height = parent_object.size[1] * parent.scale
-    return (
-        py + margin <= cy <= py + parent_height - child_height - margin
-    )
+    return py + margin <= cy <= py + parent_height - child_height - margin
 
 
 def _object_clearance(obj: SceneObject) -> float:
-    """Read an optional per-object stand-off without making JSON coordinates opaque."""
-
     raw = obj.constraints.get("clearance", 0.0)
     try:
         value = float(raw)
@@ -418,13 +401,6 @@ def _relation_distance(
     subject_scale: float = 1.0,
     target_scale: float = 1.0,
 ) -> float:
-    """Return a predictable horizontal distance for relative placement.
-
-    Agents may provide an explicit distance in scene units.  The defaults are
-    derived from semantic dimensions so a larger chair is not placed at the
-    same absolute offset as a small cup.
-    """
-
     if relation.distance is not None:
         return float(relation.distance)
     subject_radius = max(subject.size[0], subject.size[2]) * subject_scale / 2.0
@@ -436,15 +412,10 @@ def _relation_distance(
         return subject_radius + target_radius + clearance
     if relation.type == "overlooking":
         return subject_radius + target_radius + max(clearance, 1.0)
-    # away_from is a minimum, not a target.  A full diameter plus a little
-    # breathing room prevents two independent hero objects from merging.
     return (subject_radius + target_radius) * 2.0 + max(clearance, 0.75)
 
 
 def _relation_margin(relation: SceneRelation) -> float:
-    # Tolerance is used to judge the final relation; it must not shrink a
-    # support footprint during placement.  Only explicit clearance is a
-    # physical stand-off.
     return max(0.0, float(relation.clearance))
 
 
@@ -460,8 +431,6 @@ def _clamp_inside_parent(
     relation: SceneRelation,
     object_by_id: dict[str, SceneObject],
 ) -> tuple[float, float]:
-    """Keep a supported object's contact point inside its semantic parent."""
-
     child = object_by_id[instance.object_id]
     parent_object = object_by_id[parent.object_id]
     child_half_x = child.size[0] * instance.scale / 2.0
@@ -479,13 +448,7 @@ def _clamp_inside_parent(
 
 
 def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: int = 96) -> ScenePlan:
-    """Place a relation graph deterministically using 2D footprint checks.
-
-    This intentionally mirrors the useful part of EmbodiedGen's BFS placement
-    code without pretending to be a full navmesh or physics solver.  The
-    resulting transforms are stable for a given plan seed and can be replaced
-    later by a heavier backend without changing the scene-plan contract.
-    """
+    """Place a relation graph deterministically using 2D footprint checks."""
 
     object_by_id = {item.id: item for item in plan.objects}
     relation_map = _relation_map(plan)
@@ -494,17 +457,11 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
     placed: list[SceneInstance] = []
     diagnostics = [item for item in plan.diagnostics if item.get("code") != "layout"]
 
-    # Context and hero objects get stable positions first.  This makes the
-    # output readable and keeps dependent objects close to their parents.
     role_order = {"room": 0, "background": 1, "context": 2, "hero": 3, "manipulated": 4, "distractor": 5}
     indexed_objects = {obj.id: (index, obj) for index, obj in enumerate(plan.objects)}
     remaining = set(indexed_objects)
     ordered_objects: list[SceneObject] = []
     placed_ids = set(existing)
-    # A small topological pass mirrors EmbodiedGen's BFS relation traversal:
-    # parents are laid out before children, while unrelated objects retain
-    # their stable role/order priority.  Cycles are still accepted by the
-    # schema, but get a deterministic fallback instead of hanging the run.
     while remaining:
         ready: list[tuple[int, SceneObject]] = []
         for object_id in remaining:
@@ -561,16 +518,10 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
                 x, z = px, pz
                 room_id = parent.object_id
                 if support.type == "inside":
-                    # Start at the container's lower centre; the containment
-                    # retry loop below distributes siblings if needed.
                     y = py + _relation_margin(support)
                 elif support.type == "in_room":
                     y = py
 
-        # Spatial relations are secondary to support/floor relations.  In
-        # particular, "chair floor room + near stove" must stay in the room
-        # while also being near the stove instead of silently ignoring one
-        # edge of the graph.
         spatial_yaw = 0.0
         if spatial_parent and spatial:
             tx, ty, tz = spatial_parent.position
@@ -584,8 +535,6 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             )
             angle = rng.random() * math.tau
             if spatial.side:
-                # ScenePlan uses X right, Y up, Z forward.  Keep side labels
-                # stable across Blender (Z-up) and Three.js (Y-up export).
                 angle = {"left": math.pi, "right": 0.0, "front": math.pi / 2, "back": -math.pi / 2}[spatial.side]
             elif spatial.type == "away_from":
                 angle += math.pi
@@ -596,11 +545,8 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             if spatial.type == "overlooking":
                 spatial_yaw = math.atan2(tx - x, tz - z)
         elif not (parent and support) and obj.role in {"room", "background"}:
-            # A container is centered by default.  Its dimensions describe
-            # the available volume rather than a prop that needs spacing.
             x, z = 0.0, 0.0
         elif not (parent and support):
-            # Deterministic expanding grid for independent floor objects.
             columns = max(1, int(math.sqrt(max(len(plan.objects), 1))))
             row, column = divmod(floor_cursor, columns)
             floor_cursor += 1
@@ -619,11 +565,6 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
             x, z = _clamp_inside_parent(x, z, candidate, parent, support, object_by_id)
             candidate = candidate.model_copy(update={"position": (x, y, z)})
 
-        # A supported object shares the parent's footprint by definition.  The
-        # reference placer checks a child against sibling boxes on the parent,
-        # not against the parent mesh itself.  Keep that rule for ``on`` and
-        # ``inside`` (and for an explicit room container) so valid contact
-        # placements do not produce spurious collision diagnostics.
         collision_exclusions = (
             {support.object}
             if support and support.type in {"on", "inside", "in_room"}
@@ -705,12 +646,7 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
 
 
 def _audit_scene_layout(plan: ScenePlan) -> ScenePlan:
-    """Audit the whole plan in world space, independently of any camera.
-
-    The audit deliberately uses conservative semantic AABBs because meshes may
-    not exist when the Agent first compiles a plan.  A Blender/Three.js backend
-    can add mesh-hull checks later without changing this contract.
-    """
+    """Audit the whole plan in world space, independently of any camera."""
 
     object_by_id = {item.id: item for item in plan.objects}
     instance_by_id = {item.object_id: item for item in plan.instances}
@@ -813,9 +749,6 @@ def _audit_scene_layout(plan: ScenePlan) -> ScenePlan:
             if yaw_error > 0.7:
                 report("warning", "Overlooking object is not oriented toward its target.", object_id=relation.subject, relation=relation, yaw_error=round(yaw_error, 4))
 
-    # Pairwise 2D footprint collisions are useful even when no explicit
-    # relation was supplied.  Parent/child support edges and room containers
-    # are excluded because their footprints intentionally overlap.
     support_edges = {(item.subject, item.object) for item in plan.relations if item.type in SUPPORT_RELATION_TYPES}
     collidable = [
         instance
@@ -859,99 +792,12 @@ def compile_scene_plan(
 
     plan = normalize_scene_plan(payload, scene_id=scene_id)
     if resolve_assets:
-        # Import lazily so the planner remains usable in lightweight CLI/test
-        # environments that do not need to scan the workspace.
         from services.scene_assets import resolve_scene_assets
 
         plan = resolve_scene_assets(plan)
     if solve:
         plan = solve_scene_layout(plan)
     return plan.model_dump(mode="json", by_alias=True, exclude_none=True)
-
-
-def apply_scene_plan_to_world(world: Mapping[str, Any], plan: Mapping[str, Any]) -> dict[str, Any]:
-    """Attach the additive plan/instances fields to an existing world record."""
-
-    if not isinstance(world, Mapping):
-        raise ScenePlanError("World document must be an object")
-    compiled = compile_scene_plan(plan, scene_id=str(world.get("id") or world.get("world_id") or ""), solve=False)
-    # A generated asset is attached through the world artifact map after the
-    # initial plan was compiled.  Carry that stable reference back into the
-    # semantic object so a later recompile (and the Three.js plan preview) can
-    # use the real mesh instead of falling back to a box.
-    existing_artifacts = world.get("artifacts")
-    if isinstance(existing_artifacts, Mapping):
-        objects: list[dict[str, Any]] = []
-        changed = False
-        for raw_object in compiled.get("objects", []):
-            obj = dict(raw_object) if isinstance(raw_object, Mapping) else {}
-            object_id = obj.get("id")
-            artifact = existing_artifacts.get(object_id) if isinstance(object_id, str) else None
-            mesh = artifact.get("mesh") if isinstance(artifact, Mapping) else None
-            mesh_path = mesh.get("workspace_path") if isinstance(mesh, Mapping) else None
-            if mesh_path and not obj.get("asset"):
-                obj["asset"] = {
-                    "workspacePath": mesh_path,
-                    **({"runId": mesh["run_id"]} if isinstance(mesh.get("run_id"), str) else {}),
-                    **({"source": "world-artifact"}),
-                }
-                changed = True
-            objects.append(obj)
-        if changed:
-            compiled = compile_scene_plan({**compiled, "objects": objects}, scene_id=str(world.get("id") or world.get("world_id") or ""), solve=False)
-    if not compiled.get("instances"):
-        compiled = compile_scene_plan(compiled, scene_id=str(world.get("id") or world.get("world_id") or ""), solve=True)
-    result = dict(world)
-    result["scene_plan"] = compiled
-    # Keep the existing outdoor renderer contract (`protoId`/`regionId`) on
-    # the world envelope while the richer plan uses semantic `objectId` and
-    # `roomId` names.  This is an additive adapter, not a renderer rewrite.
-    result["instances"] = [
-        {
-            "id": item.get("id"),
-            "protoId": item.get("objectId"),
-            "position": item.get("position", [0, 0, 0]),
-            "rotation": item.get("rotation", [0, 0, 0]),
-            "scale": item.get("scale", 1),
-            "regionId": item.get("roomId"),
-        }
-        for item in compiled.get("instances", [])
-        if isinstance(item, Mapping)
-    ]
-    spec = result.get("spec")
-    if isinstance(spec, Mapping):
-        spec_copy = dict(spec)
-        spec_copy["scene_plan"] = compiled
-        result["spec"] = spec_copy
-    else:
-        result["spec"] = {"scene_plan": compiled}
-    agent_plan = result.get("agent_plan")
-    agent_copy = dict(agent_plan) if isinstance(agent_plan, Mapping) else {}
-    agent_copy["scene_plan"] = compiled
-    agent_copy["layout"] = {
-        "status": "done",
-        "instance_count": len(compiled.get("instances", [])),
-        "diagnostics": compiled.get("diagnostics", []),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    stages = agent_copy.get("stages")
-    if isinstance(stages, list):
-        stage_map = {
-            item.get("id"): dict(item)
-            for item in stages
-            if isinstance(item, Mapping) and isinstance(item.get("id"), str)
-        }
-        for stage_id in ("intent", "plan"):
-            entry = stage_map.setdefault(stage_id, {"id": stage_id})
-            entry["status"] = "done"
-        placement = stage_map.setdefault("placement", {"id": "placement"})
-        placement["status"] = "done" if compiled.get("instances") else "blocked"
-        placement["diagnostics"] = compiled.get("diagnostics", [])
-        placement["updated_at"] = datetime.now(timezone.utc).isoformat()
-        agent_copy["stages"] = [stage_map[key] for key in stage_map]
-    result["agent_plan"] = agent_copy
-    result["updated_at"] = datetime.now(timezone.utc).isoformat()
-    return result
 
 
 __all__ = [
@@ -968,7 +814,6 @@ __all__ = [
     "ScenePlan",
     "ScenePlanError",
     "SceneRelation",
-    "apply_scene_plan_to_world",
     "compile_scene_plan",
     "normalize_scene_plan",
     "solve_scene_layout",
