@@ -71,7 +71,7 @@ class BlenderSceneLocalRepairTests(unittest.TestCase):
             render_preview=False,
         )
         self.assertIn("PART_IDS = set", script)
-        self.assertIn("if part_id in PART_IDS", script)
+        self.assertIn("for part_id in sorted(PART_IDS)", script)
         self.assertIn("translation-anchor-snap-v1", script)
         self.assertIn("export_extras=True", script)
         self.assertNotIn("primitive_cube_add", script)
