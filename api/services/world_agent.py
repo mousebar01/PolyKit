@@ -33,6 +33,15 @@ def _require_text(value: Any, label: str) -> str:
     return value.strip()
 
 
+def _default_build_spec() -> dict[str, Any]:
+    return {
+        "kind": "polykit.build-spec",
+        "version": 1,
+        "environment": None,
+        "buildings": [],
+    }
+
+
 def _default_game_spec() -> dict[str, Any]:
     return {
         "kind": "polykit.game-spec",
@@ -54,7 +63,7 @@ def _initial_runtime(prompt: str, timestamp: str) -> dict[str, Any]:
     return {
         "version": 1,
         "intent": {"prompt": prompt},
-        "build": None,
+        "build": _default_build_spec(),
         "scene": None,
         "compiled": {"instances": []},
         "game": _default_game_spec(),
