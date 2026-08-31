@@ -2,7 +2,7 @@
   "mcpServers": {
     "polykit": {
       "command": "uv",
-      "args": ["run", "python", "api/mcp_server.py"],
+      "args": ["run", "python", "api/mcp_entrypoint.py"],
       "cwd": "."
     },
     "blender": {
