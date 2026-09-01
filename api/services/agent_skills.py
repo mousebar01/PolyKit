@@ -28,6 +28,7 @@ _ALLOWED_TOP_LEVEL = {
     "allowed-tools",
 }
 _MAX_RESOURCE_BYTES = 256 * 1024
+_MAX_FRONTMATTER_CHARS = 64 * 1024
 
 
 class AgentSkillError(ValueError):
@@ -183,6 +184,29 @@ def _split_skill_markdown(text: str) -> tuple[dict[str, Any], str]:
     return metadata, body
 
 
+def _read_skill_frontmatter(skill_path: Path) -> dict[str, Any]:
+    """Read only bounded YAML frontmatter and never the instruction body."""
+
+    lines: list[str] = []
+    total_chars = 0
+    try:
+        with skill_path.open("r", encoding="utf-8") as handle:
+            first = handle.readline()
+            if not first or first.strip() != "---":
+                raise AgentSkillError("SKILL.md must start with YAML frontmatter")
+            for raw in handle:
+                total_chars += len(raw)
+                if total_chars > _MAX_FRONTMATTER_CHARS:
+                    raise AgentSkillError("SKILL.md frontmatter is too large")
+                line = raw.rstrip("\r\n")
+                if line.strip() == "---":
+                    return _parse_frontmatter(lines)
+                lines.append(line)
+    except UnicodeDecodeError as exc:
+        raise AgentSkillError("SKILL.md frontmatter is not UTF-8 text") from exc
+    raise AgentSkillError("SKILL.md frontmatter is missing its closing ---")
+
+
 def _validate_metadata(skill_dir: Path, frontmatter: dict[str, Any]) -> dict[str, Any]:
     name = frontmatter.get("name")
     description = frontmatter.get("description")
@@ -243,6 +267,40 @@ def _resource_entries(skill_dir: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def _skill_result(skill_dir: Path, frontmatter: dict[str, Any]) -> dict[str, Any]:
+    meta = _validate_metadata(skill_dir, frontmatter)
+    return {
+        "schema_version": AGENT_SKILL_SCHEMA_VERSION,
+        "kind": AGENT_SKILL_KIND,
+        **meta,
+        "source": "bundled",
+        "resources": _resource_entries(skill_dir),
+    }
+
+
+def _resolve_skill_dir(name: str, root: Path | None = None) -> tuple[Path, Path]:
+    if not _NAME_RE.fullmatch(name or ""):
+        raise AgentSkillError("Invalid Agent Skill name")
+    resolved_root = (root or bundled_skills_dir()).resolve()
+    skill_dir = (resolved_root / name).resolve()
+    try:
+        skill_dir.relative_to(resolved_root)
+    except ValueError as exc:
+        raise AgentSkillError("Invalid Agent Skill path") from exc
+    if not skill_dir.is_dir():
+        raise FileNotFoundError(name)
+    return resolved_root, skill_dir
+
+
+def _validated_skill_metadata(skill_dir: Path) -> dict[str, Any]:
+    """Validate one Skill identity from frontmatter only."""
+
+    skill_path = skill_dir / SKILL_FILENAME
+    if not skill_path.is_file():
+        raise AgentSkillError(f"Missing {SKILL_FILENAME} in {skill_dir.name}")
+    return _validate_metadata(skill_dir, _read_skill_frontmatter(skill_path))
+
+
 def load_agent_skill(skill_dir: Path, *, include_body: bool = True) -> dict[str, Any]:
     """Load and validate one skill directory."""
 
@@ -252,55 +310,56 @@ def load_agent_skill(skill_dir: Path, *, include_body: bool = True) -> dict[str,
         raise AgentSkillError(f"Missing {SKILL_FILENAME} in {skill_dir.name}")
     text = skill_path.read_text(encoding="utf-8")
     frontmatter, body = _split_skill_markdown(text)
-    meta = _validate_metadata(skill_dir, frontmatter)
-    result: dict[str, Any] = {
-        "schema_version": AGENT_SKILL_SCHEMA_VERSION,
-        "kind": AGENT_SKILL_KIND,
-        **meta,
-        "source": "bundled",
-        "resources": _resource_entries(skill_dir),
-    }
+    result = _skill_result(skill_dir, frontmatter)
     if include_body:
         result["instructions"] = body
     return result
 
 
 def list_agent_skills(root: Path | None = None) -> list[dict[str, Any]]:
-    """Return lightweight metadata for all valid bundled skills."""
+    """Return lightweight metadata without reading Skill instruction bodies."""
 
     root = (root or bundled_skills_dir()).resolve()
     if not root.is_dir():
         return []
     skills: list[dict[str, Any]] = []
     for skill_dir in sorted(root.iterdir()):
-        if not skill_dir.is_dir() or not (skill_dir / SKILL_FILENAME).is_file():
+        skill_path = skill_dir / SKILL_FILENAME
+        if not skill_dir.is_dir() or not skill_path.is_file():
             continue
-        skills.append(load_agent_skill(skill_dir, include_body=False))
+        skills.append(_skill_result(skill_dir.resolve(), _read_skill_frontmatter(skill_path)))
     return skills
 
 
 def get_agent_skill(name: str, root: Path | None = None) -> dict[str, Any]:
     """Return full instructions for one bundled skill."""
 
-    if not _NAME_RE.fullmatch(name or ""):
-        raise AgentSkillError("Invalid Agent Skill name")
-    root = (root or bundled_skills_dir()).resolve()
-    skill_dir = (root / name).resolve()
-    try:
-        skill_dir.relative_to(root)
-    except ValueError as exc:
-        raise AgentSkillError("Invalid Agent Skill path") from exc
-    if not skill_dir.is_dir():
-        raise FileNotFoundError(name)
+    _, skill_dir = _resolve_skill_dir(name, root=root)
     return load_agent_skill(skill_dir, include_body=True)
 
 
-def read_agent_skill_resource(name: str, resource_path: str, root: Path | None = None) -> dict[str, Any]:
-    """Read one small UTF-8 skill resource without executing it."""
+def read_agent_skill_resource(
+    name: str,
+    resource_path: str,
+    root: Path | None = None,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Read a UTF-8 resource chunk after lightweight Skill identity validation.
 
-    skill = get_agent_skill(name, root=root)
-    root = (root or bundled_skills_dir()).resolve()
-    skill_dir = (root / name).resolve()
+    ``offset`` and ``limit`` are character counts. Omitting ``limit`` preserves
+    the legacy full-resource API while Agent/MCP callers can request bounded
+    chunks without reloading the Skill instruction body.
+    """
+
+    if offset < 0:
+        raise AgentSkillError("Skill resource offset must be non-negative")
+    if limit is not None and limit <= 0:
+        raise AgentSkillError("Skill resource limit must be positive")
+
+    _, skill_dir = _resolve_skill_dir(name, root=root)
+    skill_meta = _validated_skill_metadata(skill_dir)
     relative = Path(resource_path)
     if relative.is_absolute() or not relative.parts or relative.parts[0] not in _RESOURCE_DIRS:
         raise AgentSkillError("Skill resources must live under scripts/, references/, or assets/")
@@ -319,12 +378,20 @@ def read_agent_skill_resource(name: str, resource_path: str, root: Path | None =
         content = target.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise AgentSkillError("Skill resource is not UTF-8 text") from exc
+
+    total_chars = len(content)
+    start = min(offset, total_chars)
+    end = total_chars if limit is None else min(total_chars, start + limit)
     return {
         "schema_version": AGENT_SKILL_SCHEMA_VERSION,
         "kind": "agent-skill-resource",
-        "skill": skill["name"],
+        "skill": skill_meta["name"],
         "path": relative.as_posix(),
-        "content": content,
+        "content": content[start:end],
+        "offset": start,
+        "next_offset": end,
+        "total_chars": total_chars,
+        "truncated": end < total_chars,
         "executable_by_polykit": False,
     }
 
