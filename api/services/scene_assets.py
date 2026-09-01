@@ -136,7 +136,7 @@ def find_asset_candidates(
     return results[: max(1, min(int(limit), 50))]
 
 
-def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_score: float = 3.0) -> ScenePlan:
+def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_score: float = 5.0) -> ScenePlan:
     """Attach only high-confidence workspace matches to objects without assets."""
 
     objects: list[SceneObject] = []
@@ -196,7 +196,7 @@ def resolve_scene_asset_slots(
     plan: ScenePlan,
     *,
     workspace: Path | None = None,
-    min_score: float = 3.0,
+    min_score: float = 5.0,
     include_context: bool = False,
 ) -> tuple[ScenePlan, list[dict[str, Any]]]:
     """Resolve scene objects through the product asset policy.
