@@ -91,6 +91,32 @@ class RiggingEvidenceProcessorTests(unittest.TestCase):
             self.assertFalse(invalid_report["passed"])
             self.assertIn("must sum to 1", invalid_report["errors"][0])
 
+    def test_chirality_audit_accepts_reflection_and_rejects_vertical_rotation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            valid = {
+                "pairs": [
+                    {"stem": "hand", "right": [0.6, 1.2, 0.28], "left": [-0.6, 1.2, 0.28]},
+                    {"stem": "foot", "right": [0.4, 0.1, -0.2], "left": [-0.4, 0.1, -0.2]},
+                ],
+                "points": [[0.5, 1.0, 0.2], [-0.5, 1.0, 0.2], [0, 0, 0]],
+            }
+            report = self._run(valid, root, "chirality-audit")
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue(report["passed"])
+            self.assertEqual(report["pairCount"], 2)
+            self.assertEqual(report["pairs"][0]["relation"], "reflection")
+            self.assertEqual(report["summary"]["symmetryError"], 0.0)
+
+            rotated = {
+                "pairs": [{"stem": "hand", "right": [0.6, 1.2, 0.28], "left": [-0.6, 1.2, -0.28]}]
+            }
+            rotated_report = self._run(rotated, root, "chirality-audit")
+            self.assertEqual(rotated_report["status"], "fail")
+            self.assertFalse(rotated_report["passed"])
+            self.assertEqual(rotated_report["pairs"][0]["relation"], "rotation")
+            self.assertIn("negate lateral X only", rotated_report["errors"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

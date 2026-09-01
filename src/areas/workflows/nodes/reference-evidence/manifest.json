@@ -462,6 +462,39 @@
       "params_schema": []
     },
     {
+      "id": "interior-difference",
+      "name": "Interior Difference",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Measures luminance differences only in shared foreground cells, with optional height bands and a review heatmap.",
+      "i18n": {
+        "zh-CN": { "name": "内部差异审计" },
+        "en-US": { "name": "Interior Difference" }
+      },
+      "params_schema": [
+        { "id": "band_from", "label": "Band From", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "tooltip": "Start of the normalized foreground-height band." },
+        { "id": "band_to", "label": "Band To", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "tooltip": "End of the normalized foreground-height band." },
+        { "id": "grid", "label": "Grid", "type": "int", "default": 96, "min": 16, "max": 192, "tooltip": "Comparison lattice resolution." }
+      ]
+    },
+    {
+      "id": "hair-gate",
+      "name": "Hair Gate",
+      "input": "image",
+      "batch_input": "image",
+      "output": "text",
+      "description": "Compares hair coverage and hairline against a reference while keeping baldness as an explicit geometric limitation.",
+      "i18n": {
+        "zh-CN": { "name": "头发对比审计" },
+        "en-US": { "name": "Hair Gate" }
+      },
+      "params_schema": [
+        { "id": "band_shortfall", "label": "Band Shortfall", "type": "float", "default": 0.08, "min": 0.0, "max": 1.0, "tooltip": "Coverage delta below which a band is flagged for review." },
+        { "id": "hairline_offset_max", "label": "Hairline Offset", "type": "float", "default": 0.013, "min": 0.0, "max": 1.0, "tooltip": "Maximum normalized hairline offset before review." }
+      ]
+    },
+    {
       "id": "multi-view-evidence",
       "name": "Multi-view Evidence",
       "input": "image",

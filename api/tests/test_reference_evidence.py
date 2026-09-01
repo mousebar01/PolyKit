@@ -263,6 +263,98 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreater(report["bands"]["crown"]["coverage"], report["bands"]["jaw"]["coverage"])
             self.assertEqual(result["metadata"]["evidence_kind"], "hair-evidence")
 
+    def test_interior_difference_ignores_background_but_detects_shared_foreground_change(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            matching = root / "matching.png"
+            changed = root / "changed.png"
+
+            def write_shape(path: Path, interior: tuple[int, int, int]) -> None:
+                image = Image.new("RGBA", (80, 80), (0, 0, 0, 0))
+                for x in range(16, 64):
+                    for y in range(12, 68):
+                        image.putpixel((x, y), (180, 90, 50, 255))
+                for x in range(30, 50):
+                    for y in range(32, 48):
+                        image.putpixel((x, y), (*interior, 255))
+                image.save(path)
+
+            write_shape(reference, (180, 90, 50))
+            write_shape(matching, (180, 90, 50))
+            write_shape(changed, (30, 200, 220))
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            exact = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(matching)]},
+                {"_node_id": "interior-difference", "band_from": 0.2, "band_to": 0.8, "grid": 48},
+                str(workspace),
+                str(temp),
+            )
+            exact_report = json.loads(Path(str(exact["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(exact_report["kind"], "polykit.interior-difference")
+            self.assertEqual(exact_report["status"], "measured")
+            self.assertEqual(exact_report["interiorDifference"], 0.0)
+            self.assertGreater(exact_report["cellsCompared"], 0)
+            self.assertEqual(exact_report["band"], {"from": 0.2, "to": 0.8})
+            with Image.open(Path(str(exact["filePath"]))) as sheet:
+                self.assertEqual(sheet.size, (240, 80))
+
+            different = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(changed)]},
+                {"_node_id": "interior-difference", "grid": 48},
+                str(workspace),
+                str(temp),
+            )
+            different_report = json.loads(Path(str(different["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(different_report["status"], "measured")
+            self.assertGreater(different_report["interiorDifference"], 0.01)
+            self.assertEqual(different["metadata"]["evidence_kind"], "interior-difference")
+
+    def test_hair_gate_reports_coverage_shortfall_without_claiming_geometric_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            candidate = root / "candidate.png"
+
+            def write_character(path: Path, narrow_hair: bool) -> None:
+                image = Image.new("RGBA", (128, 200), (0, 0, 0, 0))
+                for x in range(32, 96):
+                    for y in range(20, 180):
+                        is_hair = y < 32 and (not narrow_hair or x < 52)
+                        image.putpixel((x, y), (42, 42, 48, 255) if is_hair else (220, 170, 130, 255))
+                image.save(path)
+
+            write_character(reference, narrow_hair=False)
+            write_character(candidate, narrow_hair=True)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(candidate)]},
+                {"_node_id": "hair-gate", "band_shortfall": 0.08},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(str(result["text"]))
+            self.assertEqual(report["kind"], "polykit.hair-gate")
+            self.assertEqual(report["status"], "needs_review")
+            self.assertFalse(report["hardChannelPresent"])
+            self.assertTrue(any(data["shortfall"] for data in report["bands"].values()))
+            self.assertGreaterEqual(len(result["sidecars"]), 3)
+            self.assertEqual(result["metadata"]["evidence_kind"], "hair-gate")
+
     def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

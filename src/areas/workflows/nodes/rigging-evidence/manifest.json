@@ -35,6 +35,18 @@
         "en-US": { "name": "Rig Payload Audit" }
       },
       "params_schema": []
+    },
+    {
+      "id": "chirality-audit",
+      "name": "Chirality Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Checks left/right landmarks for a true sagittal reflection and reports whole-figure symmetry drift.",
+      "i18n": {
+        "zh-CN": { "name": "左右手性审计" },
+        "en-US": { "name": "Chirality Audit" }
+      },
+      "params_schema": []
     }
   ]
 }

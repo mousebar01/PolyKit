@@ -329,6 +329,105 @@ def _analyze_rig_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _chirality_point(value: Any, label: str, errors: list[str]) -> tuple[float, float, float] | None:
+    if not isinstance(value, list) or len(value) != 3 or not all(_is_number(item) for item in value):
+        errors.append(f"{label} must be a finite length-3 point")
+        return None
+    return tuple(float(item) for item in value)
+
+
+def _mirror_point(point: tuple[float, float, float]) -> tuple[float, float, float]:
+    # PolyKit's portable rig convention is Y-up, right-handed, forward +Z. A sagittal mirror
+    # negates the lateral X axis only; negating Z too is a 180-degree Y rotation and preserves the
+    # wrong hand.
+    return (-point[0], point[1], point[2])
+
+
+def _classify_chirality(right: tuple[float, float, float], left: tuple[float, float, float], tolerance: float = 1e-6) -> str:
+    def close(expected: tuple[float, float, float]) -> bool:
+        return all(abs(actual - target) <= tolerance for actual, target in zip(left, expected))
+
+    if close(_mirror_point(right)):
+        return "reflection"
+    if close((-right[0], right[1], -right[2])):
+        return "rotation"
+    if close(right):
+        return "translation"
+    return "unrelated"
+
+
+def _analyze_chirality(payload: dict[str, Any]) -> dict[str, Any]:
+    """Check that declared left/right landmarks are true sagittal reflections."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    raw_pairs = payload.get("pairs")
+    if not isinstance(raw_pairs, list) or not raw_pairs:
+        errors.append("pairs must be a non-empty list")
+        raw_pairs = []
+    records: list[dict[str, Any]] = []
+    for index, raw_pair in enumerate(raw_pairs):
+        if not isinstance(raw_pair, dict):
+            errors.append(f"pairs[{index}] must be an object")
+            continue
+        stem = str(raw_pair.get("stem") or raw_pair.get("id") or f"pair-{index + 1}").strip() or f"pair-{index + 1}"
+        right = _chirality_point(raw_pair.get("right"), f"pairs[{index}].right", errors)
+        left = _chirality_point(raw_pair.get("left"), f"pairs[{index}].left", errors)
+        if right is None or left is None:
+            continue
+        relation = _classify_chirality(right, left)
+        expected = _mirror_point(right)
+        record = {
+            "stem": stem,
+            "right": [round(value, 6) for value in right],
+            "left": [round(value, 6) for value in left],
+            "expectedLeft": [round(value, 6) for value in expected],
+            "relation": relation,
+            "passed": relation == "reflection",
+        }
+        records.append(record)
+        if relation != "reflection":
+            errors.append(f"{stem}: left/right landmarks form {relation}, not a sagittal reflection; negate lateral X only")
+
+    raw_points = payload.get("points")
+    symmetry_error = None
+    if raw_points is not None:
+        points: list[tuple[float, float, float]] = []
+        if not isinstance(raw_points, list):
+            errors.append("points must be a list when supplied")
+        else:
+            for index, value in enumerate(raw_points):
+                point = _chirality_point(value, f"points[{index}]", errors)
+                if point is not None:
+                    points.append(point)
+        if points:
+            mirrored = [_mirror_point(point) for point in points]
+            total = 0.0
+            for point in points:
+                nearest = min(sum((candidate[axis] - point[axis]) ** 2 for axis in range(3)) for candidate in mirrored)
+                total += nearest
+            symmetry_error = round(math.sqrt(total / len(points)), 6)
+            if symmetry_error > 0.25:
+                warnings.append(f"whole-figure sagittal symmetry error is {symmetry_error:.4f}; deliberate asymmetry may be valid")
+
+    status = "fail" if errors else "pass" if records else "needs_review"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.chirality-audit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "passed": not errors and bool(records),
+        "pairs": records,
+        "pairCount": len(records),
+        "errors": errors,
+        "warnings": warnings,
+        "summary": {"symmetryError": symmetry_error, "lateralAxis": "X", "mirrorRule": "left=(-right.x, right.y, right.z)"},
+        "reviewNotes": [
+            "A correct pair is a sagittal reflection: negate X only in the Y-up, right-handed +Z-forward convention.",
+            "Whole-figure symmetry is reported, not gated, because intentional asymmetry is legitimate.",
+        ],
+    }
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.readline())
@@ -339,21 +438,28 @@ def main() -> None:
             return
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "attachment-anchor-audit")
-        if node_id not in {"attachment-anchor-audit", "rig-payload-audit"}:
+        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit"}:
             error(f"rigging-evidence: unsupported node '{node_id}'")
             return
         descriptor = json.loads(text)
         if not isinstance(descriptor, dict):
             raise ValueError("attachment descriptor must be a JSON object")
         progress(5, "Reading rigging evidence…")
-        report = _analyze(descriptor) if node_id == "attachment-anchor-audit" else _analyze_rig_payload(descriptor)
+        if node_id == "attachment-anchor-audit":
+            report = _analyze(descriptor)
+        elif node_id == "rig-payload-audit":
+            report = _analyze_rig_payload(descriptor)
+        else:
+            report = _analyze_chirality(descriptor)
         progress(90, "Writing rigging evidence…")
         progress(100, "Rigging evidence ready")
-        metadata = {"evidence_kind": "attachment-anchor-audit" if node_id == "attachment-anchor-audit" else "rig-payload-audit", "schema_version": 1, "status": report["status"]}
+        metadata = {"evidence_kind": node_id, "schema_version": 1, "status": report["status"]}
         if node_id == "attachment-anchor-audit":
             metadata["attachment_count"] = report["attachmentCount"]
-        else:
+        elif node_id == "rig-payload-audit":
             metadata["joint_count"] = report["summary"]["jointCount"]
+        else:
+            metadata["pair_count"] = report["pairCount"]
         emit({"type": "done", "result": {"text": json.dumps(report, ensure_ascii=False, indent=2), "metadata": metadata}})
     except Exception as exc:
         error(f"rigging-evidence: {exc}")

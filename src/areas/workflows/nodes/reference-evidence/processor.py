@@ -1308,6 +1308,131 @@ def _review_iou(reference: list[bool], candidate: list[bool]) -> float:
     return intersection / union if union else 1.0
 
 
+def _review_interior_sample(image: Any, grid: int = 96) -> tuple[list[float], list[bool], str, tuple[int, int, int, int]]:
+    """Sample mean luma and figure-majority cells inside the foreground bounding box.
+
+    Normalising each image to its own foreground box makes the signal useful when a render has
+    a small camera/scale offset.  The separate majority mask prevents background pixels from
+    leaking into the interior score.
+    """
+    rgba = image.convert("RGBA")
+    width, height = rgba.size
+    pixels = list(rgba.getdata())
+    alpha = [pixel[3] / 255.0 for pixel in pixels]
+    alpha_span = max(alpha, default=0.0) - min(alpha, default=0.0)
+    if alpha_span > 0.15:
+        mask = [value >= 0.08 for value in alpha]
+        mask_source = "alpha"
+    else:
+        corners = [pixels[0], pixels[width - 1], pixels[(height - 1) * width], pixels[-1]]
+        background = tuple(sum(pixel[channel] for pixel in corners) / len(corners) for channel in range(3))
+        mask = [math.sqrt(sum((pixel[channel] - background[channel]) ** 2 for channel in range(3))) >= 24.0 for pixel in pixels]
+        mask_source = "corner-distance"
+    points = [(index % width, index // width) for index, active in enumerate(mask) if active]
+    if not points:
+        bbox = (0, 0, width, height)
+    else:
+        xs, ys = zip(*points)
+        bbox = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+    x0, y0, x1, y1 = bbox
+    box_width = max(1, x1 - x0)
+    box_height = max(1, y1 - y0)
+    values = [0.0] * (grid * grid)
+    solid = [False] * (grid * grid)
+    for gy in range(grid):
+        top = y0 + gy * box_height // grid
+        bottom = max(top + 1, y0 + (gy + 1) * box_height // grid)
+        for gx in range(grid):
+            left = x0 + gx * box_width // grid
+            right = max(left + 1, x0 + (gx + 1) * box_width // grid)
+            total = 0.0
+            counted = 0
+            foreground = 0
+            for y in range(top, min(bottom, height)):
+                row = y * width
+                for x in range(left, min(right, width)):
+                    pixel = pixels[row + x]
+                    total += 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]
+                    counted += 1
+                    if mask[row + x]:
+                        foreground += 1
+            index = gy * grid + gx
+            values[index] = total / (255.0 * counted) if counted else 0.0
+            solid[index] = bool(counted) and foreground > counted / 2
+    return values, solid, mask_source, bbox
+
+
+def _run_interior_difference(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Measure appearance differences only where both images contain foreground."""
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageOps
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for interior difference: {exc}") from exc
+
+    grid = _bounded_int(params.get("grid", 96), 96, 16, 192)
+    try:
+        band_from = float(params.get("band_from", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        band_from = 0.0
+    try:
+        band_to = float(params.get("band_to", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        band_to = 1.0
+    band_from = max(0.0, min(1.0, band_from))
+    band_to = max(band_from, min(1.0, band_to))
+    with Image.open(reference_path) as reference_source, Image.open(candidate_path) as candidate_source:
+        reference = reference_source.convert("RGBA")
+        candidate = candidate_source.convert("RGBA")
+        candidate_resized = candidate.resize(reference.size, Image.Resampling.LANCZOS) if candidate.size != reference.size else candidate.copy()
+        reference_values, reference_solid, reference_mask_source, reference_bbox = _review_interior_sample(reference, grid)
+        candidate_values, candidate_solid, candidate_mask_source, candidate_bbox = _review_interior_sample(candidate_resized, grid)
+        first_row = int(band_from * grid)
+        last_row = max(first_row + 1, int(band_to * grid))
+        shared = [
+            gy * grid + gx
+            for gy in range(first_row, min(last_row, grid))
+            for gx in range(grid)
+            if reference_solid[gy * grid + gx] and candidate_solid[gy * grid + gx]
+        ]
+        score = None if not shared else sum(abs(reference_values[index] - candidate_values[index]) for index in shared) / len(shared)
+        difference = ImageChops.difference(reference.convert("RGB"), candidate_resized.convert("RGB"))
+        heatmap = ImageOps.colorize(difference.convert("L"), black=(15, 23, 42), white=(239, 68, 68)).convert("RGBA")
+        canvas = Image.new("RGBA", (reference.width * 3, reference.height), (255, 255, 255, 255))
+        canvas.paste(reference, (0, 0))
+        canvas.paste(candidate_resized, (reference.width, 0))
+        canvas.paste(heatmap, (reference.width * 2, 0))
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        for index in range(3):
+            left = index * reference.width
+            draw.rectangle((left, 0, left + reference.width - 1, reference.height - 1), outline=(15, 23, 42, 220), width=max(1, min(reference.size) // 320))
+        token = f"{_slug(reference_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        output_path = workspace_dir / f"{token}_interior-difference.png"
+        report_path = workspace_dir / f"{token}_interior-difference.json"
+        canvas.save(output_path, format="PNG")
+
+    status = "measured" if shared else "no-overlapping-figure-cells"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.interior-difference",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "reference": {"name": reference_path.name, "width": reference.width, "height": reference.height, "maskSource": reference_mask_source, "foregroundBox": list(reference_bbox)},
+        "candidate": {"name": candidate_path.name, "originalWidth": candidate.size[0], "originalHeight": candidate.size[1], "resizedToReference": candidate.size != reference.size, "maskSource": candidate_mask_source, "foregroundBox": list(candidate_bbox)},
+        "band": {"from": round(band_from, 6), "to": round(band_to, 6)},
+        "grid": grid,
+        "cellsCompared": len(shared),
+        "interiorDifference": None if score is None else round(score, 6),
+        "panels": ["reference", "candidate-resized-to-reference", "difference-heatmap"],
+        "reviewNotes": [
+            "Only cells classified as foreground in both images contribute; silhouette disagreement cannot inflate this signal.",
+            "This is appearance evidence, not semantic proof. Review the heatmap before changing geometry or materials.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "interior-difference", "schema_version": 1, "status": status, "interior_difference": report["interiorDifference"], "cells_compared": len(shared), "report": report_path.name}}
+
+
 def _hair_otsu(values: list[float], bins: int = 64) -> tuple[float, float, float]:
     if not values:
         return 0.0, 0.0, 0.0
@@ -1444,6 +1569,73 @@ def _run_hair_evidence(input_path: Path, workspace_dir: Path, params: dict[str, 
     }
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "hair-evidence", "schema_version": 1, "status": status, "hair_fraction": report["hairFraction"], "report": report_path.name}}
+
+
+def _run_hair_gate(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Compare hair evidence while keeping coverage shortfall separate from baldness proof."""
+    try:
+        shortfall = float(params.get("band_shortfall", 0.08) or 0.08)
+    except (TypeError, ValueError):
+        shortfall = 0.08
+    try:
+        hairline_limit = float(params.get("hairline_offset_max", 0.013) or 0.013)
+    except (TypeError, ValueError):
+        hairline_limit = 0.013
+    shortfall = max(0.0, min(1.0, shortfall))
+    hairline_limit = max(0.0, min(1.0, hairline_limit))
+    reference_result = _run_hair_evidence(reference_path, workspace_dir, params)
+    candidate_result = _run_hair_evidence(candidate_path, workspace_dir, params)
+    reference_report_path = Path(str(reference_result["sidecars"][0]))
+    candidate_report_path = Path(str(candidate_result["sidecars"][0]))
+    reference = json.loads(reference_report_path.read_text(encoding="utf-8"))
+    candidate = json.loads(candidate_report_path.read_text(encoding="utf-8"))
+    notes: list[str] = []
+    bands: dict[str, dict[str, Any]] = {}
+    comparable = reference.get("status") == "measured" and candidate.get("status") == "measured"
+    if comparable:
+        for name, reference_band in reference.get("bands", {}).items():
+            candidate_band = candidate.get("bands", {}).get(name, {})
+            reference_coverage = float(reference_band.get("coverage", 0.0))
+            candidate_coverage = float(candidate_band.get("coverage", 0.0))
+            delta = round(candidate_coverage - reference_coverage, 4)
+            bands[name] = {"reference": round(reference_coverage, 4), "candidate": round(candidate_coverage, 4), "delta": delta, "shortfall": delta <= -shortfall}
+            if delta <= -shortfall:
+                notes.append(f"{name}: coverage shortfall {delta:+.4f} against reference")
+        reference_hairline = reference.get("hairline")
+        candidate_hairline = candidate.get("hairline")
+        hairline_offset = round(candidate_hairline - reference_hairline, 4) if reference_hairline is not None and candidate_hairline is not None else None
+        if hairline_offset is not None and abs(hairline_offset) > hairline_limit:
+            notes.append(f"hairline offset {hairline_offset:+.4f} exceeds limit")
+    else:
+        hairline_offset = None
+        notes.append("one or both images did not produce a measurable hair/skin split")
+
+    # The image-only gate deliberately never claims a pass: baldness requires the optional
+    # geometric scalp-exposure channel, while these signals remain soft review evidence.
+    status = "needs_review"
+    token = f"{_slug(reference_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{token}_hair-gate.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.hair-gate",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "reference": {"name": reference_path.name, "report": reference_report_path.name},
+        "candidate": {"name": candidate_path.name, "report": candidate_report_path.name},
+        "bands": bands,
+        "hairlineOffset": hairline_offset,
+        "softSignals": notes,
+        "hardChannelPresent": False,
+        "thresholds": {"bandShortfall": shortfall, "hairlineOffsetMax": hairline_limit},
+        "limitations": [
+            "Image evidence cannot reliably detect a bald patch or hair sunk inside the skull; supply a geometric scalp-exposure report for a hard channel.",
+            "Coverage shortfall is a review signal and does not authorize widening hair masses by itself.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    sidecars = [*reference_result.get("sidecars", []), *candidate_result.get("sidecars", []), report_path]
+    return {"text": json.dumps(report, ensure_ascii=False, indent=2), "sidecars": [str(path) for path in sidecars], "metadata": {"evidence_kind": "hair-gate", "schema_version": 1, "status": status, "report": report_path.name}}
 
 
 def _run_divine_eye(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
@@ -1840,6 +2032,22 @@ def main() -> None:
                 return
             progress(20, "Running multi-signal visual review…")
             result = _run_divine_eye(paths[0], paths[1], workspace_dir, params)
+        elif node_id == "interior-difference":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) != 2 or any(not path.is_file() for path in paths):
+                error(f"reference-evidence: interior difference requires exactly two image files: {raw_paths}")
+                return
+            progress(20, "Measuring shared foreground appearance…")
+            result = _run_interior_difference(paths[0], paths[1], workspace_dir, params)
+        elif node_id == "hair-gate":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) != 2 or any(not path.is_file() for path in paths):
+                error(f"reference-evidence: hair gate requires exactly two image files: {raw_paths}")
+                return
+            progress(20, "Comparing hair evidence…")
+            result = _run_hair_gate(paths[0], paths[1], workspace_dir, params)
         elif node_id == "hair-evidence":
             if input_path is None or not input_path.is_file():
                 error(f"reference-evidence: hair evidence image not found: {input_raw}")
