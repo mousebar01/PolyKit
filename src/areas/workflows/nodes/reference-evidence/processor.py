@@ -485,6 +485,125 @@ def _run_material_region(input_path: Path, workspace_dir: Path, params: dict[str
     }
 
 
+def _hue_name(degrees: float) -> str:
+    for upper, name in ((15, "red"), (45, "orange"), (70, "yellow"), (165, "green"), (195, "cyan"), (255, "blue"), (290, "violet"), (345, "magenta"), (360, "red")):
+        if degrees < upper:
+            return name
+    return "red"
+
+
+def _median_channel(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    return int(ordered[len(ordered) // 2])
+
+
+def _run_gradient_stops(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Extract band-median RGB stops from a localized reference region."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for gradient extraction: {exc}") from exc
+    axis = str(params.get("axis") or "u").strip().lower()
+    if axis not in {"u", "v"}:
+        axis = "u"
+    stop_count = _bounded_int(params.get("stops", 6), 6, 2, 16)
+    def fraction(name: str, default: float) -> float:
+        try:
+            value = float(params.get(name, default) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(0.0, min(1.0, value))
+    x, y = fraction("x", 0.0), fraction("y", 0.0)
+    region_width = max(0.001, min(1.0 - x, fraction("width", 1.0)))
+    region_height = max(0.001, min(1.0 - y, fraction("height", 1.0)))
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_gradient-stops.png"
+    report_path = workspace_dir / f"{token}_gradient-stops.json"
+    with Image.open(input_path) as source:
+        source_rgb = source.convert("RGB")
+        left = max(0, min(source_rgb.width - 1, round(x * source_rgb.width)))
+        top = max(0, min(source_rgb.height - 1, round(y * source_rgb.height)))
+        right = max(left + 1, min(source_rgb.width, round((x + region_width) * source_rgb.width)))
+        bottom = max(top + 1, min(source_rgb.height, round((y + region_height) * source_rgb.height)))
+        crop = source_rgb.crop((left, top, right, bottom))
+        span = crop.width if axis == "u" else crop.height
+        stops: list[dict[str, Any]] = []
+        for index in range(stop_count):
+            start = (index * span) // stop_count
+            end = span if index == stop_count - 1 else max(start + 1, ((index + 1) * span) // stop_count)
+            samples: list[tuple[int, int, int]] = []
+            for py in range(crop.height):
+                for px in range(crop.width):
+                    coordinate = px if axis == "u" else py
+                    if start <= coordinate < end:
+                        samples.append(crop.getpixel((px, py)))
+            red = _median_channel([sample[0] for sample in samples])
+            green = _median_channel([sample[1] for sample in samples])
+            blue = _median_channel([sample[2] for sample in samples])
+            hue, saturation, value = colorsys.rgb_to_hsv(red / 255.0, green / 255.0, blue / 255.0)
+            hue_degrees = hue * 360.0
+            stop: dict[str, Any] = {
+                "t": round((index + 0.5) / stop_count, 4),
+                "rgb": [red, green, blue],
+                "hex": "#%02x%02x%02x" % (red, green, blue),
+                "hsv": [round(hue_degrees, 2), round(saturation, 6), round(value, 6)],
+                "hueName": _hue_name(hue_degrees),
+            }
+            if stop["hueName"] in {"violet", "magenta", "blue"} and blue > red and saturation > 0.15:
+                stop["hueRisk"] = "blue-collapse"
+                stop["suggestedRgb"] = [min(255, blue), max(green, int(blue * 0.25)), red]
+            stops.append(stop)
+        board_width = max(256, crop.width)
+        board_height = 96
+        board = Image.new("RGB", (board_width, board_height), "white")
+        draw = ImageDraw.Draw(board)
+        for index, stop in enumerate(stops):
+            start = (index * board_width) // stop_count
+            end = board_width if index == stop_count - 1 else ((index + 1) * board_width) // stop_count
+            draw.rectangle((start, 0, max(start, end - 1), board_height - 1), fill=tuple(stop["rgb"]))
+        board.save(output_path, format="PNG")
+    zones: list[dict[str, Any]] = []
+    for stop in stops:
+        if zones and zones[-1]["hueName"] == stop["hueName"]:
+            zones[-1]["tEnd"] = stop["t"]
+        else:
+            zones.append({"hueName": stop["hueName"], "tStart": stop["t"], "tEnd": stop["t"]})
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.gradient-stops",
+        "status": "pass" if stops else "needs_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": source_rgb.width, "height": source_rgb.height},
+        "region": {"normalized": [round(x, 6), round(y, 6), round(region_width, 6), round(region_height, 6)], "pixels": [left, top, right, bottom]},
+        "axis": axis,
+        "requestedStops": stop_count,
+        "stops": stops,
+        "hueZones": zones,
+        "riskFlags": [stop for stop in stops if stop.get("hueRisk")],
+        "reviewNotes": [
+            "Band medians resist isolated highlights better than means, but the crop must still isolate one material or finish.",
+            "Use hue-risk suggestions as review prompts; do not treat them as a tone-mapping correction guarantee.",
+        ],
+        "overlay": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "gradient-stops",
+            "schema_version": 1,
+            "status": report["status"],
+            "stop_count": len(stops),
+            "risk_count": len(report["riskFlags"]),
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_landmark_guide(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageDraw
@@ -663,6 +782,261 @@ def _run_camera_guide(input_path: Path, workspace_dir: Path, params: dict[str, A
             "status": report["status"],
             "fov_degrees": round(fov_degrees, 2),
             "aspect": aspect,
+            "report": report_path.name,
+        },
+    }
+
+
+def _camera_project(point: tuple[float, float, float], camera: list[float], width: int, height: int) -> tuple[float, float] | None:
+    fov, yaw, pitch, roll, position_x, position_y, position_z = camera
+    if not 10.0 <= fov <= 120.0:
+        return None
+    tangent = math.tan(math.radians(fov) / 2.0)
+    if not math.isfinite(tangent) or abs(tangent) <= 1e-8:
+        return None
+    focal_length = (height / 2.0) / tangent
+    translated_x = point[0] - position_x
+    translated_y = point[1] - position_y
+    translated_z = position_z - point[2]
+    pitch_radians = math.radians(pitch)
+    pitched_x = translated_x
+    pitched_y = translated_y * math.cos(pitch_radians) - translated_z * math.sin(pitch_radians)
+    pitched_z = translated_y * math.sin(pitch_radians) + translated_z * math.cos(pitch_radians)
+    yaw_radians = math.radians(yaw)
+    yawed_x = pitched_x * math.cos(yaw_radians) + pitched_z * math.sin(yaw_radians)
+    yawed_y = pitched_y
+    yawed_z = -pitched_x * math.sin(yaw_radians) + pitched_z * math.cos(yaw_radians)
+    roll_radians = math.radians(roll)
+    rolled_x = yawed_x * math.cos(roll_radians) - yawed_y * math.sin(roll_radians)
+    rolled_y = yawed_x * math.sin(roll_radians) + yawed_y * math.cos(roll_radians)
+    if yawed_z <= 1e-8:
+        return None
+    projected_x = (width / 2.0) + (focal_length * rolled_x / yawed_z)
+    projected_y = (height / 2.0) - (focal_length * rolled_y / yawed_z)
+    if not math.isfinite(projected_x) or not math.isfinite(projected_y):
+        return None
+    return projected_x, projected_y
+
+
+def _camera_residuals(correspondences: list[dict[str, Any]], camera: list[float], width: int, height: int) -> list[float] | None:
+    residuals: list[float] = []
+    for item in correspondences:
+        projected = _camera_project(tuple(item["world"]), camera, width, height)
+        if projected is None:
+            return None
+        residuals.extend((projected[0] - item["observed"][0], projected[1] - item["observed"][1]))
+    return residuals
+
+
+def _camera_rms(residuals: list[float]) -> float:
+    return math.sqrt(sum(value * value for value in residuals) / max(1, len(residuals) // 2))
+
+
+def _solve_linear_system(matrix: list[list[float]], right_hand_side: list[float]) -> list[float] | None:
+    dimension = len(right_hand_side)
+    augmented = [row[:] + [right_hand_side[index]] for index, row in enumerate(matrix)]
+    for column in range(dimension):
+        pivot_row = max(range(column, dimension), key=lambda row: abs(augmented[row][column]))
+        pivot = augmented[pivot_row][column]
+        if abs(pivot) <= 1e-12:
+            return None
+        augmented[column], augmented[pivot_row] = augmented[pivot_row], augmented[column]
+        for row in range(column + 1, dimension):
+            factor = augmented[row][column] / pivot
+            if factor == 0.0:
+                continue
+            for secondary in range(column, dimension + 1):
+                augmented[row][secondary] -= factor * augmented[column][secondary]
+    solution = [0.0] * dimension
+    for row in range(dimension - 1, -1, -1):
+        remainder = sum(augmented[row][column] * solution[column] for column in range(row + 1, dimension))
+        solution[row] = (augmented[row][dimension] - remainder) / augmented[row][row]
+    return solution
+
+
+def _run_camera_fit(input_path: Path, correspondence_text: str, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Fit a seven-parameter camera from validated 3D-to-2D correspondences."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for camera fitting: {exc}") from exc
+    try:
+        raw = json.loads(correspondence_text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("camera-fit correspondence text must be valid JSON") from exc
+    if isinstance(raw, dict):
+        raw = raw.get("correspondences")
+    if not isinstance(raw, list) or len(raw) < 6:
+        raise ValueError("camera-fit requires at least six correspondences")
+    correspondences: list[dict[str, Any]] = []
+    for index, value in enumerate(raw):
+        if not isinstance(value, dict):
+            raise ValueError(f"camera-fit correspondence {index} must be an object")
+        world = value.get("world")
+        observed = value.get("observed", value.get("image"))
+        if not isinstance(world, (list, tuple)) or len(world) != 3 or not isinstance(observed, (list, tuple)) or len(observed) != 2:
+            raise ValueError(f"camera-fit correspondence {index} must contain world[3] and observed[2]")
+        world_values = [float(item) for item in world]
+        observed_values = [float(item) for item in observed]
+        if not all(math.isfinite(item) for item in (*world_values, *observed_values)):
+            raise ValueError(f"camera-fit correspondence {index} contains non-finite values")
+        correspondences.append({
+            "name": str(value.get("name") or f"landmark-{index + 1}")[:120],
+            "world": world_values,
+            "observed": observed_values,
+        })
+
+    with Image.open(input_path) as source:
+        width, height = source.size
+    def bounded(name: str, default: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(params.get(name, default) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+    camera = [
+        bounded("initial_fov_degrees", 35.0, 10.0, 120.0),
+        bounded("initial_yaw", 0.0, -180.0, 180.0),
+        bounded("initial_pitch", 0.0, -89.0, 89.0),
+        bounded("initial_roll", 0.0, -180.0, 180.0),
+        bounded("initial_position_x", 0.0, -100000.0, 100000.0),
+        bounded("initial_position_y", 0.0, -100000.0, 100000.0),
+        bounded("initial_position_z", 2.5, 0.01, 100000.0),
+    ]
+    initial_residuals = _camera_residuals(correspondences, camera, width, height)
+    if initial_residuals is None:
+        raise ValueError("initial camera cannot project every correspondence")
+    initial_error = _camera_rms(initial_residuals)
+    try:
+        maximum_iterations = int(params.get("maximum_iterations", 60) or 60)
+    except (TypeError, ValueError):
+        maximum_iterations = 60
+    maximum_iterations = max(1, min(200, maximum_iterations))
+    finite_steps = (1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3)
+    damping = 1e-3
+    residuals = initial_residuals
+    accepted_steps = 0
+    rejected_steps = 0
+    convergence = "max-iterations"
+    for iteration in range(1, maximum_iterations + 1):
+        jacobian: list[list[float]] = []
+        for row in range(len(residuals)):
+            jacobian.append([])
+        valid_jacobian = True
+        for parameter_index, step in enumerate(finite_steps):
+            positive = camera[:]
+            negative = camera[:]
+            positive[parameter_index] += step
+            negative[parameter_index] -= step
+            positive_residuals = _camera_residuals(correspondences, positive, width, height)
+            negative_residuals = _camera_residuals(correspondences, negative, width, height)
+            if positive_residuals is None or negative_residuals is None:
+                valid_jacobian = False
+                break
+            for row, (positive_value, negative_value) in enumerate(zip(positive_residuals, negative_residuals)):
+                jacobian[row].append((positive_value - negative_value) / (2.0 * step))
+        if not valid_jacobian:
+            convergence = "stalled"
+            break
+        hessian = [[0.0 for _ in range(7)] for _ in range(7)]
+        gradient = [0.0 for _ in range(7)]
+        for row, residual in zip(jacobian, residuals):
+            for column in range(7):
+                gradient[column] += row[column] * residual
+                for secondary in range(column, 7):
+                    hessian[column][secondary] += row[column] * row[secondary]
+        for column in range(7):
+            for secondary in range(column):
+                hessian[column][secondary] = hessian[secondary][column]
+            hessian[column][column] += damping * max(hessian[column][column], 1.0)
+        delta = _solve_linear_system(hessian, [-value for value in gradient])
+        if delta is None:
+            damping = min(damping * 10.0, 1e12)
+            rejected_steps += 1
+            continue
+        candidate = [camera[index] + delta[index] for index in range(7)]
+        candidate[0] = max(10.0, min(120.0, candidate[0]))
+        candidate[1] = max(-180.0, min(180.0, candidate[1]))
+        candidate[2] = max(-89.0, min(89.0, candidate[2]))
+        candidate[3] = max(-180.0, min(180.0, candidate[3]))
+        candidate[6] = max(0.01, min(100000.0, candidate[6]))
+        candidate_residuals = _camera_residuals(correspondences, candidate, width, height)
+        candidate_error = _camera_rms(candidate_residuals) if candidate_residuals is not None else float("inf")
+        current_error = _camera_rms(residuals)
+        if candidate_residuals is not None and candidate_error < current_error:
+            camera, residuals = candidate, candidate_residuals
+            damping = max(damping / 3.0, 1e-12)
+            accepted_steps += 1
+            if candidate_error <= 1e-5 or max(abs(value) for value in delta) <= 1e-8:
+                convergence = "converged"
+                break
+        else:
+            damping = min(damping * 10.0, 1e12)
+            rejected_steps += 1
+    final_error = _camera_rms(residuals)
+    max_rms = bounded("max_rms_pixels", 1.0, 0.0, 100000.0)
+    status = "pass" if final_error <= max_rms else "needs_review"
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_camera-fit.png"
+    report_path = workspace_dir / f"{token}_camera-fit.json"
+    with Image.open(input_path) as source:
+        overlay = source.convert("RGBA")
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        for item in correspondences:
+            observed = item["observed"]
+            projected = _camera_project(tuple(item["world"]), camera, width, height)
+            radius = max(3, min(width, height) // 100)
+            draw.ellipse((observed[0] - radius, observed[1] - radius, observed[0] + radius, observed[1] + radius), outline=(251, 191, 36, 240), width=2)
+            if projected is not None:
+                draw.ellipse((projected[0] - radius, projected[1] - radius, projected[0] + radius, projected[1] + radius), outline=(34, 211, 238, 240), width=2)
+                draw.line((observed[0], observed[1], projected[0], projected[1]), fill=(248, 113, 113, 210), width=1)
+        overlay.save(output_path, format="PNG")
+    residual_report = []
+    for item in correspondences:
+        projected = _camera_project(tuple(item["world"]), camera, width, height)
+        error_pixels = math.hypot(projected[0] - item["observed"][0], projected[1] - item["observed"][1]) if projected else float("inf")
+        residual_report.append({"name": item["name"], "errorPixels": round(error_pixels, 6)})
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.reference-camera-fit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": width, "height": height},
+        "solver": {
+            "method": "central-difference-damped-least-squares",
+            "correspondenceCount": len(correspondences),
+            "initialReprojectionErrorPixels": round(initial_error, 6),
+            "finalReprojectionErrorPixels": round(final_error, 6),
+            "maximumIterations": maximum_iterations,
+            "iterations": iteration,
+            "acceptedSteps": accepted_steps,
+            "rejectedSteps": rejected_steps,
+            "convergence": convergence,
+        },
+        "camera": {
+            "fovDegrees": round(camera[0], 6),
+            "yawDegrees": round(camera[1], 6),
+            "pitchDegrees": round(camera[2], 6),
+            "rollDegrees": round(camera[3], 6),
+            "position": [round(value, 6) for value in camera[4:]],
+        },
+        "residuals": residual_report,
+        "limitations": [
+            "The fit holds the principal point at the image center and does not estimate lens distortion or sensor size.",
+            "The result is only as reliable as the supplied 3D-to-2D correspondences; inspect the overlay before projection baking.",
+        ],
+        "overlay": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "reference-camera-fit",
+            "schema_version": 1,
+            "status": status,
+            "final_rms_pixels": round(final_error, 6),
             "report": report_path.name,
         },
     }
@@ -967,6 +1341,7 @@ def main() -> None:
     node_id = str(params.get("_node_id") or "detail-inventory")
     input_raw = input_data.get("filePath")
     input_path = Path(str(input_raw)) if input_raw else None
+    correspondence_text = str(input_data.get("text") or params.get("correspondences_json") or "")
     workspace_dir = Path(str(data.get("workspaceDir") or ""))
     try:
         progress(5, "Reading reference image…")
@@ -990,12 +1365,18 @@ def main() -> None:
         elif node_id == "material-region":
             progress(20, "Analyzing material region…")
             result = _run_material_region(input_path, workspace_dir, params)
+        elif node_id == "gradient-stops":
+            progress(20, "Extracting gradient stops…")
+            result = _run_gradient_stops(input_path, workspace_dir, params)
         elif node_id == "landmark-guide":
             progress(20, "Drawing landmark guide…")
             result = _run_landmark_guide(input_path, workspace_dir, params)
         elif node_id == "camera-guide":
             progress(20, "Estimating reference camera…")
             result = _run_camera_guide(input_path, workspace_dir, params)
+        elif node_id == "camera-fit":
+            progress(20, "Fitting camera to landmarks…")
+            result = _run_camera_fit(input_path, correspondence_text, workspace_dir, params)
         elif node_id == "projection-plan":
             progress(20, "Validating texture projection plan…")
             result = _run_projection_plan(input_path, workspace_dir, params)

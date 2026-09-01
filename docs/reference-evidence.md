@@ -21,6 +21,11 @@ alongside explicit low-confidence PBR channel placeholders. It keeps region
 assignment reviewable instead of treating a whole-image color as a material
 truth.
 
+`reference-evidence/gradient-stops` samples median RGB/HSV values along a
+horizontal or vertical material crop axis, emits a swatch strip, and flags
+blue-collapse risk for saturated violet/magenta/blue stops. The stops are
+reference evidence for a texture recipe, not a calibrated shader.
+
 `reference-evidence/landmark-guide` adds a 10-percent anatomy grid and
 head/face/shoulder/hip guide points, with an unreviewed normalized landmark
 skeleton in JSON. It packages the measurement surface for character work but
@@ -34,6 +39,11 @@ visual review before the image is treated as an albedo reference.
 `reference-evidence/camera-guide` emits a `referenceCamera` descriptor with an
 aspect-ratio-aware FOV starting guess, pose/distance hints, and a framing
 overlay. It is deliberately a review scaffold rather than camera calibration.
+
+`reference-evidence/camera-fit` accepts the reference image plus a text-node
+JSON payload containing at least six `{world: [x, y, z], observed: [px, py]}`
+correspondences. It numerically fits FOV, Euler orientation, and position,
+then emits an observed/projected landmark overlay and per-point residuals.
 
 `reference-evidence/projection-plan` validates a target mesh id, projection
 mode, texture size, and unseen-region strategy, then emits a framed overlay and

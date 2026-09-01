@@ -233,6 +233,95 @@
           "tooltip": "Parametrization used before map rasterization."
         }
       ]
+    },
+    {
+      "id": "geometry-integrity",
+      "name": "Geometry Integrity",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Audits finite geometry, topology defects, boundaries, manifoldness, winding, and watertight volume without modifying the mesh.",
+      "i18n": {
+        "zh-CN": { "name": "几何完整性审计" },
+        "en-US": { "name": "Geometry Integrity" }
+      },
+      "params_schema": [
+        {
+          "id": "require_watertight",
+          "label": "Require Watertight",
+          "type": "boolean",
+          "default": false,
+          "tooltip": "Marks open boundaries for review when enabled; open meshes are allowed by default."
+        },
+        {
+          "id": "area_epsilon",
+          "label": "Degenerate Area Epsilon",
+          "type": "float",
+          "default": 1e-12,
+          "min": 0.0,
+          "max": 1.0,
+          "tooltip": "Triangle area at or below this value is counted as degenerate."
+        }
+      ]
+    },
+    {
+      "id": "bvh-build",
+      "name": "BVH Build",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Builds a deterministic triangle AABB hierarchy as a JSON sidecar for broad-phase queries and spatial inspection.",
+      "i18n": {
+        "zh-CN": { "name": "BVH 构建" },
+        "en-US": { "name": "BVH Build" }
+      },
+      "params_schema": [
+        {
+          "id": "leaf_triangles",
+          "label": "Triangles / Leaf",
+          "type": "int",
+          "default": 8,
+          "min": 1,
+          "max": 64,
+          "tooltip": "Maximum triangle count stored in one leaf node."
+        },
+        {
+          "id": "max_depth",
+          "label": "Max Depth",
+          "type": "int",
+          "default": 24,
+          "min": 1,
+          "max": 64,
+          "tooltip": "Maximum recursive depth of the generated hierarchy."
+        },
+        {
+          "id": "max_triangles",
+          "label": "Triangle Budget",
+          "type": "int",
+          "default": 200000,
+          "min": 1,
+          "max": 2000000,
+          "tooltip": "Bounds sidecar size; an incomplete budget is marked needs_review."
+        }
+      ]
+    },
+    {
+      "id": "animation-audit",
+      "name": "Animation Audit",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Inspects glTF/GLB skin bindings, joint counts, animation clips, channels, and morph targets without modifying the asset.",
+      "i18n": {
+        "zh-CN": { "name": "动画资产审计" },
+        "en-US": { "name": "Animation Audit" }
+      },
+      "params_schema": [
+        {
+          "id": "require_animation",
+          "label": "Require Animation Clip",
+          "type": "boolean",
+          "default": false,
+          "tooltip": "Marks a rigged mesh for review when it has no animation channels."
+        }
+      ]
     }
   ]
 }

@@ -175,6 +175,35 @@
       ]
     },
     {
+      "id": "gradient-stops",
+      "name": "Gradient Stops",
+      "input": "image",
+      "output": "image",
+      "description": "Extracts median RGB/HSV color stops along a material crop axis and flags hue risks for tone-mapped finishes.",
+      "i18n": {
+        "zh-CN": { "name": "渐变色阶" },
+        "en-US": { "name": "Gradient Stops" }
+      },
+      "params_schema": [
+        {
+          "id": "axis",
+          "label": "Gradient Axis",
+          "type": "select",
+          "default": "u",
+          "options": [
+            { "value": "u", "label": "Horizontal" },
+            { "value": "v", "label": "Vertical" }
+          ],
+          "tooltip": "Direction in the crop along which the reference is sampled."
+        },
+        { "id": "stops", "label": "Stops", "type": "int", "default": 6, "min": 2, "max": 16, "tooltip": "Number of median color bands." },
+        { "id": "x", "label": "Region X", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized left coordinate." },
+        { "id": "y", "label": "Region Y", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized top coordinate." },
+        { "id": "width", "label": "Region Width", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop width." },
+        { "id": "height", "label": "Region Height", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop height." }
+      ]
+    },
+    {
       "id": "landmark-guide",
       "name": "Landmark Guide",
       "input": "image",
@@ -259,6 +288,29 @@
           "max": 180.0,
           "tooltip": "Optional camera roll hint in degrees."
         }
+      ]
+    },
+    {
+      "id": "camera-fit",
+      "name": "Reference Camera Fit",
+      "inputs": ["image", "text"],
+      "input_labels": ["Reference Image", "3D↔2D Correspondences JSON"],
+      "output": "image",
+      "description": "Fits FOV, Euler orientation, and camera position from six or more 3D-to-2D landmark correspondences.",
+      "i18n": {
+        "zh-CN": { "name": "参考相机拟合" },
+        "en-US": { "name": "Reference Camera Fit" }
+      },
+      "params_schema": [
+        { "id": "initial_fov_degrees", "label": "Initial FOV", "type": "float", "default": 35.0, "min": 10.0, "max": 120.0, "tooltip": "Starting vertical field of view for the numerical fit." },
+        { "id": "initial_yaw", "label": "Initial Yaw", "type": "float", "default": 0.0, "min": -180.0, "max": 180.0, "tooltip": "Starting horizontal orientation." },
+        { "id": "initial_pitch", "label": "Initial Pitch", "type": "float", "default": 0.0, "min": -89.0, "max": 89.0, "tooltip": "Starting vertical orientation." },
+        { "id": "initial_roll", "label": "Initial Roll", "type": "float", "default": 0.0, "min": -180.0, "max": 180.0, "tooltip": "Starting camera roll." },
+        { "id": "initial_position_x", "label": "Initial X", "type": "float", "default": 0.0, "min": -100000.0, "max": 100000.0, "tooltip": "Starting camera X position." },
+        { "id": "initial_position_y", "label": "Initial Y", "type": "float", "default": 0.0, "min": -100000.0, "max": 100000.0, "tooltip": "Starting camera Y position." },
+        { "id": "initial_position_z", "label": "Initial Z", "type": "float", "default": 2.5, "min": 0.01, "max": 100000.0, "tooltip": "Starting camera distance/position." },
+        { "id": "maximum_iterations", "label": "Iterations", "type": "int", "default": 60, "min": 1, "max": 200, "tooltip": "Maximum damped least-squares iterations." },
+        { "id": "max_rms_pixels", "label": "Pass RMS (px)", "type": "float", "default": 1.0, "min": 0.0, "max": 100000.0, "tooltip": "Maximum final reprojection RMS for a pass status." }
       ]
     },
     {

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,67 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(camera["position"]["distance"]["value"], 4.0)
             self.assertEqual(camera["orientation"]["pitchDegrees"]["value"], 8.0)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-camera")
+
+    def test_camera_fit_reduces_landmark_reprojection_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "camera.png"
+            Image.new("RGB", (200, 120), (80, 90, 100)).save(source)
+            # These points are generated from a known camera, then fitted from
+            # a deliberately offset initial FOV/distance.
+            true_camera = [42.0, 3.0, -2.0, 1.0, 0.1, -0.05, 4.0]
+
+            def project(point: tuple[float, float, float]) -> tuple[float, float]:
+                fov, yaw, pitch, roll, px, py, pz = true_camera
+                focal = (120 / 2.0) / math.tan(math.radians(fov) / 2.0)
+                tx, ty, tz = point[0] - px, point[1] - py, pz - point[2]
+                pitch_r = math.radians(pitch)
+                pitched_y = ty * math.cos(pitch_r) - tz * math.sin(pitch_r)
+                pitched_z = ty * math.sin(pitch_r) + tz * math.cos(pitch_r)
+                yaw_r = math.radians(yaw)
+                yawed_x = tx * math.cos(yaw_r) + pitched_z * math.sin(yaw_r)
+                yawed_z = -tx * math.sin(yaw_r) + pitched_z * math.cos(yaw_r)
+                yawed_y = pitched_y
+                roll_r = math.radians(roll)
+                rolled_x = yawed_x * math.cos(roll_r) - yawed_y * math.sin(roll_r)
+                rolled_y = yawed_x * math.sin(roll_r) + yawed_y * math.cos(roll_r)
+                return 100.0 + focal * rolled_x / yawed_z, 60.0 - focal * rolled_y / yawed_z
+
+            worlds = [(-1, -1, 0), (1, -1, 0), (-1, 1, 0), (1, 1, 0), (0, 0, 1), (0.4, -0.6, 1.3), (-0.7, 0.3, 0.8), (0.8, 0.8, 0.4)]
+            correspondences = [
+                {"name": f"p{index}", "world": list(point), "observed": list(project(point))}
+                for index, point in enumerate(worlds)
+            ]
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source), "text": json.dumps(correspondences)},
+                {
+                    "_node_id": "camera-fit",
+                    "initial_fov_degrees": 35.0,
+                    "initial_position_z": 3.7,
+                    "maximum_iterations": 60,
+                    "max_rms_pixels": 0.1,
+                },
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as overlay:
+                self.assertEqual(overlay.size, (200, 120))
+                self.assertEqual(overlay.mode, "RGBA")
+            self.assertEqual(report["status"], "pass")
+            self.assertGreater(report["solver"]["initialReprojectionErrorPixels"], report["solver"]["finalReprojectionErrorPixels"])
+            self.assertAlmostEqual(report["camera"]["fovDegrees"], 42.0, places=2)
+            self.assertEqual(result["metadata"]["evidence_kind"], "reference-camera-fit")
 
     def test_projection_plan_validates_runtime_bake_descriptor(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -150,6 +212,43 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreaterEqual(len(report["palette"]), 1)
             self.assertEqual(report["pbrEvidence"]["roughness"]["confidence"], 0.0)
             self.assertEqual(result["metadata"]["evidence_kind"], "material-region")
+
+    def test_gradient_stops_follow_reference_axis_and_flag_hue_risk(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "gradient.png"
+            image = Image.new("RGB", (120, 20))
+            for x in range(image.width):
+                ratio = x / max(1, image.width - 1)
+                color = (round(255 * (1.0 - ratio)), 12, round(255 * ratio))
+                for y in range(image.height):
+                    image.putpixel((x, y), color)
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "gradient-stops", "axis": "u", "stops": 6},
+                str(workspace),
+                str(temp),
+            )
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as board:
+                self.assertEqual(board.size, (256, 96))
+            self.assertEqual(report["kind"], "polykit.gradient-stops")
+            self.assertEqual(report["axis"], "u")
+            self.assertEqual(len(report["stops"]), 6)
+            self.assertEqual(report["stops"][0]["hueName"], "red")
+            self.assertEqual(report["stops"][-1]["hueName"], "blue")
+            self.assertGreaterEqual(len(report["riskFlags"]), 1)
+            self.assertEqual(result["metadata"]["evidence_kind"], "gradient-stops")
 
     def test_delight_albedo_writes_a_corrected_image_and_method_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:

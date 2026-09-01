@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import struct
 import sys
 import tempfile
 import uuid
@@ -670,6 +671,319 @@ def _surface_map_bake(input_path: Path, workspace_dir: Path, params: dict[str, A
     }
 
 
+def _geometry_integrity(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Audit topology and finite geometry without changing the source mesh."""
+    import numpy as np
+
+    scene = _load_scene(input_path)
+    mesh = _world_mesh(scene)
+    vertices = np.asarray(mesh.vertices, dtype=float)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    try:
+        area_epsilon = float(params.get("area_epsilon", 1e-12) or 1e-12)
+    except (TypeError, ValueError):
+        area_epsilon = 1e-12
+    area_epsilon = max(0.0, min(1.0, area_epsilon))
+    try:
+        require_watertight = params.get("require_watertight", False)
+        if isinstance(require_watertight, str):
+            require_watertight = require_watertight.strip().lower() not in {"", "0", "false", "no", "off"}
+        require_watertight = bool(require_watertight)
+    except Exception:
+        require_watertight = False
+
+    finite_vertices = bool(vertices.ndim == 2 and vertices.shape[1] == 3 and np.isfinite(vertices).all())
+    if faces.size:
+        triangles = vertices[faces]
+        cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        areas = 0.5 * np.linalg.norm(cross, axis=1)
+        degenerate_faces = int(np.count_nonzero(~np.isfinite(areas) | (areas <= area_epsilon)))
+        canonical_faces = np.sort(faces, axis=1)
+        duplicate_faces = int(len(canonical_faces) - len(np.unique(canonical_faces, axis=0)))
+        edges = np.sort(
+            np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]])),
+            axis=1,
+        )
+        _unique_edges, edge_counts = np.unique(edges, axis=0, return_counts=True)
+        boundary_edges = int(np.count_nonzero(edge_counts == 1))
+        nonmanifold_edges = int(np.count_nonzero(edge_counts > 2))
+    else:
+        degenerate_faces = duplicate_faces = boundary_edges = nonmanifold_edges = 0
+
+    checks = {
+        "finiteVertices": finite_vertices,
+        "hasFaces": bool(len(faces) > 0),
+        "degenerateFaces": degenerate_faces == 0,
+        "duplicateFaces": duplicate_faces == 0,
+        "nonManifoldEdges": nonmanifold_edges == 0,
+        "watertight": bool(mesh.is_watertight),
+        "windingConsistent": bool(mesh.is_winding_consistent),
+        "volume": bool(mesh.is_volume),
+    }
+    hard_fail = not all(
+        (checks[name] for name in ("finiteVertices", "hasFaces", "degenerateFaces", "duplicateFaces", "nonManifoldEdges"))
+    )
+    status = "fail" if hard_fail else "pass"
+    if require_watertight and not checks["watertight"]:
+        status = "needs_review" if status == "pass" else status
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.geometry-integrity",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(scene)),
+            "vertices": int(len(vertices)),
+            "faces": int(len(faces)),
+            "bounds": [_vector(mesh.bounds[0]), _vector(mesh.bounds[1])],
+        },
+        "checks": checks,
+        "counts": {
+            "degenerateFaces": degenerate_faces,
+            "duplicateFaces": duplicate_faces,
+            "boundaryEdges": boundary_edges,
+            "nonManifoldEdges": nonmanifold_edges,
+        },
+        "settings": {"areaEpsilon": _round(area_epsilon), "requireWatertight": require_watertight},
+        "reviewNotes": [
+            "This node audits the source and returns it unchanged; use mesh-repair or a modeling pass to mutate defects.",
+            "Open boundaries are reported explicitly and only block the result when require_watertight is enabled.",
+        ],
+    }
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'integrity')}.json"
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "geometry-integrity",
+            "schema_version": 1,
+            "status": status,
+            "watertight": checks["watertight"],
+            "report": report_path.name,
+        },
+    }
+
+
+def _bvh_build(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build a deterministic triangle AABB hierarchy as a JSON sidecar."""
+    import numpy as np
+
+    scene = _load_scene(input_path)
+    mesh = _world_mesh(scene)
+    vertices = np.asarray(mesh.vertices, dtype=np.float32)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    try:
+        leaf_triangles = int(params.get("leaf_triangles", 8) or 8)
+    except (TypeError, ValueError):
+        leaf_triangles = 8
+    leaf_triangles = max(1, min(64, leaf_triangles))
+    try:
+        max_depth = int(params.get("max_depth", 24) or 24)
+    except (TypeError, ValueError):
+        max_depth = 24
+    max_depth = max(1, min(64, max_depth))
+    try:
+        max_triangles = int(params.get("max_triangles", 200000) or 200000)
+    except (TypeError, ValueError):
+        max_triangles = 200000
+    max_triangles = max(1, min(2000000, max_triangles))
+    if len(faces) == 0:
+        raise ValueError("mesh contains no triangles for BVH construction")
+
+    triangle_count = len(faces)
+    complete = triangle_count <= max_triangles
+    triangle_indices = np.arange(min(triangle_count, max_triangles), dtype=np.int64)
+    triangles = vertices[faces[triangle_indices]]
+    triangle_min = triangles.min(axis=1)
+    triangle_max = triangles.max(axis=1)
+    triangle_center = (triangle_min + triangle_max) * 0.5
+    nodes: list[dict[str, Any]] = []
+    ordered: list[int] = []
+
+    def visit(indices: Any, depth: int) -> int:
+        node_index = len(nodes)
+        bounds_min = triangle_min[indices].min(axis=0)
+        bounds_max = triangle_max[indices].max(axis=0)
+        node: dict[str, Any] = {
+            "bounds": [_vector(bounds_min), _vector(bounds_max)],
+            "depth": depth,
+        }
+        nodes.append(node)
+        if len(indices) <= leaf_triangles or depth >= max_depth:
+            start = len(ordered)
+            ordered.extend(int(value) for value in indices.tolist())
+            node.update({"leaf": True, "start": start, "count": len(indices)})
+            return node_index
+        extent = np.ptp(triangle_center[indices], axis=0)
+        axis = int(np.argmax(extent))
+        sorted_indices = indices[np.argsort(triangle_center[indices, axis], kind="mergesort")]
+        middle = max(1, min(len(sorted_indices) - 1, len(sorted_indices) // 2))
+        left = visit(sorted_indices[:middle], depth + 1)
+        right = visit(sorted_indices[middle:], depth + 1)
+        node.update({"leaf": False, "children": [left, right], "axis": axis})
+        return node_index
+
+    root = visit(triangle_indices, 0)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'bvh')}.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.bvh",
+        "status": "pass" if complete else "needs_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(scene)),
+            "vertices": int(len(vertices)),
+            "faces": int(triangle_count),
+        },
+        "tree": {
+            "root": root,
+            "nodeCount": len(nodes),
+            "leafTriangles": leaf_triangles,
+            "maxDepth": max_depth,
+            "triangleCount": int(triangle_count),
+            "indexedTriangleCount": int(len(ordered)),
+            "complete": complete,
+            "nodes": nodes,
+            "triangleOrder": ordered,
+        },
+        "reviewNotes": [
+            "The sidecar stores triangle AABBs and a stable leaf order for server-side broad-phase queries.",
+            "This artifact does not replace a renderer-native BVH; rebuild it after any geometry mutation.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "bvh",
+            "schema_version": 1,
+            "status": report["status"],
+            "node_count": len(nodes),
+            "triangle_count": int(triangle_count),
+            "report": report_path.name,
+        },
+    }
+
+
+def _read_gltf_document(input_path: Path) -> dict[str, Any]:
+    if input_path.suffix.lower() == ".gltf":
+        value = json.loads(input_path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("glTF document must be an object")
+        return value
+    with input_path.open("rb") as stream:
+        header = stream.read(12)
+        if len(header) != 12:
+            raise ValueError("GLB header is truncated")
+        magic, version, total_length = struct.unpack("<4sII", header)
+        if magic != b"glTF" or version != 2:
+            raise ValueError("unsupported GLB header")
+        consumed = 12
+        while consumed + 8 <= total_length:
+            chunk_header = stream.read(8)
+            if len(chunk_header) != 8:
+                break
+            chunk_length, chunk_type = struct.unpack("<II", chunk_header)
+            consumed += 8
+            if chunk_length > total_length - consumed:
+                raise ValueError("GLB chunk exceeds declared file length")
+            chunk = stream.read(chunk_length)
+            consumed += chunk_length
+            if chunk_type == 0x4E4F534A:
+                value = json.loads(chunk.rstrip(b" \t\r\n").decode("utf-8"))
+                if not isinstance(value, dict):
+                    raise ValueError("GLB JSON chunk must be an object")
+                return value
+    raise ValueError("GLB has no JSON chunk")
+
+
+def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Inspect glTF skin, weight, animation, and morph-target declarations."""
+    document = _read_gltf_document(input_path)
+    nodes = document.get("nodes") if isinstance(document.get("nodes"), list) else []
+    skins = document.get("skins") if isinstance(document.get("skins"), list) else []
+    animations = document.get("animations") if isinstance(document.get("animations"), list) else []
+    meshes = document.get("meshes") if isinstance(document.get("meshes"), list) else []
+    valid_skins = [
+        skin for skin in skins
+        if isinstance(skin, dict)
+        and isinstance(skin.get("joints"), list)
+        and skin["joints"]
+        and all(isinstance(index, int) and 0 <= index < len(nodes) for index in skin["joints"])
+    ]
+    skinned_primitives = 0
+    morph_targets = 0
+    animation_channels = 0
+    for mesh in meshes:
+        if not isinstance(mesh, dict):
+            continue
+        primitives = mesh.get("primitives") if isinstance(mesh.get("primitives"), list) else []
+        for primitive in primitives:
+            if not isinstance(primitive, dict):
+                continue
+            attributes = primitive.get("attributes") if isinstance(primitive.get("attributes"), dict) else {}
+            if "JOINTS_0" in attributes and "WEIGHTS_0" in attributes:
+                skinned_primitives += 1
+            targets = primitive.get("targets") if isinstance(primitive.get("targets"), list) else []
+            morph_targets += len(targets)
+    for animation in animations:
+        if isinstance(animation, dict) and isinstance(animation.get("channels"), list):
+            animation_channels += len(animation["channels"])
+    require_animation = params.get("require_animation", False)
+    if isinstance(require_animation, str):
+        require_animation = require_animation.strip().lower() not in {"", "0", "false", "no", "off"}
+    require_animation = bool(require_animation)
+    has_skin = bool(valid_skins and skinned_primitives > 0)
+    has_animation = bool(animations and animation_channels > 0)
+    status = "pass" if has_skin and (has_animation or not require_animation) else "needs_review"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'animation')}.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.animation-audit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {"name": input_path.name, "format": input_path.suffix.lower().lstrip(".") or "unknown"},
+        "rig": {
+            "skinCount": len(skins),
+            "validSkinCount": len(valid_skins),
+            "jointCount": max((len(skin.get("joints", [])) for skin in valid_skins), default=0),
+            "skinnedPrimitiveCount": skinned_primitives,
+            "bound": has_skin,
+        },
+        "animation": {
+            "clipCount": len(animations),
+            "channelCount": animation_channels,
+            "hasAnimation": has_animation,
+            "required": require_animation,
+        },
+        "morphTargets": {"targetCount": morph_targets, "present": morph_targets > 0},
+        "reviewNotes": [
+            "Structural declarations are checked here; numeric weights and deformation quality still require a runtime smoke test.",
+            "A mesh can be rigged without clips. Enable require_animation when the next stage expects an animation-bearing asset.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "animation-audit",
+            "schema_version": 1,
+            "status": status,
+            "bound": has_skin,
+            "clip_count": len(animations),
+            "report": report_path.name,
+        },
+    }
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
@@ -711,6 +1025,15 @@ def main() -> None:
         elif node_id == "surface-map-bake":
             progress(25, "Baking normal and AO maps…")
             result = _surface_map_bake(input_path, workspace_dir, params)
+        elif node_id == "geometry-integrity":
+            progress(25, "Auditing mesh integrity…")
+            result = _geometry_integrity(input_path, workspace_dir, params)
+        elif node_id == "bvh-build":
+            progress(25, "Building triangle BVH…")
+            result = _bvh_build(input_path, workspace_dir, params)
+        elif node_id == "animation-audit":
+            progress(25, "Auditing rig and animation metadata…")
+            result = _animation_audit(input_path, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported mesh production node '{node_id}'")
         progress(90, "Writing mesh derivatives…")

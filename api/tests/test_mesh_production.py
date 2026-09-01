@@ -202,6 +202,135 @@ class MeshProductionProcessorTests(unittest.TestCase):
             self.assertEqual(report["maps"]["normal"]["space"], "world")
             self.assertEqual(result["metadata"]["evidence_kind"], "surface-map-bake")
 
+    def test_geometry_integrity_distinguishes_closed_and_open_meshes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            closed = root / "closed.glb"
+            trimesh.creation.box().export(closed)
+            closed_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(closed)},
+                {"_node_id": "geometry-integrity", "require_watertight": True},
+                str(workspace),
+                str(temp),
+            )
+            closed_report = json.loads(Path(str(closed_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(closed_report["status"], "pass")
+            self.assertTrue(closed_report["checks"]["watertight"])
+            self.assertEqual(closed_report["counts"]["boundaryEdges"], 0)
+
+            open_mesh = root / "open.glb"
+            # A single triangle is unambiguously open and keeps this test
+            # independent of trimesh's face-removal mutation semantics.
+            trimesh.Trimesh(
+                vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+                faces=[[0, 1, 2]],
+                process=False,
+            ).export(open_mesh)
+            open_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(open_mesh)},
+                {"_node_id": "geometry-integrity", "require_watertight": True},
+                str(workspace),
+                str(temp),
+            )
+            open_report = json.loads(Path(str(open_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(open_report["status"], "needs_review")
+            self.assertFalse(open_report["checks"]["watertight"])
+            self.assertEqual(open_report["counts"]["boundaryEdges"], 3)
+
+    def test_bvh_build_covers_every_triangle_in_stable_leaf_order(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.glb"
+            trimesh.creation.icosphere(subdivisions=2).export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "bvh-build", "leaf_triangles": 4, "max_depth": 16},
+                str(workspace),
+                str(temp),
+            )
+
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            tree = report["tree"]
+            self.assertEqual(report["kind"], "polykit.bvh")
+            self.assertTrue(tree["complete"])
+            self.assertEqual(tree["triangleCount"], tree["indexedTriangleCount"])
+            self.assertEqual(sorted(tree["triangleOrder"]), list(range(tree["triangleCount"])))
+            self.assertGreater(tree["nodeCount"], 1)
+            self.assertEqual(result["metadata"]["evidence_kind"], "bvh")
+
+    def test_animation_audit_checks_skin_clips_and_morph_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+            rigged = root / "rigged.gltf"
+            rigged.write_text(
+                json.dumps(
+                    {
+                        "asset": {"version": "2.0"},
+                        "nodes": [{"name": "root"}, {"name": "joint"}],
+                        "skins": [{"joints": [1], "skeleton": 0}],
+                        "meshes": [
+                            {
+                                "primitives": [
+                                    {
+                                        "attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2},
+                                        "targets": [{"POSITION": 3}],
+                                    }
+                                ]
+                            }
+                        ],
+                        "animations": [{"name": "idle", "channels": [{"sampler": 0, "target": {"node": 1, "path": "rotation"}}]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(rigged)},
+                {"_node_id": "animation-audit", "require_animation": True},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue(report["rig"]["bound"])
+            self.assertEqual(report["animation"]["clipCount"], 1)
+            self.assertTrue(report["morphTargets"]["present"])
+
+            plain = root / "plain.gltf"
+            plain.write_text(json.dumps({"asset": {"version": "2.0"}, "nodes": [{}], "meshes": []}), encoding="utf-8")
+            plain_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(plain)},
+                {"_node_id": "animation-audit", "require_animation": True},
+                str(workspace),
+                str(temp),
+            )
+            plain_report = json.loads(Path(str(plain_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(plain_report["status"], "needs_review")
+            self.assertFalse(plain_report["rig"]["bound"])
+
     def test_collision_mesh_builds_convex_proxy_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
