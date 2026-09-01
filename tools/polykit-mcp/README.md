@@ -20,14 +20,35 @@ It does **not** own task progression, World validation rules, workflow execution
 
 ## Agent context efficiency
 
-The Agent facade prevents durable server state from being copied into the model context on every tool call:
+The Agent facade prevents durable server state from being copied into the model context on every tool call without deleting access to the underlying information:
 
 - `polykit_workflow_status` is the lightweight polling tool. It omits the large `meta` payload while preserving current status, progress, output/error, workflow/collection identifiers, and a waiting interrupt when present.
-- `polykit_workflow_inspect` is for detailed evidence, not polling. The first call returns a bounded recent event window; subsequent calls should pass `next_event_seq` back as `since_seq` so old events are not returned again. `events_limit` bounds each page, and `include_events=false` returns snapshots/evidence without event text.
-- `polykit_skill_read_resource` returns a bounded text chunk. Continue with `next_offset` instead of re-reading the whole resource.
+- `polykit_workflow_inspect` is for detailed evidence, not polling. The first call returns a bounded recent event window. Pass `next_event_seq` as `since_seq` to receive only newer events. If older history is needed, pass `previous_event_seq` as `before_seq` to page backward. `since_seq` and `before_seq` are mutually exclusive.
+- `events_limit` bounds each inspection page, and `include_events=false` returns snapshots/evidence without event text.
+- `polykit_skill_read_resource` returns a bounded text chunk. Continue with `next_offset` instead of re-reading the whole resource into Agent context.
 - MCP JSON is compact rather than pretty-printed because whitespace adds no machine-readable information but still consumes model input tokens.
 
 The FastAPI contracts remain unchanged. Full durable state is still available to Web/debugging paths; only the Agent-facing projection is smaller.
+
+## Tool discovery profiles
+
+Tool profiles are optional and affect only `tools/list`; they are not an authorization system and they do not move execution logic into MCP. The default profile is `all`, which exposes exactly the same canonical tool names as before this optimization.
+
+Available profiles:
+
+- `all` — default; expose every canonical PolyKit MCP tool.
+- `core` — health/model discovery, Agent Skills, and WorkflowRun lifecycle tools.
+- `asset` — `core` plus text-to-asset and mesh processing tools.
+- `world` — `core` plus World authoring/validation/repair tools.
+- `authoring` — `core` plus both asset and World tools.
+
+Use a smaller profile only when the caller already knows the task domain:
+
+```bash
+POLYKIT_MCP_PROFILE=asset npm run mcp:serve
+```
+
+An unknown profile value deliberately falls back to `all`, so a typo cannot silently remove Agent capabilities. Switching profiles is an operator/client choice; PolyKit does not automatically hide tools based on model guesses.
 
 ## Development
 
@@ -92,9 +113,10 @@ A real Agent is useful only for the last step: checking whether the model unders
 
 ## Tool design rules
 
-- Tools map directly to existing FastAPI capabilities; the Agent facade may only project or bound returned data.
+- Tools map directly to existing FastAPI capabilities; the Agent facade may only project, bound, or optionally filter discovery of returned data/tools.
+- `all` remains the default tool profile; smaller profiles are explicit opt-in context reductions.
 - `polykit_workflow_status` is the preferred polling surface.
-- `polykit_workflow_inspect` is read-only and never advances, retries, or resumes a run. Use its event cursor instead of re-reading history.
+- `polykit_workflow_inspect` is read-only and never advances, retries, or resumes a run. Use `since_seq` for deltas and `before_seq` when older evidence must be recovered.
 - `polykit_workflow_signal` only delivers `{name, payload}` to a server-owned waiting interrupt. FastAPI validates the expected signal and resumes the same `run_id`; MCP does not hold or recreate execution state.
 - `polykit_workflow_retry` only asks FastAPI to resume a failed/interrupted run from its durable completed-node checkpoints. It never submits a replacement WorkflowRun.
 - Waiting/retry lifecycle remains owned by WorkflowRun. MCP does not implement polling loops, checkpoints, retries, or a second pause/resume state machine.
@@ -114,9 +136,11 @@ polykit_workflow_status
         ↓
 status = waiting + expected signal
         ↓
-polykit_workflow_inspect(since_seq=...)
+polykit_workflow_inspect
         ↓
 Agent / human judges evidence
+        ↓
+(optional) before_seq pages recover older evidence
         ↓
 polykit_workflow_signal
         ↓
