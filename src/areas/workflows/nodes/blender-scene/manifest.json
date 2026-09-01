@@ -2,6 +2,8 @@
   "id": "blender-scene",
   "name": "Blender Scene Builder",
   "type": "process",
+  "capability_kind": "generator",
+  "generator_kind": "procedural",
   "entry": "processor_v2.py",
   "version": "2.1.0",
   "author": "PolyKit",
