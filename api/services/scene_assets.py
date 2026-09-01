@@ -153,7 +153,15 @@ def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_
             meshes_only=True,
         )
         best = candidates[0] if candidates else None
-        if best and float(best["score"]) >= min_score:
+        semantic_query = _tokens(" ".join([obj.name, *obj.aliases]))
+        candidate_terms = (
+            _tokens(str(best.get("display_name") or ""))
+            | set().union(*(_tokens(str(value)) for value in best.get("aliases", [])))
+            if best
+            else set()
+        )
+        semantic_overlap = bool(semantic_query & candidate_terms)
+        if best and float(best["score"]) >= min_score and semantic_overlap:
             objects.append(obj.model_copy(update={
                 "asset": SceneAssetRef(
                     assetId=best["asset_id"],
