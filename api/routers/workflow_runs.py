@@ -1,27 +1,36 @@
 import asyncio
 import json
+import shutil
+import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from application.execution import prepare_execution_run
-from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
+from application.generate_asset import (
+    GenerateAssetCommand,
+    GenerateAssetFromImageCommand,
+    compile_generate_asset_from_image_plan,
+    compile_generate_asset_plan,
+)
+from application.run_control import (
+    RunNotFoundError,
+    RunStateError,
+    cancel_run as cancel_application_run,
+    inspect_run as inspect_application_run,
+    prepare_run_retry,
+    prepare_run_signal,
+)
 from schemas.execution import ExecutionInitiator, ExecutionPlan, ExecutionSource
 from schemas.workflow import WorkflowExecutionRequest
 from services.execution_runtime import run_execution
-from services.image_generation import enqueue_generation_job, texture_refiner_id
+from services.image_generation import texture_refiner_id
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
-from services.run_observability import finalize_workflow_run, inspect_workflow_run
 from services.runtime_paths import runtime_paths
-from services.workflow_execution import (
-    current_waiting,
-    execution_summary,
-    load_workflow_execution_request,
-    prepare_execution_resume,
-    submit_signal,
-)
+from services.workflow_execution import load_workflow_execution_request, prepare_execution_resume
 from services.workspace_paths import normalize_collection
 
 router = APIRouter(tags=["workflow-runs"])
@@ -61,6 +70,15 @@ def build_text_to_asset_workflow(request: TextToAssetRequest) -> WorkflowExecuti
     return WorkflowExecutionRequest.model_validate(plan.model_dump(mode="python"))
 
 
+def _upload_suffix(content_type: str | None) -> str:
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }.get(str(content_type or "").lower(), ".img")
+
+
 @router.post("/from-image")
 async def create_run_from_image(
     background_tasks: BackgroundTasks,
@@ -76,16 +94,19 @@ async def create_run_from_image(
     world_id: str = Form(""),
     proto_id: str = Form(""),
 ):
-    """Compatibility multipart entry point for manual single-image generation.
+    """Compatibility multipart adapter backed by the generic ExecutionPlan.
 
-    Multipart upload transport still uses the proven direct image runner. New
-    JSON/manual/Agent generation should use /commands/generate-asset; a later
-    migration can materialize multipart uploads into ExecutionPlan inputs.
+    Binary transport is materialized under the preallocated Run artifact root;
+    the durable execution snapshot stores only a bounded workspace-relative
+    path. This keeps manual image generation on the same engine as Agent and
+    saved Workflow execution without duplicating image bytes in SQLite.
     """
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
     if remesh not in ("quad", "triangle", "none"):
         raise HTTPException(400, "remesh must be 'quad', 'triangle', or 'none'")
+    if texture_resolution < 64 or texture_resolution > 8192:
+        raise HTTPException(400, "texture_resolution must be between 64 and 8192")
 
     collection = normalize_collection(collection)
     model_id = model_id or model_runtime_registry.active_status()["id"]
@@ -101,40 +122,57 @@ async def create_run_from_image(
         )
 
     try:
-        model_params = json.loads(params)
+        parsed_params = json.loads(params)
     except (json.JSONDecodeError, TypeError):
-        model_params = {}
-
-    full_params = {
-        "remesh": remesh,
-        "enable_texture": enable_texture,
-        "texture_resolution": texture_resolution,
-        **model_params,
-    }
-    metadata = {
-        key: value
-        for key, value in {
-            "workflow_id": workflow_id.strip(),
-            "node_id": node_id.strip(),
-            "world_id": world_id.strip(),
-            "proto_id": proto_id.strip(),
-            "image_name": (image.filename or "").strip(),
-        }.items()
-        if value
-    }
-    metadata["initiator"] = {"type": "user", "surface": "assets.generate.image"}
-    metadata["execution_source"] = {"kind": "direct", "id": "assets.generate.image"}
+        parsed_params = {}
+    model_params = dict(parsed_params) if isinstance(parsed_params, dict) else {}
 
     image_bytes = await image.read()
-    job_id = enqueue_generation_job(
-        background_tasks,
-        image_bytes,
-        full_params,
-        collection,
-        model_id,
-        metadata,
+    if not image_bytes:
+        raise HTTPException(400, "Image upload is empty")
+    if len(image_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(413, "Image input is larger than 50 MiB")
+
+    run_id = str(uuid.uuid4())
+    relative_input = f".artifacts/{run_id}/inputs/source{_upload_suffix(image.content_type)}"
+    input_path = runtime_paths.workspace / relative_input
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        input_path.write_bytes(image_bytes)
+    except OSError as exc:
+        raise HTTPException(500, f"Could not persist Run input: {exc}") from exc
+
+    mesh_params = dict(model_params)
+    mesh_params["remesh"] = remesh
+    # Texture refinement is an explicit capability/node in the canonical plan.
+    mesh_params["enable_texture"] = False
+
+    command = GenerateAssetFromImageCommand(
+        image={"kind": "workspace_path", "path": relative_input},
+        mesh_model_id=model_id,
+        enable_texture=enable_texture,
+        collection=collection,
+        workflow_id=workflow_id.strip() or None,
+        node_id=node_id.strip() or None,
+        world_id=world_id.strip() or None,
+        proto_id=proto_id.strip() or None,
+        image_name=(image.filename or "").strip() or None,
+        mesh_params=mesh_params,
+        texture_params={"texture_resolution": texture_resolution},
     )
-    return {"run_id": job_id, "status": "pending"}
+    try:
+        plan = compile_generate_asset_from_image_plan(command)
+        prepared = prepare_execution_run(
+            plan,
+            initiator=ExecutionInitiator(type="user", surface="assets.generate.image"),
+            run_id=run_id,
+        )
+    except (KeyError, ValueError, OSError) as exc:
+        shutil.rmtree(input_path.parents[1], ignore_errors=True)
+        raise HTTPException(400, str(exc)) from exc
+
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+    return {"run_id": prepared.run_id, "status": "pending"}
 
 
 @router.post("/execute")
@@ -166,66 +204,51 @@ async def execute_workflow(
     }
 
 
-def _queue_existing_run(
-    job_id: str,
-    request: WorkflowExecutionRequest,
-    background_tasks: BackgroundTasks,
-) -> dict[str, Any]:
-    job = run_coordinator.jobs[job_id]
-    prepare_execution_resume(job)
-    run_coordinator.clear_completed(job_id)
-    run_coordinator.ensure_cancel_event(job_id)
-    job.status = "pending"
-    job.error = None
-    job.step = "Queued for resume"
-    run_coordinator.persist(job)
-    model_runtime_registry.begin_generation(job_id)
-    background_tasks.add_task(run_execution, job_id, request)
-    return {"run_id": job_id, "status": "pending", "resumed": True}
-
-
 @router.post("/{run_id}/signals")
 async def signal_run(
     run_id: str,
     signal: WorkflowSignalRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Deliver the expected signal and resume the same durable Run."""
-    job = run_coordinator.jobs.get(run_id)
-    if job is None:
-        raise HTTPException(404, f"Run {run_id} not found")
-    if job.status != "waiting":
-        raise HTTPException(409, "Run is not waiting for a signal")
+    """Compatibility alias for canonical Run signal delivery."""
     try:
-        accepted = submit_signal(job, name=signal.name, payload=signal.payload)
-        request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
-    except ValueError as exc:
+        prepared, accepted = prepare_run_signal(
+            run_id,
+            name=signal.name,
+            payload=signal.payload,
+        )
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RunStateError as exc:
         raise HTTPException(409, str(exc)) from exc
-    run_coordinator.persist(job)
-    result = _queue_existing_run(run_id, request, background_tasks)
-    return {**result, "signal_id": accepted["id"], "signal_name": accepted["name"]}
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+    return {
+        "run_id": prepared.run_id,
+        "status": "pending",
+        "resumed": True,
+        "signal_id": accepted["id"],
+        "signal_name": accepted["name"],
+    }
 
 
 @router.post("/{run_id}/retry")
 async def retry_run(run_id: str, background_tasks: BackgroundTasks):
-    """Retry only incomplete steps using completed run-owned checkpoints."""
-    job = run_coordinator.jobs.get(run_id)
-    if job is None:
-        raise HTTPException(404, f"Run {run_id} not found")
-    if job.status not in {"error", "interrupted"}:
-        raise HTTPException(409, "Only failed or interrupted Runs can be retried")
+    """Compatibility alias for canonical Run retry."""
     try:
-        request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
-    except ValueError as exc:
+        prepared = prepare_run_retry(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RunStateError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return _queue_existing_run(run_id, request, background_tasks)
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+    return {"run_id": prepared.run_id, "status": "pending", "resumed": True}
 
 
 async def recover_interrupted_workflow_runs() -> None:
     """Requeue interrupted durable executions after FastAPI startup.
 
-    Legacy multipart image-generation jobs have no durable execution snapshot
-    and remain interrupted instead of being guessed or replayed.
+    Runs created before the ExecutionPlan migration may have no durable
+    execution snapshot and remain interrupted instead of being guessed/replayed.
     """
     for job in list(run_coordinator.jobs.values()):
         if job.status != "interrupted":
@@ -298,14 +321,11 @@ async def list_runs(
 
 @router.get("/{run_id}/inspect")
 async def inspect_run(run_id: str):
-    """Return persisted telemetry plus authoritative durable execution steps."""
-    job = run_coordinator.jobs.get(run_id)
-    if not job:
-        raise HTTPException(404, f"Run {run_id} not found")
-    value = inspect_workflow_run(job)
-    value["execution"] = execution_summary(job)
-    value["waiting"] = current_waiting(job)
-    return value
+    """Compatibility alias for canonical Run inspection."""
+    try:
+        return inspect_application_run(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/{run_id}", response_model=WorkflowRunStatus)
@@ -332,9 +352,9 @@ async def get_run(run_id: str):
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str):
-    job = run_coordinator.cancel(run_id)
-    if job is None:
-        raise HTTPException(404, f"Run {run_id} not found")
-    finalize_workflow_run(job, status="cancelled")
-    run_coordinator.persist(job)
+    """Compatibility alias for canonical Run cancellation."""
+    try:
+        cancel_application_run(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return {"cancelled": True}
