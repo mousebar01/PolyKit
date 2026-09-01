@@ -1,0 +1,88 @@
+{
+  "id": "mesh-production",
+  "name": "Mesh Production",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Creates game-ready mesh derivatives such as collision geometry and level-of-detail assets.",
+  "requirements": ["trimesh", "pymeshlab"],
+  "i18n": {
+    "zh-CN": {
+      "name": "网格生产",
+      "description": "生成碰撞体和多级细节等可用于游戏引擎的网格派生资产。"
+    },
+    "en-US": {
+      "name": "Mesh Production",
+      "description": "Creates game-ready mesh derivatives such as collision geometry and level-of-detail assets."
+    }
+  },
+  "nodes": [
+    {
+      "id": "collision-mesh",
+      "name": "Collision Mesh",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Builds a simplified collision proxy from the whole scene while preserving the source coordinate frame.",
+      "i18n": {
+        "zh-CN": { "name": "碰撞网格" },
+        "en-US": { "name": "Collision Mesh" }
+      },
+      "params_schema": [
+        {
+          "id": "method",
+          "label": "Method",
+          "type": "select",
+          "default": "convex_hull",
+          "options": [
+            { "value": "convex_hull", "label": "Convex Hull" },
+            { "value": "box", "label": "Bounding Box" }
+          ],
+          "tooltip": "Convex Hull follows the outer silhouette; Bounding Box is the cheapest broad-phase proxy."
+        }
+      ]
+    },
+    {
+      "id": "lod-generate",
+      "name": "Generate LODs",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Creates deterministic LOD0/LOD1/LOD2 GLB derivatives and a reduction report.",
+      "i18n": {
+        "zh-CN": { "name": "生成 LOD" },
+        "en-US": { "name": "Generate LODs" }
+      },
+      "params_schema": [
+        {
+          "id": "lod1_ratio",
+          "label": "LOD1 Ratio",
+          "type": "float",
+          "default": 0.5,
+          "min": 0.05,
+          "max": 1.0,
+          "step": 0.05,
+          "tooltip": "Target triangle ratio for the first distant level."
+        },
+        {
+          "id": "lod2_ratio",
+          "label": "LOD2 Ratio",
+          "type": "float",
+          "default": 0.2,
+          "min": 0.02,
+          "max": 1.0,
+          "step": 0.05,
+          "tooltip": "Target triangle ratio for the second distant level."
+        },
+        {
+          "id": "min_faces",
+          "label": "Minimum Faces",
+          "type": "int",
+          "default": 32,
+          "min": 4,
+          "max": 100000,
+          "tooltip": "Prevents a small component from collapsing below a usable triangle count."
+        }
+      ]
+    }
+  ]
+}
