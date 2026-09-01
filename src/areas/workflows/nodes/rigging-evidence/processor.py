@@ -17,6 +17,8 @@ ATTACHMENT_TOKENS = {"attachment", "accessory", "worn", "held", "prop", "equipme
 EXTENT_FIELDS = ("width", "height", "depth", "length")
 DEFAULT_MAX_OFFSET = 0.3
 ANCHOR_SIZE_FRACTION = 0.25
+RIG_WEIGHT_TOLERANCE = 1e-4
+RIG_MAX_INFLUENCES = 4
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -188,6 +190,145 @@ def _analyze(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rig_vector(value: Any, label: str, errors: list[str]) -> tuple[float, float, float] | None:
+    if not isinstance(value, list) or len(value) != 3 or not all(_is_number(item) for item in value):
+        errors.append(f"{label} must be a finite length-3 vector")
+        return None
+    return tuple(float(item) for item in value)
+
+
+def _rig_matrix(value: Any, label: str, errors: list[str]) -> bool:
+    if isinstance(value, list) and len(value) == 16 and all(_is_number(item) for item in value):
+        flat = [float(item) for item in value]
+    elif isinstance(value, list) and len(value) == 4 and all(isinstance(row, list) and len(row) == 4 for row in value) and all(_is_number(item) for row in value for item in row):
+        flat = [float(item) for row in value for item in row]
+    else:
+        errors.append(f"{label} must be a finite 4x4 or length-16 matrix")
+        return False
+    if any(abs(actual - expected) > RIG_WEIGHT_TOLERANCE for actual, expected in zip(flat[12:16], (0.0, 0.0, 0.0, 1.0))):
+        errors.append(f"{label} must have affine last row [0, 0, 0, 1]")
+    for column in range(3):
+        scale = math.sqrt(sum(flat[row * 4 + column] ** 2 for row in range(3)))
+        if scale <= 1e-6:
+            errors.append(f"{label} contains a zero-scale basis column")
+    return True
+
+
+def _analyze_rig_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate the portable skeleton/skin payload before file export."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    if payload.get("schemaVersion") != 1:
+        errors.append("schemaVersion must be 1")
+    coordinate = payload.get("coordinateSystem")
+    if not isinstance(coordinate, dict):
+        errors.append("coordinateSystem is required")
+    else:
+        if coordinate.get("up") != "Y":
+            errors.append("coordinateSystem.up must be Y")
+        if coordinate.get("handedness") != "right":
+            errors.append("coordinateSystem.handedness must be right")
+        if not isinstance(coordinate.get("unit"), str) or not coordinate["unit"].strip():
+            errors.append("coordinateSystem.unit must be a non-empty string")
+
+    joints_raw = payload.get("joints")
+    joints: list[tuple[float, float, float]] = []
+    if not isinstance(joints_raw, list) or not joints_raw:
+        errors.append("joints must be a non-empty list")
+        joints_raw = []
+    else:
+        for index, value in enumerate(joints_raw):
+            parsed = _rig_vector(value, f"joints[{index}]", errors)
+            if parsed is not None:
+                joints.append(parsed)
+    joint_count = len(joints_raw)
+
+    parents = payload.get("parents")
+    if not isinstance(parents, list) or len(parents) != joint_count:
+        errors.append("parents must have one entry per joint")
+        parents = parents if isinstance(parents, list) else []
+    elif parents and parents[0] is not None:
+        errors.append("parents[0] must be null for the single root")
+    for index, parent in enumerate(parents[1:], start=1):
+        if not isinstance(parent, int) or isinstance(parent, bool):
+            errors.append(f"parents[{index}] must be an integer parent index")
+        elif parent < 0 or parent >= index:
+            errors.append(f"parents[{index}] must satisfy 0 <= parent < child index")
+        elif index < len(joints) and parent < len(joints) and _distance(list(joints[index]), list(joints[parent])) <= 1e-6:
+            errors.append(f"joint {index} has a zero-length parent bone {parent}")
+
+    names = payload.get("names")
+    if not isinstance(names, list) or len(names) != joint_count:
+        errors.append("names must have one entry per joint")
+        names = names if isinstance(names, list) else []
+    seen_names: set[str] = set()
+    for index, name in enumerate(names):
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"names[{index}] must be a non-empty string")
+        elif name in seen_names:
+            errors.append(f"duplicate joint name: {name}")
+        seen_names.add(str(name))
+
+    matrices = payload.get("matrix_local")
+    if not isinstance(matrices, list) or len(matrices) != joint_count:
+        errors.append("matrix_local must have one matrix per joint")
+        matrices = matrices if isinstance(matrices, list) else []
+    for index, matrix in enumerate(matrices):
+        _rig_matrix(matrix, f"matrix_local[{index}]", errors)
+
+    skin_indices = payload.get("skinIndex")
+    skin_weights = payload.get("skinWeight")
+    if not isinstance(skin_indices, list) or not isinstance(skin_weights, list):
+        errors.append("skinIndex and skinWeight are required packed arrays")
+        skin_indices = skin_indices if isinstance(skin_indices, list) else []
+        skin_weights = skin_weights if isinstance(skin_weights, list) else []
+    if len(skin_indices) != len(skin_weights):
+        errors.append("skinIndex and skinWeight must have the same vertex count")
+    vertex_count = min(len(skin_indices), len(skin_weights))
+    active_counts = [0] * joint_count
+    for vertex in range(vertex_count):
+        indices = skin_indices[vertex]
+        weights = skin_weights[vertex]
+        if not isinstance(indices, list) or len(indices) != RIG_MAX_INFLUENCES:
+            errors.append(f"skinIndex[{vertex}] must have exactly {RIG_MAX_INFLUENCES} slots")
+            continue
+        if not isinstance(weights, list) or len(weights) != RIG_MAX_INFLUENCES:
+            errors.append(f"skinWeight[{vertex}] must have exactly {RIG_MAX_INFLUENCES} slots")
+            continue
+        for slot, joint in enumerate(indices):
+            if not isinstance(joint, int) or isinstance(joint, bool) or joint < 0 or joint >= joint_count:
+                errors.append(f"skinIndex[{vertex}][{slot}] points outside the joint array")
+            elif _is_number(weights[slot]) and float(weights[slot]) > 1e-6:
+                active_counts[joint] += 1
+        if not all(_is_number(weight) and float(weight) >= 0.0 for weight in weights):
+            errors.append(f"skinWeight[{vertex}] must contain finite non-negative values")
+        else:
+            total = sum(float(weight) for weight in weights)
+            if abs(total - 1.0) > RIG_WEIGHT_TOLERANCE:
+                errors.append(f"skinWeight[{vertex}] must sum to 1 (got {total:.6f})")
+            if total <= 1e-6:
+                errors.append(f"skinWeight[{vertex}] must influence at least one joint")
+    if isinstance(names, list):
+        unweighted = [str(names[index]) if index < len(names) else str(index) for index, count in enumerate(active_counts) if count == 0]
+        if unweighted:
+            warnings.append("joints with no active vertex influence: " + ", ".join(unweighted))
+
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.rig-payload-audit",
+        "status": "pass" if not errors else "fail",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "passed": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "summary": {"jointCount": joint_count, "vertexCount": vertex_count, "maxInfluences": RIG_MAX_INFLUENCES, "activeVertexCountByJoint": active_counts},
+        "reviewNotes": [
+            "This gate validates the portable skeleton and skin payload; runtime deformation and screenshot checks remain separate.",
+            "Unweighted joints are warnings because attachment-only bones may intentionally have no skinned vertices.",
+        ],
+    }
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.readline())
@@ -198,17 +339,22 @@ def main() -> None:
             return
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "attachment-anchor-audit")
-        if node_id != "attachment-anchor-audit":
+        if node_id not in {"attachment-anchor-audit", "rig-payload-audit"}:
             error(f"rigging-evidence: unsupported node '{node_id}'")
             return
         descriptor = json.loads(text)
         if not isinstance(descriptor, dict):
             raise ValueError("attachment descriptor must be a JSON object")
-        progress(5, "Reading attachment relationships…")
-        report = _analyze(descriptor)
+        progress(5, "Reading rigging evidence…")
+        report = _analyze(descriptor) if node_id == "attachment-anchor-audit" else _analyze_rig_payload(descriptor)
         progress(90, "Writing rigging evidence…")
-        progress(100, "Attachment audit ready")
-        emit({"type": "done", "result": {"text": json.dumps(report, ensure_ascii=False, indent=2), "metadata": {"evidence_kind": "attachment-anchor-audit", "schema_version": 1, "status": report["status"], "attachment_count": report["attachmentCount"]}}})
+        progress(100, "Rigging evidence ready")
+        metadata = {"evidence_kind": "attachment-anchor-audit" if node_id == "attachment-anchor-audit" else "rig-payload-audit", "schema_version": 1, "status": report["status"]}
+        if node_id == "attachment-anchor-audit":
+            metadata["attachment_count"] = report["attachmentCount"]
+        else:
+            metadata["joint_count"] = report["summary"]["jointCount"]
+        emit({"type": "done", "result": {"text": json.dumps(report, ensure_ascii=False, indent=2), "metadata": metadata}})
     except Exception as exc:
         error(f"rigging-evidence: {exc}")
 

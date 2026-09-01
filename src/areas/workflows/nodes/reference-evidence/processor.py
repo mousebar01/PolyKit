@@ -1217,6 +1217,179 @@ def _run_projection_plan(input_path: Path, workspace_dir: Path, params: dict[str
     }
 
 
+def _review_luma(image: Any, size: int = 64) -> list[float]:
+    """Return a deterministic square Rec.709 luma grid for visual review."""
+    resized = image.convert("RGB").resize((size, size), 2)  # PIL.Image.Resampling.BILINEAR
+    return [
+        (0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]) / 255.0
+        for pixel in resized.getdata()
+    ]
+
+
+def _review_ssim(reference: list[float], candidate: list[float]) -> float:
+    if len(reference) != len(candidate) or not reference:
+        return 0.0
+    mean_ref = sum(reference) / len(reference)
+    mean_candidate = sum(candidate) / len(candidate)
+    variance_ref = sum((value - mean_ref) ** 2 for value in reference) / len(reference)
+    variance_candidate = sum((value - mean_candidate) ** 2 for value in candidate) / len(candidate)
+    covariance = sum(
+        (reference[index] - mean_ref) * (candidate[index] - mean_candidate)
+        for index in range(len(reference))
+    ) / len(reference)
+    c1, c2 = 0.01**2, 0.03**2
+    denominator = (mean_ref**2 + mean_candidate**2 + c1) * (variance_ref + variance_candidate + c2)
+    if denominator <= 1e-12:
+        return 1.0 if reference == candidate else 0.0
+    return max(0.0, min(1.0, ((2 * mean_ref * mean_candidate + c1) * (2 * covariance + c2)) / denominator))
+
+
+def _review_edges(luma: list[float], size: int = 64, threshold: float = 0.12) -> list[bool]:
+    edges = [False] * (size * size)
+    for y in range(1, size - 1):
+        for x in range(1, size - 1):
+            def value(dx: int, dy: int) -> float:
+                return luma[(y + dy) * size + x + dx]
+
+            gx = (value(-1, -1) + 2 * value(-1, 0) + value(-1, 1)) - (value(1, -1) + 2 * value(1, 0) + value(1, 1))
+            gy = (value(-1, -1) + 2 * value(0, -1) + value(1, -1)) - (value(-1, 1) + 2 * value(0, 1) + value(1, 1))
+            edges[y * size + x] = math.hypot(gx, gy) > threshold
+    return edges
+
+
+def _review_edge_overlap(reference: list[float], candidate: list[float], size: int = 64) -> float:
+    reference_edges = _review_edges(reference, size)
+    candidate_edges = _review_edges(candidate, size)
+    union = sum(1 for left, right in zip(reference_edges, candidate_edges) if left or right)
+    intersection = sum(1 for left, right in zip(reference_edges, candidate_edges) if left and right)
+    return intersection / union if union else 1.0
+
+
+def _review_tonal_parity(reference: list[float], candidate: list[float], bins: int = 16) -> float:
+    def histogram(values: list[float]) -> list[float]:
+        counts = [0] * bins
+        for value in values:
+            counts[min(bins - 1, max(0, int(value * bins)))] += 1
+        total = max(1, len(values))
+        return [count / total for count in counts]
+
+    distance = sum(abs(left - right) for left, right in zip(histogram(reference), histogram(candidate)))
+    return max(0.0, min(1.0, 1.0 - distance / 2.0))
+
+
+def _review_foreground(image: Any, size: int = 96) -> tuple[list[bool], str]:
+    """Build a conservative foreground mask and identify its evidence source."""
+    rgba = image.convert("RGBA").resize((size, size), 2)  # PIL.Image.Resampling.BILINEAR
+    pixels = list(rgba.getdata())
+    alpha = [pixel[3] / 255.0 for pixel in pixels]
+    alpha_span = max(alpha, default=0.0) - min(alpha, default=0.0)
+    if alpha_span > 0.15:
+        return [value >= 0.08 for value in alpha], "alpha"
+    corners = [pixels[0], pixels[size - 1], pixels[(size - 1) * size], pixels[-1]]
+    background = tuple(sum(pixel[channel] for pixel in corners) / len(corners) for channel in range(3))
+    mask = []
+    for pixel in pixels:
+        distance = math.sqrt(sum((pixel[channel] - background[channel]) ** 2 for channel in range(3)))
+        mask.append(distance >= 24.0)
+    return mask, "corner-distance"
+
+
+def _review_bbox(mask: list[bool], size: int) -> tuple[int, int, int, int] | None:
+    points = [(index % size, index // size) for index, active in enumerate(mask) if active]
+    if not points:
+        return None
+    xs, ys = zip(*points)
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def _review_iou(reference: list[bool], candidate: list[bool]) -> float:
+    intersection = sum(1 for left, right in zip(reference, candidate) if left and right)
+    union = sum(1 for left, right in zip(reference, candidate) if left or right)
+    return intersection / union if union else 1.0
+
+
+def _run_divine_eye(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Score a render against a reference with deterministic multi-signal gates."""
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageOps
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for Divine Eye review: {exc}") from exc
+
+    with Image.open(reference_path) as reference_source, Image.open(candidate_path) as candidate_source:
+        reference = reference_source.convert("RGBA")
+        candidate = candidate_source.convert("RGBA")
+        candidate_resized = candidate.resize(reference.size, Image.Resampling.LANCZOS) if candidate.size != reference.size else candidate.copy()
+        reference_luma = _review_luma(reference)
+        candidate_luma = _review_luma(candidate_resized)
+        reference_mask, reference_mask_source = _review_foreground(reference)
+        candidate_mask, candidate_mask_source = _review_foreground(candidate_resized)
+        silhouette_iou = _review_iou(reference_mask, candidate_mask)
+        reference_bbox = _review_bbox(reference_mask, 96)
+        candidate_bbox = _review_bbox(candidate_mask, 96)
+        reference_aspect = ((reference_bbox[2] - reference_bbox[0]) / max(1, reference_bbox[3] - reference_bbox[1])) if reference_bbox else 0.0
+        candidate_aspect = ((candidate_bbox[2] - candidate_bbox[0]) / max(1, candidate_bbox[3] - candidate_bbox[1])) if candidate_bbox else 0.0
+        aspect_delta = abs(reference_aspect - candidate_aspect) / max(reference_aspect, 1e-6) if reference_aspect else 0.0
+        mean_absolute_error = sum(abs(left - right) for left, right in zip(reference_luma, candidate_luma)) / max(1, len(reference_luma))
+        ssim = _review_ssim(reference_luma, candidate_luma)
+        edge_overlap = _review_edge_overlap(reference_luma, candidate_luma)
+        tonal_parity = _review_tonal_parity(reference_luma, candidate_luma)
+        aggregate = 0.30 * silhouette_iou + 0.30 * ssim + 0.20 * edge_overlap + 0.20 * tonal_parity
+        hard_silhouette = silhouette_iou >= 0.85
+        mask_is_authoritative = reference_mask_source == "alpha" and candidate_mask_source == "alpha"
+        if mask_is_authoritative and not hard_silhouette:
+            status = "fail"
+        elif aggregate >= 0.85 and mean_absolute_error <= 0.05 and (hard_silhouette or not mask_is_authoritative):
+            status = "pass"
+        else:
+            status = "needs_review"
+
+        difference = ImageChops.difference(reference.convert("RGB"), candidate_resized.convert("RGB"))
+        heatmap = ImageOps.colorize(difference.convert("L"), black=(15, 23, 42), white=(239, 68, 68)).convert("RGBA")
+        canvas = Image.new("RGBA", (reference.width * 3, reference.height), (255, 255, 255, 255))
+        canvas.paste(reference, (0, 0))
+        canvas.paste(candidate_resized, (reference.width, 0))
+        canvas.paste(heatmap, (reference.width * 2, 0))
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        for index in range(3):
+            left = index * reference.width
+            draw.rectangle((left, 0, left + reference.width - 1, reference.height - 1), outline=(15, 23, 42, 220), width=max(1, min(reference.size) // 320))
+        token = f"{_slug(reference_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        output_path = workspace_dir / f"{token}_divine-eye.png"
+        report_path = workspace_dir / f"{token}_divine-eye.json"
+        canvas.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.divine-eye",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "reference": {"name": reference_path.name, "width": reference.width, "height": reference.height, "maskSource": reference_mask_source},
+        "candidate": {"name": candidate_path.name, "originalWidth": candidate.size[0], "originalHeight": candidate.size[1], "resizedToReference": candidate.size != reference.size, "maskSource": candidate_mask_source},
+        "signals": {
+            "silhouetteIoU": round(silhouette_iou, 6),
+            "aspectDelta": round(aspect_delta, 6),
+            "globalSSIM": round(ssim, 6),
+            "edgeOverlap": round(edge_overlap, 6),
+            "tonalParity": round(tonal_parity, 6),
+            "meanAbsoluteError": round(mean_absolute_error, 6),
+            "aggregate": round(aggregate, 6),
+        },
+        "gates": {"silhouetteIoUHardMinimum": 0.85, "aggregatePassMinimum": 0.85, "meanAbsoluteErrorMaximum": 0.05, "silhouetteGateAuthoritative": mask_is_authoritative},
+        "panels": ["reference", "candidate-resized-to-reference", "difference-heatmap"],
+        "reviewNotes": [
+            "This is a deterministic review signal bundle, not semantic proof of identity or geometry correctness.",
+            "Alpha masks are authoritative for the silhouette gate; corner-distance masks are advisory and remain needs_review unless the aggregate is strong.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {"evidence_kind": "divine-eye", "schema_version": 1, "status": status, "aggregate": report["signals"]["aggregate"], "report": report_path.name},
+    }
+
+
 def _run_reference_compare(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Create a deterministic reference/candidate contact sheet and metrics."""
     try:
@@ -1521,6 +1694,14 @@ def main() -> None:
                 return
             progress(20, "Comparing reference and candidate…")
             result = _run_reference_compare(paths[0], paths[1], workspace_dir, params)
+        elif node_id == "divine-eye":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) != 2 or any(not path.is_file() for path in paths):
+                error(f"reference-evidence: Divine Eye requires exactly two image files: {raw_paths}")
+                return
+            progress(20, "Running multi-signal visual review…")
+            result = _run_divine_eye(paths[0], paths[1], workspace_dir, params)
         elif node_id == "multi-view-evidence":
             raw_paths = input_data.get("filePaths")
             paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []

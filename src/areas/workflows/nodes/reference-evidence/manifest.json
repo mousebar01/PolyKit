@@ -437,6 +437,19 @@
       ]
     },
     {
+      "id": "divine-eye",
+      "name": "Divine Eye",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Scores a reference and candidate with deterministic silhouette, SSIM, edge, tonal, and pixel-error signals.",
+      "i18n": {
+        "zh-CN": { "name": "视觉审查" },
+        "en-US": { "name": "Divine Eye" }
+      },
+      "params_schema": []
+    },
+    {
       "id": "multi-view-evidence",
       "name": "Multi-view Evidence",
       "input": "image",

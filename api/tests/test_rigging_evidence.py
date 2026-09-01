@@ -10,7 +10,7 @@ PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/rigg
 
 
 class RiggingEvidenceProcessorTests(unittest.TestCase):
-    def _run(self, descriptor: dict, root: Path) -> dict:
+    def _run(self, descriptor: dict, root: Path, node_id: str = "attachment-anchor-audit") -> dict:
         workspace = root / "workspace"
         workspace.mkdir(exist_ok=True)
         temp = root / "tmp"
@@ -19,7 +19,7 @@ class RiggingEvidenceProcessorTests(unittest.TestCase):
             PACK_DIR,
             "processor.py",
             {"text": json.dumps(descriptor)},
-            {"_node_id": "attachment-anchor-audit"},
+            {"_node_id": node_id},
             str(workspace),
             str(temp),
         )
@@ -63,6 +63,33 @@ class RiggingEvidenceProcessorTests(unittest.TestCase):
             far_report = self._run(far, root)
             self.assertEqual(far_report["status"], "fail")
             self.assertIn("ANCHOR_PROXIMITY", far_report["errors"][0])
+
+    def test_rig_payload_audit_checks_hierarchy_matrices_and_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+            valid = {
+                "schemaVersion": 1,
+                "coordinateSystem": {"up": "Y", "handedness": "right", "unit": "meter"},
+                "joints": [[0, 0, 0], [0, 1, 0]],
+                "parents": [None, 0],
+                "names": ["root", "elbow"],
+                "matrix_local": [identity, identity],
+                "skinIndex": [[0, 1, 0, 0], [1, 0, 0, 0]],
+                "skinWeight": [[1, 0, 0, 0], [1, 0, 0, 0]],
+            }
+            report = self._run(valid, root, "rig-payload-audit")
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue(report["passed"])
+            self.assertEqual(report["summary"]["jointCount"], 2)
+            self.assertEqual(report["summary"]["activeVertexCountByJoint"], [1, 1])
+
+            invalid = dict(valid)
+            invalid["skinWeight"] = [[0.8, 0, 0, 0], [1, 0, 0, 0]]
+            invalid_report = self._run(invalid, root, "rig-payload-audit")
+            self.assertEqual(invalid_report["status"], "fail")
+            self.assertFalse(invalid_report["passed"])
+            self.assertIn("must sum to 1", invalid_report["errors"][0])
 
 
 if __name__ == "__main__":

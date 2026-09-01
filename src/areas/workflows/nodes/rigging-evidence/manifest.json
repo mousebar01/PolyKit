@@ -23,6 +23,18 @@
         "en-US": { "name": "Attachment Anchor Audit" }
       },
       "params_schema": []
+    },
+    {
+      "id": "rig-payload-audit",
+      "name": "Rig Payload Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Validates portable skeleton hierarchy, coordinate system, local matrices, and four-influence skin weights before export.",
+      "i18n": {
+        "zh-CN": { "name": "绑定载荷审计" },
+        "en-US": { "name": "Rig Payload Audit" }
+      },
+      "params_schema": []
     }
   ]
 }

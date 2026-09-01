@@ -178,6 +178,56 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreater(report["metrics"]["changedPixelRatio"], 0.99)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-compare")
 
+    def test_divine_eye_passes_matching_alpha_silhouette_and_fails_shifted_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            matching = root / "matching.png"
+            shifted = root / "shifted.png"
+
+            def write_shape(path: Path, offset: int) -> None:
+                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+                for x in range(16 + offset, 48 + offset):
+                    for y in range(16, 48):
+                        if 0 <= x < image.width:
+                            image.putpixel((x, y), (220, 60, 40, 255))
+                image.save(path)
+
+            write_shape(reference, 0)
+            write_shape(matching, 0)
+            write_shape(shifted, 14)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            passed = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(matching)]},
+                {"_node_id": "divine-eye"},
+                str(workspace),
+                str(temp),
+            )
+            pass_report = json.loads(Path(str(passed["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(pass_report["status"], "pass")
+            self.assertEqual(pass_report["signals"]["silhouetteIoU"], 1.0)
+            self.assertEqual(pass_report["signals"]["globalSSIM"], 1.0)
+            self.assertEqual(passed["metadata"]["evidence_kind"], "divine-eye")
+
+            failed = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(shifted)]},
+                {"_node_id": "divine-eye"},
+                str(workspace),
+                str(temp),
+            )
+            fail_report = json.loads(Path(str(failed["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(fail_report["status"], "fail")
+            self.assertLess(fail_report["signals"]["silhouetteIoU"], 0.85)
+            self.assertTrue(fail_report["gates"]["silhouetteGateAuthoritative"])
+
     def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

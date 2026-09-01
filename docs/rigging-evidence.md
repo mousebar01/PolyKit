@@ -13,3 +13,9 @@ fallback. Missing measurements remain `needs_review` rather than passing.
 
 It emits a JSON text report and does not mutate geometry or create a second
 runtime hierarchy.
+
+`rigging-evidence/rig-payload-audit` validates the portable pre-export payload:
+Y-up/right-handed coordinates, one rooted parent array, unique joint names,
+affine local matrices, and four-slot finite non-negative skin weights that sum
+to one. It reports unweighted joints as warnings so attachment-only bones are
+not mistaken for failures.
