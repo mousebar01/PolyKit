@@ -190,7 +190,7 @@ def compile_scene_asset_generation_plan(
         class_type="asset-evidence/normalize-mesh",
         inputs={
             "mesh": source_ref,
-            "params": {"target_height": 1.0, "center_xz": True, "ground": True},
+            "params": {"target_size": 1.0, "up_axis": "Y", "center_horizontal": True, "ground": True},
         },
     )
     plan.prompt["integrity"] = ExecutionNode(
