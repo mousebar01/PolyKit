@@ -73,6 +73,30 @@ async def run_execution(job_id: str, request: WorkflowExecutionRequest) -> None:
         if final_artifact is None or not final_artifact.exists():
             raise WorkflowError("Execution completed without an output artifact")
 
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        if metadata.get("bind_world_artifact") is True:
+            world_id = str(metadata.get("world_id") or "").strip()
+            proto_id = str(metadata.get("proto_id") or "").strip()
+            if not world_id or not proto_id:
+                raise WorkflowError("World asset binding requires world_id and proto_id metadata")
+            try:
+                from services.world_domain import attach_world_artifact
+                from services.world_store import get_world, save_world
+                world = get_world(world_id)
+                if world is None:
+                    raise WorkflowError(f"World '{world_id}' was not found for generated asset binding")
+                workspace_path = final_artifact.relative_to(runtime_paths.workspace).as_posix()
+                updated_world = attach_world_artifact(
+                    world,
+                    proto_id=proto_id,
+                    workspace_path=workspace_path,
+                    workflow_id=request.workflow_id,
+                    run_id=job_id,
+                )
+                save_world(world_id, updated_world)
+            except ValueError as exc:
+                raise WorkflowError(f"Could not bind generated asset to World: {exc}") from exc
+
         job.status = "done"
         job.progress = 100
         job.step = "Execution complete"
