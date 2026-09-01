@@ -78,8 +78,12 @@ def compile_world_asset_resolution(
             if obj is None:
                 continue
             object_prompt = str(decision.get("prompt") or obj.name).strip()
+            object_prompt = (
+                f"Isolated 3D asset concept: {object_prompt}. "
+                "Centered full object, plain background, no surrounding scene, no text."
+            )
             if world_prompt:
-                object_prompt = f"{object_prompt}. Visual context: {world_prompt}"
+                object_prompt += f" Match the visual style of this world brief: {world_prompt}"
             generation_plans.append(
                 compile_scene_asset_generation_plan(
                     world_id=world_id,
