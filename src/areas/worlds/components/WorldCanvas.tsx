@@ -1,11 +1,12 @@
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { Component, Suspense, useMemo, useRef, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import type { AssetProtoSpec, Instance, WorldSpec } from '../runtime/types'
 import type { WorldAssetArtifact } from '../types'
 import { workspaceUrl } from '../worldApi'
+import { buildProceduralGeometry, proceduralMaterial } from '../runtime/procedural'
 
 interface WorldCanvasProps {
   spec: WorldSpec
@@ -90,6 +91,50 @@ function ArtifactInstances({ instances, prototype, url, selected }: { instances:
   )
 }
 
+
+function ProceduralInstances({
+  instances,
+  prototype,
+  selected,
+}: {
+  instances: Instance[]
+  prototype: AssetProtoSpec
+  selected: boolean
+}): JSX.Element | null {
+  const hint = prototype.proceduralHint
+  const geometry = useMemo(
+    () => hint ? buildProceduralGeometry(hint, prototype.id) : null,
+    [hint, prototype.id],
+  )
+  const material = useMemo(
+    () => proceduralMaterial(selected ? '#e6c77a' : undefined),
+    [selected],
+  )
+
+  useEffect(() => () => {
+    geometry?.dispose()
+    material.dispose()
+  }, [geometry, material])
+
+  if (!geometry) return null
+  return (
+    <>
+      {instances.map((instance) => (
+        <mesh
+          key={instance.id}
+          geometry={geometry}
+          material={material}
+          position={instance.position}
+          rotation={instance.rotation}
+          scale={instance.scale * prototype.targetHeight}
+          castShadow
+          receiveShadow
+        />
+      ))}
+    </>
+  )
+}
+
 class ArtifactErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
   state: { failed: boolean } = { failed: false }
 
@@ -115,19 +160,43 @@ function WorldScene({ spec, instances, selectedProtoId, artifacts = {}, backgrou
       <fog attach="fog" args={[backgroundColor ?? spec.sky.fogColor, spec.size * 0.2, spec.size * 1.3]} />
       <ambientLight color={spec.sky.ambientColor} intensity={spec.sky.ambientIntensity * 1.2} />
       <directionalLight position={sun} color={spec.sky.sunColor} intensity={spec.sky.sunIntensity} castShadow />
-      {/* Production meshes come from Blender workspace artifacts. The World
-          canvas is intentionally an artifact loader/interaction surface; it
-          must not synthesize terrain, props, or other final geometry. */}
+      {/* Procedural hints are preview-only deterministic blockouts. A workspace
+          artifact always replaces them and remains the only publishable/final geometry. */}
       {spec.assets.map((asset) => {
         const prototype = prototypes.get(asset.id)
         const assetInstances = instances.filter((instance) => instance.protoId === asset.id)
         if (!prototype || assetInstances.length === 0) return null
         const workspacePath = artifacts[asset.id]?.mesh?.workspace_path
-        if (!workspacePath) return null
+        if (!workspacePath) {
+          if (!prototype.proceduralHint) return null
+          return (
+            <ProceduralInstances
+              key={`${asset.id}:procedural`}
+              instances={assetInstances}
+              prototype={prototype}
+              selected={selectedProtoId === asset.id}
+            />
+          )
+        }
         const url = workspaceUrl(workspacePath)
         return (
-          <ArtifactErrorBoundary key={`${asset.id}:${workspacePath}`} fallback={null}>
-            <Suspense fallback={null}>
+          <ArtifactErrorBoundary
+            key={`${asset.id}:${workspacePath}`}
+            fallback={prototype.proceduralHint ? (
+              <ProceduralInstances
+                instances={assetInstances}
+                prototype={prototype}
+                selected={selectedProtoId === asset.id}
+              />
+            ) : null}
+          >
+            <Suspense fallback={prototype.proceduralHint ? (
+              <ProceduralInstances
+                instances={assetInstances}
+                prototype={prototype}
+                selected={selectedProtoId === asset.id}
+              />
+            ) : null}>
               <ArtifactInstances instances={assetInstances} prototype={prototype} url={url} selected={selectedProtoId === asset.id} />
             </Suspense>
           </ArtifactErrorBoundary>
