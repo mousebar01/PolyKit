@@ -1,20 +1,13 @@
 import asyncio
 import json
-import shutil
-import uuid
-from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from application.execution import prepare_execution_run
-from application.generate_asset import (
-    GenerateAssetCommand,
-    GenerateAssetFromImageCommand,
-    compile_generate_asset_from_image_plan,
-    compile_generate_asset_plan,
-)
+from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
+from application.generate_asset_upload import prepare_uploaded_image_asset_run
 from application.run_control import (
     RunNotFoundError,
     RunStateError,
@@ -26,12 +19,10 @@ from application.run_control import (
 from schemas.execution import ExecutionInitiator, ExecutionPlan, ExecutionSource
 from schemas.workflow import WorkflowExecutionRequest
 from services.execution_runtime import run_execution
-from services.image_generation import texture_refiner_id
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
 from services.runtime_paths import runtime_paths
 from services.workflow_execution import load_workflow_execution_request, prepare_execution_resume
-from services.workspace_paths import normalize_collection
 
 router = APIRouter(tags=["workflow-runs"])
 
@@ -70,15 +61,6 @@ def build_text_to_asset_workflow(request: TextToAssetRequest) -> WorkflowExecuti
     return WorkflowExecutionRequest.model_validate(plan.model_dump(mode="python"))
 
 
-def _upload_suffix(content_type: str | None) -> str:
-    return {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/webp": ".webp",
-        "image/gif": ".gif",
-    }.get(str(content_type or "").lower(), ".img")
-
-
 @router.post("/from-image")
 async def create_run_from_image(
     background_tasks: BackgroundTasks,
@@ -94,82 +76,38 @@ async def create_run_from_image(
     world_id: str = Form(""),
     proto_id: str = Form(""),
 ):
-    """Compatibility multipart adapter backed by the generic ExecutionPlan.
-
-    Binary transport is materialized under the preallocated Run artifact root;
-    the durable execution snapshot stores only a bounded workspace-relative
-    path. This keeps manual image generation on the same engine as Agent and
-    saved Workflow execution without duplicating image bytes in SQLite.
-    """
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(400, "File must be an image")
-    if remesh not in ("quad", "triangle", "none"):
-        raise HTTPException(400, "remesh must be 'quad', 'triangle', or 'none'")
-    if texture_resolution < 64 or texture_resolution > 8192:
-        raise HTTPException(400, "texture_resolution must be between 64 and 8192")
-
-    collection = normalize_collection(collection)
-    model_id = model_id or model_runtime_registry.active_status()["id"]
-    try:
-        model_runtime_registry.get_generator(model_id)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-    if enable_texture and texture_refiner_id(model_id) is None:
-        raise HTTPException(
-            400,
-            f"Model '{model_id}' does not provide a compatible Texture Mesh node",
-        )
+    """Compatibility multipart transport backed by the shared asset command."""
 
     try:
         parsed_params = json.loads(params)
     except (json.JSONDecodeError, TypeError):
         parsed_params = {}
     model_params = dict(parsed_params) if isinstance(parsed_params, dict) else {}
-
     image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(400, "Image upload is empty")
-    if len(image_bytes) > 50 * 1024 * 1024:
-        raise HTTPException(413, "Image input is larger than 50 MiB")
+    selected_model_id = model_id or model_runtime_registry.active_status()["id"]
 
-    run_id = str(uuid.uuid4())
-    relative_input = f".artifacts/{run_id}/inputs/source{_upload_suffix(image.content_type)}"
-    input_path = runtime_paths.workspace / relative_input
-    input_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        input_path.write_bytes(image_bytes)
-    except OSError as exc:
-        raise HTTPException(500, f"Could not persist Run input: {exc}") from exc
-
-    mesh_params = dict(model_params)
-    mesh_params["remesh"] = remesh
-    # Texture refinement is an explicit capability/node in the canonical plan.
-    mesh_params["enable_texture"] = False
-
-    command = GenerateAssetFromImageCommand(
-        image={"kind": "workspace_path", "path": relative_input},
-        mesh_model_id=model_id,
-        enable_texture=enable_texture,
-        collection=collection,
-        workflow_id=workflow_id.strip() or None,
-        node_id=node_id.strip() or None,
-        world_id=world_id.strip() or None,
-        proto_id=proto_id.strip() or None,
-        image_name=(image.filename or "").strip() or None,
-        mesh_params=mesh_params,
-        texture_params={"texture_resolution": texture_resolution},
-    )
-    try:
-        plan = compile_generate_asset_from_image_plan(command)
-        prepared = prepare_execution_run(
-            plan,
+        prepared = prepare_uploaded_image_asset_run(
+            image_bytes=image_bytes,
+            content_type=image.content_type,
+            image_name=image.filename,
+            model_id=selected_model_id,
+            collection=collection,
+            remesh=remesh,
+            enable_texture=enable_texture,
+            texture_resolution=texture_resolution,
+            model_params=model_params,
+            workflow_id=workflow_id,
+            node_id=node_id,
+            world_id=world_id,
+            proto_id=proto_id,
             initiator=ExecutionInitiator(type="user", surface="assets.generate.image"),
-            run_id=run_id,
         )
-    except (KeyError, ValueError, OSError) as exc:
-        shutil.rmtree(input_path.parents[1], ignore_errors=True)
-        raise HTTPException(400, str(exc)) from exc
+    except ValueError as exc:
+        status = 413 if "larger than 50 MiB" in str(exc) else 400
+        raise HTTPException(status, str(exc)) from exc
+    except (KeyError, OSError) as exc:
+        raise HTTPException(500, f"Could not prepare Run input: {exc}") from exc
 
     background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
     return {"run_id": prepared.run_id, "status": "pending"}
