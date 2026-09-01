@@ -8,13 +8,21 @@ from pydantic import BaseModel, Field
 class ExecutionSource(BaseModel):
     """Describe where an execution plan came from, independent of who ran it.
 
-    ``kind`` identifies the product surface that compiled the plan. Agent, CLI,
-    and Web are initiators and belong on the Run metadata rather than here.
+    ``kind`` identifies the product object or compiler that produced the plan.
+    Web, Agent and CLI are initiators and belong on the Run metadata instead.
     """
 
     kind: Literal["direct", "workflow", "world"]
     id: Optional[str] = None
     revision: Optional[str] = None
+
+
+class ExecutionInitiator(BaseModel):
+    """Identify who requested a Run without changing execution semantics."""
+
+    type: Literal["user", "agent", "cli", "system"]
+    surface: Optional[str] = None
+    id: Optional[str] = None
 
 
 class ExecutionNode(BaseModel):
@@ -43,3 +51,11 @@ class ExecutionPlan(BaseModel):
     target_node_ids: Optional[List[str]] = None
     collection: str = "Workflows"
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+__all__ = [
+    "ExecutionInitiator",
+    "ExecutionNode",
+    "ExecutionPlan",
+    "ExecutionSource",
+]
