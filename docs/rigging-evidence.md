@@ -1,52 +1,13 @@
 # Rigging evidence
 
-`rigging-evidence/attachment-anchor-audit` validates the declarative
-relationship between worn/held/hung components and their anchors. Feed it a
-text JSON descriptor containing `componentTree`, optional `rig.bones`, and an
-optional `measured` map of world positions.
+The built-in `rigging-evidence` pack keeps a small set of generic rigging checks and helpers that apply across asset types.
 
-The audit checks that attachments declare an anchor, resolve to a component or
-bone, do not parent directly to the model root, and do not form cycles. When
-measured positions are present it also checks the distance against an explicit
-`attachment.maxOffset`, a fraction of the anchor extent, or the documented
-fallback. Missing measurements remain `needs_review` rather than passing.
+`rigging-evidence/attachment-anchor-audit` validates declarative relationships between attached components and component or bone anchors. It checks missing anchors, unresolved references, root parenting, cycles, and optional measured proximity without mutating geometry.
 
-It emits a JSON text report and does not mutate geometry or create a second
-runtime hierarchy.
+`rigging-evidence/rig-payload-audit` validates a portable pre-export skeleton payload: coordinate-system declarations, a rooted parent array, unique joint names, affine local matrices, and normalized four-slot skin weights.
 
-`rigging-evidence/rig-payload-audit` validates the portable pre-export payload:
-Y-up/right-handed coordinates, one rooted parent array, unique joint names,
-affine local matrices, and four-slot finite non-negative skin weights that sum
-to one. It reports unweighted joints as warnings so attachment-only bones are
-not mistaken for failures.
+`rigging-evidence/geodesic-bind` generates normalized four-slot skin weights from an explicit mesh and bone segments by propagating distance through the voxelized solid. Broken connectivity remains visible through unreachable vertex and bone findings.
 
-`rigging-evidence/geodesic-bind` generates four-slot normalized skin weights
-from a JSON mesh plus bone segments. It voxelizes the closed mesh, propagates
-distance through the solid with 26-neighbour Dijkstra, and reports unreachable
-vertices/bones instead of silently hiding broken connectivity. Optional
-`components` and per-vertex `vertexComponents` pin rigid roles such as hair,
-decals, and panels to an ancestor joint. Resolution and falloff power are
-explicit parameters, and the output remains reviewable JSON rather than an
-opaque black-box bind.
+`rigging-evidence/ik-solve` solves one explicitly ordered joint chain with CPU FABRIK, preserving segment lengths and reporting target error and unreachable targets. It does not create runtime armature constraints or animation clips.
 
-`rigging-evidence/facial-rig-audit` checks blendshape names, duplicate channels,
-normalized ranges, and optional minimal or ARKit-lite required channels.
-`rigging-evidence/lip-sync-audit` checks the portable viseme map and optional
-time-sampled mouth curves. These are compatibility gates only: they do not
-generate expressions, recognize speech, or prove facial quality in a render.
-
-`rigging-evidence/expression-clip-compile` turns authored blendshape clips into
-portable keyframes and one dense channel per declared shape. Missing weights use
-the shape minimum, unknown names and out-of-range values fail the compile, and
-the output remains JSON for a later runtime importer; it does not generate morph
-geometry.
-
-`rigging-evidence/ik-solve` solves one explicitly ordered joint chain with
-CPU FABRIK. It preserves the source segment lengths and reports target error,
-reach limits, and the solved joint positions. It does not create armature
-rotations or constraints; unreachable targets are reported as `needs_review`.
-
-`rigging-evidence/mixamo-audit` normalizes common `mixamorig:` and L/R aliases,
-checks the Mixamo core body hierarchy, detects duplicate names and cycles, and
-can require first-phalanx finger roots. It is a retargeting preflight only; the
-target runtime still owns bind-pose orientation and animation import.
+Character-specific facial, lip-sync, Mixamo, chirality, and expression-clip checks are intentionally not part of the built-in surface. Those capabilities should return only when a complete user-facing character production workflow requires them.
