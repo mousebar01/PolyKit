@@ -35,3 +35,10 @@ building-height range. It emits separate road and building masses with stable
 names and a layout hash. This is a flat camera/layout blockout, not an inferred
 city GIS model: doors, windows, interiors, traffic, zoning, and terrain fitting
 must be authored or validated in later scene passes.
+
+`environment-production/vegetation-scatter` emits deterministic low-poly
+`tree`, `pine`, `rock`, `boulder`, `grass`, and `cactus` instances over the same
+world-size convention. Its JSON sidecar records every instance origin, scale,
+part name, and layout hash. It is intended to be composed over `terrain-mesh`;
+species identity, collision, seasonal changes, and image-grounded density still
+need an explicit scene review.

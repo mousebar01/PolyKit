@@ -397,13 +397,189 @@ def _city_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict
     }
 
 
+def _vegetation_scatter(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build deterministic low-poly vegetation/rock instances for composition."""
+    import numpy as np
+    import trimesh
+
+    size = _finite(descriptor.get("size", 24.0), "size", positive=True)
+    seed_raw = descriptor.get("seed", 0)
+    if isinstance(seed_raw, bool):
+        raise ValueError("seed must be an integer")
+    try:
+        seed = int(seed_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("seed must be an integer") from exc
+    try:
+        requested_count = int(params.get("count", descriptor.get("count", 32)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("count must be an integer") from exc
+    requested_count = max(1, min(500, requested_count))
+    try:
+        min_distance = _finite(params.get("min_distance", descriptor.get("minDistance", 0.8)), "minDistance", non_negative=True)
+    except ValueError:
+        raise
+    raw_types = descriptor.get("types", ["tree"])
+    if isinstance(raw_types, str):
+        raw_types = [raw_types]
+    if not isinstance(raw_types, list) or not raw_types:
+        raise ValueError("types must be a non-empty list")
+    types = [str(value).strip().lower() for value in raw_types]
+    allowed = {"tree", "pine", "rock", "boulder", "grass", "cactus"}
+    unknown = sorted(set(types).difference(allowed))
+    if unknown:
+        raise ValueError(f"unsupported vegetation type(s): {', '.join(unknown)}")
+    base_elevation = _finite(descriptor.get("baseElevation", descriptor.get("base_elevation", 0.0)), "baseElevation")
+    relief = _finite(descriptor.get("relief", 0.0), "relief")
+    density_center = descriptor.get("avoidCenter")
+    avoid_center: tuple[float, float] | None = None
+    avoid_radius = 0.0
+    if density_center is not None:
+        avoid_center = _unit_pair(density_center, "avoidCenter")
+        avoid_radius = _finite(descriptor.get("avoidRadius", 0.0), "avoidRadius", non_negative=True)
+        if avoid_radius == 0.0:
+            avoid_radius = 0.12
+
+    scene = trimesh.Scene()
+    records: list[dict[str, Any]] = []
+    occupied: list[tuple[float, float]] = []
+    colors = {
+        "trunk": (93, 65, 43, 255),
+        "foliage": (59, 119, 63, 255),
+        "accent": (111, 153, 67, 255),
+        "rock": (121, 119, 111, 255),
+        "grass": (95, 148, 62, 255),
+    }
+
+    def add_mesh(name: str, mesh: Any, color: tuple[int, int, int, int], position: tuple[float, float, float], yaw: float, scale: float) -> None:
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(yaw, (0.0, 1.0, 0.0)))
+        mesh.apply_scale(scale)
+        mesh.apply_translation(position)
+        mesh.visual = trimesh.visual.ColorVisuals(vertex_colors=np.tile(np.asarray(color, dtype=np.uint8), (len(mesh.vertices), 1)))
+        scene.add_geometry(mesh, geom_name=name, node_name=name)
+
+    def vertical(mesh: Any) -> Any:
+        """Rotate trimesh's Z-axis primitives into the project's Y-up frame."""
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(-math.pi / 2.0, (1.0, 0.0, 0.0)))
+        return mesh
+
+    def surface_y(x: float, z: float) -> float:
+        if abs(relief) <= 1e-12:
+            return base_elevation
+        u, v = x / size + 0.5, z / size + 0.5
+        return base_elevation + relief * (_value_noise(seed ^ 0xBEEF, u * 3.0, v * 3.0) * 0.5 + 0.5)
+
+    def tree_parts(kind: str, random_seed: int) -> list[tuple[str, Any, tuple[int, int, int, int], tuple[float, float, float]]]:
+        random = lambda salt: _hash_noise(random_seed ^ _stable_seed(str(salt)), salt, random_seed)
+        if kind == "rock" or kind == "boulder":
+            radius = 0.25 + random(1) * (0.25 if kind == "boulder" else 0.14)
+            mesh = trimesh.creation.icosphere(subdivisions=1 if kind == "boulder" else 0, radius=radius)
+            mesh.apply_scale((1.0, 0.55 + random(2) * 0.25, 0.85 + random(3) * 0.25))
+            return [("rock", mesh, colors["rock"], (0.0, radius * 0.42, 0.0))]
+        if kind == "grass":
+            parts: list[tuple[str, Any, tuple[int, int, int, int], tuple[float, float, float]]] = []
+            for blade in range(5 + int(random(4) * 4)):
+                height = 0.16 + random(10 + blade) * 0.16
+                mesh = vertical(trimesh.creation.cone(0.018, height, sections=3))
+                angle = random(30 + blade) * math.tau
+                distance = random(40 + blade) * 0.08
+                parts.append((f"blade-{blade + 1}", mesh, colors["grass"], (math.cos(angle) * distance, height * 0.5, math.sin(angle) * distance)))
+            return parts
+        if kind == "cactus":
+            body_height = 0.55 + random(1) * 0.32
+            body = vertical(trimesh.creation.capsule(radius=0.09, height=body_height, count=[2, 8]))
+            parts = [("body", body, colors["foliage"], (0.0, body_height * 0.5 + 0.09, 0.0))]
+            for arm in range(int(random(2) * 3)):
+                side = 1.0 if random(3) > 0.5 else -1.0
+                arm_height = 0.2 + random(4 + arm) * 0.16
+                mesh = vertical(trimesh.creation.capsule(radius=0.055, height=arm_height, count=[2, 6]))
+                mesh.apply_transform(trimesh.transformations.rotation_matrix(side * -0.2, (0.0, 0.0, 1.0)))
+                parts.append((f"arm-{arm + 1}", mesh, colors["accent"], (side * 0.14, body_height * (0.35 + random(5 + arm) * 0.25), 0.0)))
+            return parts
+        if kind == "pine":
+            trunk_height = 0.25 + random(1) * 0.14
+            parts = [("trunk", vertical(trimesh.creation.cylinder(radius=0.035, height=trunk_height, sections=6)), colors["trunk"], (0.0, trunk_height * 0.5, 0.0))]
+            y, radius = trunk_height * 0.85, 0.28 + random(2) * 0.1
+            for tier in range(3 + int(random(3) * 2)):
+                height = 0.22 + random(10 + tier) * 0.12
+                parts.append((f"tier-{tier + 1}", vertical(trimesh.creation.cone(radius, height, sections=6)), colors["foliage" if tier % 2 else "accent"], (0.0, y + height * 0.5, 0.0)))
+                y += height * 0.58
+                radius *= 0.72
+            return parts
+        trunk_height = 0.34 + random(1) * 0.12
+        parts = [("trunk", vertical(trimesh.creation.cylinder(radius=0.045, height=trunk_height, sections=6)), colors["trunk"], (0.0, trunk_height * 0.5, 0.0))]
+        for blob in range(2 + int(random(2) * 2)):
+            radius = (0.24 + random(10 + blob) * 0.1) * (1.0 - blob * 0.16)
+            parts.append((f"crown-{blob + 1}", trimesh.creation.icosphere(subdivisions=0, radius=radius), colors["foliage" if blob % 2 else "accent"], ((random(20 + blob) * 2.0 - 1.0) * 0.1, trunk_height + radius * 0.6 + blob * radius * 0.75, (random(30 + blob) * 2.0 - 1.0) * 0.1)))
+        return parts
+
+    attempts = 0
+    while len(records) < requested_count and attempts < requested_count * 32:
+        candidate_seed = seed ^ _stable_seed(f"vegetation:{attempts}")
+        x = (_hash_noise(candidate_seed, attempts, 1) - 0.5) * size * 0.94
+        z = (_hash_noise(candidate_seed ^ 0x1234, 1, attempts) - 0.5) * size * 0.94
+        attempts += 1
+        if avoid_center is not None and math.hypot(x / size + 0.5 - avoid_center[0], z / size + 0.5 - avoid_center[1]) < avoid_radius:
+            continue
+        if any(math.hypot(x - other_x, z - other_z) < min_distance for other_x, other_z in occupied):
+            continue
+        occupied.append((x, z))
+        kind = types[len(records) % len(types)]
+        scale = 0.72 + _hash_noise(candidate_seed ^ 0x5678, attempts, 2) * 0.56
+        y = surface_y(x, z)
+        parts = tree_parts(kind, candidate_seed)
+        part_names: list[str] = []
+        for part_name, mesh, color, local_position in parts:
+            name = f"{kind}-{len(records) + 1}-{part_name}"
+            add_mesh(name, mesh, color, (x + local_position[0] * scale, y + local_position[1] * scale, z + local_position[2] * scale), _hash_noise(candidate_seed ^ 0x9999, 3, attempts) * math.tau, scale)
+            part_names.append(name)
+        records.append({"id": f"{kind}-{len(records) + 1}", "kind": kind, "position": [round(x, 6), round(y, 6), round(z, 6)], "scale": round(scale, 6), "parts": part_names})
+
+    if not records:
+        raise ValueError("vegetation descriptor produced no instances; reduce avoidRadius or minDistance")
+    include_ground = params.get("include_ground", descriptor.get("includeGround", False))
+    if isinstance(include_ground, str):
+        include_ground = include_ground.strip().lower() not in {"", "0", "false", "no", "off"}
+    if bool(include_ground):
+        add_box = trimesh.creation.box(extents=(size, 0.04, size))
+        add_box.apply_translation((0.0, base_elevation - 0.02, 0.0))
+        add_box.visual = trimesh.visual.ColorVisuals(vertex_colors=np.tile(np.asarray((78, 104, 61, 255), dtype=np.uint8), (len(add_box.vertices), 1)))
+        scene.add_geometry(add_box, geom_name="ground", node_name="ground")
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = f"vegetation_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_path = workspace_dir / f"{token}.glb"
+    report_path = workspace_dir / f"{token}.json"
+    scene.export(output_path)
+    layout_hash = hashlib.sha256(json.dumps(records, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.vegetation-scatter",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "source": {"seed": seed, "size": round(size, 6), "requestedCount": requested_count, "placedCount": len(records), "minDistance": round(min_distance, 6), "relief": round(relief, 6)},
+        "summary": {"instanceCount": len(records), "geometryCount": len(scene.geometry), "layoutHash": layout_hash, "bounds": [[round(float(value), 6) for value in row] for row in scene.bounds]},
+        "instances": records,
+        "reviewNotes": [
+            "Instances are low-poly production geometry with stable names and placement records; they are suitable for composition over terrain-mesh.",
+            "This node does not infer botanical species, collision, seasonal variation, or image-grounded vegetation semantics. Validate density and material identity in a scene review.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {"evidence_kind": "vegetation-scatter", "schema_version": 1, "status": "pass", "instance_count": len(records), "geometry_count": len(scene.geometry), "layout_hash": layout_hash, "report": report_path.name},
+    }
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.readline())
         input_data = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "terrain-mesh")
-        if node_id not in {"terrain-mesh", "city-blockout"}:
+        if node_id not in {"terrain-mesh", "city-blockout", "vegetation-scatter"}:
             error(f"environment-production: unsupported node '{node_id}'")
             return
         text = input_data.get("text")
@@ -421,10 +597,14 @@ def main() -> None:
             result = _terrain_mesh(descriptor, Path(workspace_raw), params)
             progress(90, "Writing terrain and water meshes…")
             progress(100, "Terrain mesh ready")
-        else:
+        elif node_id == "city-blockout":
             result = _city_blockout(descriptor, Path(workspace_raw), params)
             progress(90, "Writing roads and building masses…")
             progress(100, "City blockout ready")
+        else:
+            result = _vegetation_scatter(descriptor, Path(workspace_raw), params)
+            progress(90, "Writing vegetation instances…")
+            progress(100, "Vegetation scatter ready")
         emit({"type": "done", "result": result})
     except json.JSONDecodeError as exc:
         error(f"environment-production: invalid terrain JSON ({exc.msg})")

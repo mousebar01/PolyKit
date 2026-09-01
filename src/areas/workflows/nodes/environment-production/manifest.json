@@ -46,6 +46,22 @@
         { "id": "building_density", "label": "Building Density", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "tooltip": "Chance that each lot receives a building mass." },
         { "id": "include_ground", "label": "Include Ground", "type": "boolean", "default": true, "tooltip": "Add a single ground slab beneath the road grid." }
       ]
+    },
+    {
+      "id": "vegetation-scatter",
+      "name": "Vegetation Scatter",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds deterministic low-poly vegetation and rock instances that can be composed over a terrain mesh.",
+      "i18n": {
+        "zh-CN": { "name": "植被散布" },
+        "en-US": { "name": "Vegetation Scatter" }
+      },
+      "params_schema": [
+        { "id": "count", "label": "Instance Count", "type": "int", "default": 32, "min": 1, "max": 500, "tooltip": "Maximum number of placed vegetation or rock instances." },
+        { "id": "min_distance", "label": "Minimum Distance", "type": "float", "default": 0.8, "min": 0.0, "max": 20.0, "tooltip": "Minimum horizontal separation between instance origins." },
+        { "id": "include_ground", "label": "Include Ground", "type": "boolean", "default": false, "tooltip": "Add a thin reference ground slab; leave off when composing over terrain-mesh." }
+      ]
     }
   ]
 }

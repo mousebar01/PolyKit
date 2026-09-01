@@ -101,6 +101,36 @@ class TerrainMeshProcessorTests(unittest.TestCase):
             with self.assertRaises(ProcessExecutionError):
                 self._run(Path(td), {"width": 8, "depth": 8, "rows": 2, "columns": 2, "roadWidth": 3.0, "setback": 1.0}, node_id="city-blockout")
 
+    def test_vegetation_scatter_exports_spaced_instances_with_stable_layout(self) -> None:
+        descriptor = {"seed": 5, "size": 18, "count": 8, "types": ["tree", "pine", "rock", "grass"], "minDistance": 1.2, "relief": 1.5}
+        with tempfile.TemporaryDirectory() as first_td, tempfile.TemporaryDirectory() as second_td:
+            first = self._run(Path(first_td), descriptor, node_id="vegetation-scatter")
+            second = self._run(Path(second_td), descriptor, node_id="vegetation-scatter")
+            output = Path(str(first["filePath"]))
+            report = json.loads(Path(str(first["sidecars"][0])).read_text(encoding="utf-8"))
+            second_report = json.loads(Path(str(second["sidecars"][0])).read_text(encoding="utf-8"))
+            scene = trimesh.load(output, force="scene", process=False)
+            positions = [tuple(instance["position"]) for instance in report["instances"]]
+            self.assertEqual(len(positions), 8)
+            self.assertTrue(all(len(mesh.faces) > 0 for mesh in scene.geometry.values()))
+            self.assertGreaterEqual(len(scene.geometry), 8)
+            trunk = scene.geometry["tree-1-trunk"]
+            trunk_extent = trunk.bounds[1] - trunk.bounds[0]
+            self.assertGreater(float(trunk_extent[1]), float(trunk_extent[0]) * 2.0)
+            self.assertTrue(all(
+                ((positions[left][0] - positions[right][0]) ** 2 + (positions[left][2] - positions[right][2]) ** 2) ** 0.5 >= 1.2
+                for left in range(len(positions))
+                for right in range(left)
+            ))
+            self.assertGreater(len({round(position[1], 5) for position in positions}), 1)
+            self.assertEqual(report["summary"]["layoutHash"], second_report["summary"]["layoutHash"])
+            self.assertEqual(first["metadata"]["instance_count"], 8)
+
+    def test_vegetation_scatter_rejects_unknown_type(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ProcessExecutionError):
+                self._run(Path(td), {"size": 8, "types": ["tree", "unknown"]}, node_id="vegetation-scatter")
+
 
 if __name__ == "__main__":
     unittest.main()
