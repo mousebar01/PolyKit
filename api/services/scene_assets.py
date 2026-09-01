@@ -180,4 +180,77 @@ def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_
     return plan.model_copy(update={"objects": objects, "diagnostics": diagnostics})
 
 
-__all__ = ["find_asset_candidates", "resolve_scene_assets"]
+_GENERATION_ROLES = frozenset({"hero", "manipulated"})
+_PROCEDURAL_ROLES = frozenset({"room", "background"})
+
+
+def resolve_scene_asset_slots(
+    plan: ScenePlan,
+    *,
+    workspace: Path | None = None,
+    min_score: float = 3.0,
+    include_context: bool = False,
+) -> tuple[ScenePlan, list[dict[str, Any]]]:
+    """Resolve scene objects through the product asset policy.
+
+    Resolution order is intentionally conservative:
+    existing binding -> procedural structure -> workspace library -> local generation.
+    Context objects generate only when explicitly requested by the caller.
+    """
+
+    resolved = resolve_scene_assets(plan, workspace=workspace, min_score=min_score)
+    decisions: list[dict[str, Any]] = []
+    for obj in resolved.objects:
+        asset = obj.asset
+        if asset and asset.workspace_path:
+            decisions.append({
+                "object_id": obj.id,
+                "mode": "library" if asset.source == "workspace-library" else "existing",
+                "workspace_path": asset.workspace_path,
+                "source": asset.source,
+            })
+            continue
+
+        constraints = obj.constraints if isinstance(obj.constraints, dict) else {}
+        policy = str(
+            constraints.get("assetPolicy")
+            or constraints.get("asset_policy")
+            or ""
+        ).strip().lower()
+        procedural_hint = constraints.get("proceduralHint") or constraints.get("procedural_hint")
+
+        if policy == "procedural" or procedural_hint or obj.role in _PROCEDURAL_ROLES:
+            decisions.append({
+                "object_id": obj.id,
+                "mode": "procedural",
+                **({"procedural_hint": str(procedural_hint)} if procedural_hint else {}),
+            })
+            continue
+
+        wants_generation = (
+            policy == "generate"
+            or obj.role in _GENERATION_ROLES
+            or (include_context and obj.role == "context")
+        )
+        if policy in {"library", "existing"}:
+            wants_generation = False
+
+        if wants_generation:
+            decisions.append({
+                "object_id": obj.id,
+                "mode": "generate",
+                "prompt": " ".join(
+                    part for part in (obj.name, obj.description, obj.category or "") if str(part).strip()
+                ).strip(),
+                "size": list(obj.size),
+            })
+        else:
+            decisions.append({
+                "object_id": obj.id,
+                "mode": "unresolved",
+                "reason": "No matching workspace asset; generation is not enabled for this object role.",
+            })
+    return resolved, decisions
+
+
+__all__ = ["find_asset_candidates", "resolve_scene_assets", "resolve_scene_asset_slots"]
