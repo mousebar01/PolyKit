@@ -1,0 +1,28 @@
+{
+  "id": "rigging-evidence",
+  "name": "Rigging Evidence",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Checks declarative attachment relationships before rigging and export.",
+  "requirements": [],
+  "i18n": {
+    "zh-CN": { "name": "绑定证据", "description": "在绑定和导出前检查附件与组件/骨骼的声明关系。" },
+    "en-US": { "name": "Rigging Evidence", "description": "Checks declarative attachment relationships before rigging and export." }
+  },
+  "nodes": [
+    {
+      "id": "attachment-anchor-audit",
+      "name": "Attachment Anchor Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Validates attachment anchors, root parenting, cycles, and optional measured proximity.",
+      "i18n": {
+        "zh-CN": { "name": "附件锚点审计" },
+        "en-US": { "name": "Attachment Anchor Audit" }
+      },
+      "params_schema": []
+    }
+  ]
+}
