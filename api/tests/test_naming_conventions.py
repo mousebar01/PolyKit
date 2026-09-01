@@ -126,9 +126,12 @@ class NamingConventionTests(unittest.TestCase):
         self.assertIn("services.workflow_store", router)
         self.assertNotIn("services." + "_".join(("workflow", "definitions")), router)
 
-    def test_legacy_generation_router_uses_image_generation_service(self) -> None:
+    def test_legacy_generation_router_uses_shared_execution_boundary(self) -> None:
         router = (REPO_ROOT / "api" / "routers" / "legacy_generation.py").read_text(encoding="utf-8")
-        self.assertIn("services.image_generation", router)
+        self.assertIn("application.generate_asset_upload", router)
+        self.assertIn("services.execution_runtime", router)
+        self.assertNotIn("enqueue_generation_job", router)
+        self.assertNotIn("services.image_generation", router)
         self.assertNotIn("services." + "_".join(("generation", "jobs")), router)
 
 
