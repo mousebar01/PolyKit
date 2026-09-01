@@ -19,7 +19,7 @@ from schemas.workflow import WorkflowExecutionRequest
 from services.execution_runtime import run_execution
 from services.run_coordinator import run_coordinator
 from services.scene_planner import ScenePlanError, compile_scene_plan
-from services.world_domain import create_world_document
+from services.world_domain import attach_world_artifact, create_world_document
 from services.world_plans import compile_scene_composition_plan
 from services.world_runtime import attach_scene_plan_to_runtime
 from application.execution import prepare_execution_run
@@ -149,7 +149,13 @@ async def resolve_world_assets(
         if world is None:
             raise HTTPException(status_code=404, detail="World was not found")
         compiled = compile_world_asset_resolution(world, world_id=world_id, command=request)
-        updated = attach_scene_plan_to_runtime(world, compiled.scene)
+        updated = attach_scene_plan_to_runtime(world, compiled.scene) if compiled.scene is not None else dict(world)
+        for proto_id, workspace_path in compiled.library_bindings:
+            updated = attach_world_artifact(
+                updated,
+                proto_id=proto_id,
+                workspace_path=workspace_path,
+            )
         saved = save_world(world_id, updated)
 
         runs: list[dict[str, Any]] = []
