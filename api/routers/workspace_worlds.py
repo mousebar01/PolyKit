@@ -1,15 +1,24 @@
-"""HTTP surface for server-owned schema-v2 world runtimes."""
+"""HTTP surface for server-owned schema-v2 World documents."""
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from pydantic import BaseModel, Field
 
+from application.world import (
+    BuildWorldStructureCommand,
+    ComposeWorldCommand,
+    prepare_world_composition_run,
+    prepare_world_structure_run,
+)
+from schemas.execution import ExecutionInitiator
+from schemas.workflow import WorkflowExecutionRequest
+from services.execution_runtime import run_execution
 from services.run_coordinator import run_coordinator
 from services.scene_planner import ScenePlanError, compile_scene_plan
 from services.world_domain import create_world_document
+from services.world_plans import compile_scene_composition_plan
 from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import (
     WorldNotFoundError,
@@ -19,9 +28,6 @@ from services.world_store import (
     save_world,
 )
 from services.world_validation import validate_world
-from services.world_workflows import build_structure_workflow
-from services.runtime_paths import runtime_paths
-from services.workspace_paths import normalize_collection, resolve_workspace_path
 
 
 router = APIRouter(prefix="/workspace-library/worlds", tags=["workspace-worlds"])
@@ -47,48 +53,17 @@ class ScenePlanCompileRequest(BaseModel):
     resolve_assets: bool = False
 
 
-class SceneComposeRequest(BaseModel):
-    collection: str = Field(default="Scenes", max_length=160)
-    output_name: str = Field(default="scene", min_length=1, max_length=120)
-    allow_missing: bool = False
+class SceneComposeRequest(ComposeWorldCommand):
+    """Compatibility HTTP model for the ComposeWorld application command."""
 
 
-class WorldStructureRequest(BaseModel):
-    building_id: str | None = Field(default=None, max_length=160)
-    collection: str = Field(default="Scenes", max_length=160)
-    render_preview: bool = True
+class WorldStructureRequest(BuildWorldStructureCommand):
+    """Compatibility HTTP model for the BuildWorldStructure application command."""
 
 
 class WorldValidationRequest(BaseModel):
     capability: str = Field(min_length=1, max_length=160)
     run_id: str | None = Field(default=None, max_length=160)
-
-
-def _scene_asset_path(world: dict[str, Any], object_id: str, object_data: dict[str, Any]) -> str | None:
-    asset = object_data.get("asset")
-    if isinstance(asset, dict):
-        value = asset.get("workspacePath") or asset.get("workspace_path")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    artifacts = world.get("artifacts")
-    if isinstance(artifacts, dict):
-        entry = artifacts.get(object_id)
-        mesh = entry.get("mesh") if isinstance(entry, dict) else None
-        if isinstance(mesh, dict):
-            value = mesh.get("workspace_path")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return None
-
-
-def _runtime_scene(world: Mapping[str, Any]) -> dict[str, Any]:
-    runtime = world.get("runtime")
-    if not isinstance(runtime, Mapping) or runtime.get("version") != 1:
-        raise ScenePlanError("World has no valid runtime")
-    plan = runtime.get("scene")
-    if not isinstance(plan, dict):
-        raise ScenePlanError("World runtime has no compiled scene")
-    return plan
 
 
 def _build_scene_composition_workflow(
@@ -98,99 +73,29 @@ def _build_scene_composition_workflow(
     collection: str,
     output_name: str,
     allow_missing: bool,
-) -> "WorkflowExecutionRequest":
-    """Compile ``runtime.scene`` into the canonical multi-mesh workflow."""
+) -> WorkflowExecutionRequest:
+    """Compatibility wrapper around the canonical World composition compiler."""
 
-    from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
+    plan = compile_scene_composition_plan(
+        world,
+        world_id=world_id,
+        collection=collection,
+        output_name=output_name,
+        allow_missing=allow_missing,
+    )
+    return WorkflowExecutionRequest.model_validate(plan.model_dump(mode="python"))
 
-    plan = _runtime_scene(world)
-    quality = plan.get("metadata", {}).get("layoutQuality") if isinstance(plan.get("metadata"), dict) else None
-    if isinstance(quality, dict) and quality.get("status") == "invalid":
-        raise ScenePlanError(
-            "Scene layout is invalid; fix its bounds or spatial relations before composing."
-        )
 
-    raw_objects = plan.get("objects")
-    raw_instances = plan.get("instances")
-    if not isinstance(raw_objects, list) or not raw_objects:
-        raise ScenePlanError("Runtime scene has no objects to compose")
-    objects = {
-        item.get("id"): item
-        for item in raw_objects
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
+def _schedule_world_run(prepared, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+    source = prepared.request.source.model_dump(mode="json") if prepared.request.source else None
+    return {
+        "run_id": prepared.run_id,
+        "status": "pending",
+        "source": source,
+        "workflow_id": prepared.request.workflow_id,
+        "queued_nodes": prepared.queued_nodes,
     }
-    instances = {
-        item.get("objectId"): item
-        for item in (raw_instances if isinstance(raw_instances, list) else [])
-        if isinstance(item, dict) and isinstance(item.get("objectId"), str)
-    }
-
-    nodes: dict[str, WorkflowExecutionNode] = {}
-    mesh_refs: list[list[str]] = []
-    placements: list[dict[str, Any]] = []
-    missing: list[str] = []
-    for object_id, object_data in objects.items():
-        workspace_path = _scene_asset_path(world, object_id, object_data)
-        if not workspace_path:
-            if str(object_data.get("role") or "").lower() in {"room", "background"}:
-                continue
-            missing.append(object_id)
-            continue
-        try:
-            resolved = resolve_workspace_path(runtime_paths.workspace, workspace_path)
-        except ValueError as exc:
-            raise ScenePlanError(f"Invalid asset path for '{object_id}': {exc}") from exc
-        if not resolved.is_file():
-            missing.append(object_id)
-            continue
-        node_id = f"asset_{object_id}"
-        nodes[node_id] = WorkflowExecutionNode(
-            class_type="polykit.mesh",
-            inputs={"mesh": {"kind": "workspace_path", "path": workspace_path}},
-        )
-        mesh_refs.append([node_id, "mesh"])
-        instance = instances.get(object_id) or {}
-        placements.append({
-            "position": instance.get("position", [0, 0, 0]),
-            "rotation": instance.get("rotation", [0, 0, 0]),
-            "scale": instance.get("scale", 1),
-            "size": object_data.get("size", [1, 1, 1]),
-        })
-
-    if missing and not allow_missing:
-        raise ScenePlanError("Scene objects are missing mesh assets: " + ", ".join(sorted(missing)))
-    if not mesh_refs:
-        raise ScenePlanError("Runtime scene has no resolved mesh assets to compose")
-
-    nodes["compose"] = WorkflowExecutionNode(
-        class_type="scene-composer/compose",
-        inputs={
-            "mesh": mesh_refs,
-            "params": {
-                "output_name": output_name,
-                "placements": placements,
-                "coordinate_system": "glTF-Y-up",
-            },
-        },
-    )
-    nodes["output"] = WorkflowExecutionNode(
-        class_type="polykit.output",
-        inputs={"mesh": ["compose", "mesh"]},
-    )
-    return WorkflowExecutionRequest(
-        workflow_id="world-compose-scene",
-        prompt=nodes,
-        output_node_id="output",
-        collection=normalize_collection(collection),
-        metadata={
-            "world_id": world_id,
-            "artifact_kind": "scene",
-            "workflow_recipe": "world-compose-scene",
-            "missing_objects": missing,
-            "composition": "scene-composer",
-            "layout_quality": quality if isinstance(quality, dict) else None,
-        },
-    )
 
 
 @router.post("/{world_id}/scene-plan")
@@ -238,19 +143,16 @@ async def compose_world_scene(
         world = get_world(world_id)
         if world is None:
             raise HTTPException(status_code=404, detail="World was not found")
-        workflow = _build_scene_composition_workflow(
+        prepared = prepare_world_composition_run(
             world,
             world_id=world_id,
-            collection=request.collection,
-            output_name=request.output_name,
-            allow_missing=request.allow_missing,
+            command=ComposeWorldCommand.model_validate(request.model_dump(mode="python")),
+            initiator=ExecutionInitiator(type="user", surface="worlds.compose"),
         )
-        from routers.workflow_runs import execute_workflow
-
-        return await execute_workflow(workflow, background_tasks)
+        return _schedule_world_run(prepared, background_tasks)
     except HTTPException:
         raise
-    except (ScenePlanError, WorldStoreError, ValueError) as exc:
+    except (ScenePlanError, WorldStoreError, KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not compose scene: {exc}") from exc
@@ -262,25 +164,22 @@ async def build_world_structure(
     request: WorldStructureRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Compile one BuildSpec building into the existing Blender process node."""
+    """Build one precise World structure through the shared Run layer."""
 
     try:
         world = get_world(world_id)
         if world is None:
             raise HTTPException(status_code=404, detail="World was not found")
-        workflow = build_structure_workflow(
+        prepared = prepare_world_structure_run(
             world,
             world_id=world_id,
-            building_id=request.building_id,
-            collection=request.collection,
-            render_preview=request.render_preview,
+            command=BuildWorldStructureCommand.model_validate(request.model_dump(mode="python")),
+            initiator=ExecutionInitiator(type="user", surface="worlds.build-structure"),
         )
-        from routers.workflow_runs import execute_workflow
-
-        return await execute_workflow(workflow, background_tasks)
+        return _schedule_world_run(prepared, background_tasks)
     except HTTPException:
         raise
-    except (WorldStoreError, ValueError) as exc:
+    except (WorldStoreError, KeyError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not build world structure: {exc}") from exc
@@ -288,7 +187,7 @@ async def build_world_structure(
 
 @router.post("/{world_id}/validate")
 async def validate_world_for_workflow(world_id: str, request: WorldValidationRequest):
-    """Return deterministic validation evidence for one world capability."""
+    """Return deterministic validation evidence for one World capability."""
 
     try:
         world = get_world(world_id)
