@@ -265,12 +265,17 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
                 },
             )
             process_tuple = (Path(temp_dir), {"entry": "processor.py"}, {"id": "build", "output": "mesh"})
+            captured_workspace: dict[str, Path] = {}
+
+            async def fake_run_process(*args, **kwargs):
+                captured_workspace["path"] = args[3]
+                return {"mesh": mesh, "sidecars": [blend, preview, entry_view, hearth_view, exterior_view]}
+
             job = SimpleNamespace(progress=0, step="")
             loop = asyncio.new_event_loop()
             try:
                 with mock.patch("services.workflow_engine.process_node_pack", return_value=process_tuple), mock.patch(
-                    "services.workflow_engine._run_process_node",
-                    return_value={"mesh": mesh, "sidecars": [blend, preview, entry_view, hearth_view, exterior_view]},
+                    "services.workflow_engine._run_process_node", new=fake_run_process
                 ):
                     result = loop.run_until_complete(
                         WorkflowEngine(node_cache=ArtifactNodeOutputCache(), cache_enabled=False).run(
@@ -292,6 +297,8 @@ class WorkflowEngineTests(ModelRuntimeMixin, unittest.TestCase):
             self.assertTrue((root / "Workflows" / "cabin_view_entry.png").is_file())
             self.assertTrue((root / "Workflows" / "cabin_view_hearth.png").is_file())
             self.assertTrue((root / "Workflows" / "cabin_view_exterior.png").is_file())
+            self.assertEqual(captured_workspace["path"], artifact_dir)
+            self.assertNotEqual(captured_workspace["path"], root / "Workflows")
 
 
 class MapOverListTests(ModelRuntimeMixin, unittest.TestCase):

@@ -221,12 +221,42 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="polykit_world_find_assets",
-            description="Search the PolyKit workspace for mesh assets matching a semantic query.",
+            description=(
+                "Search only the existing PolyKit workspace for mesh assets matching a semantic query. "
+                "This is read-only and does not query or download external providers."
+            ),
             inputSchema=_object_schema({
                 "query": _string("Semantic asset query."),
                 "category": _string("Optional asset category."),
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Default 5."},
             }, ["query"]),
+        ),
+        Tool(
+            name="polykit_asset_search_external",
+            description=(
+                "Read-only fallback search against Poly Haven's public model API. "
+                "Use after local workspace search has no high-confidence match. "
+                "It never downloads files, changes the workspace, or creates a WorkflowRun."
+            ),
+            inputSchema=_object_schema({
+                "query": _string("Semantic model query, such as wooden chair or barrel."),
+                "category": _string("Optional Poly Haven category filter."),
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Default 5."},
+                "refresh": {"type": "boolean", "description": "Refresh the server-side metadata cache. Default false."},
+            }, ["query"]),
+        ),
+        Tool(
+            name="polykit_asset_import_external",
+            description=(
+                "Explicitly import one selected Poly Haven model into the server workspace. "
+                "This is a side effect: it downloads and verifies the selected glTF bundle, "
+                "normalizes it to a GLB, and records CC0 attribution/provenance. "
+                "Pass an asset_id returned by polykit_asset_search_external; this does not create a WorkflowRun."
+            ),
+            inputSchema=_object_schema({
+                "asset_id": _string("Poly Haven asset_id returned by external search."),
+                "resolution": {"type": "string", "enum": ["1k", "2k", "4k", "8k"], "description": "Download resolution. Default 2k."},
+            }, ["asset_id"]),
         ),
         Tool(
             name="polykit_world_build_structure",
@@ -442,6 +472,23 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             "category": args.get("category") or None,
             "limit": max(1, min(int(args.get("limit", 5)), 50)),
             "meshesOnly": True,
+        })
+
+    if name == "polykit_asset_search_external":
+        return await _request_json("POST", "/workspace-library/providers/polyhaven/search", {
+            "query": _required_text(args, "query"),
+            "category": args.get("category") or None,
+            "limit": max(1, min(int(args.get("limit", 5)), 50)),
+            "refresh": bool(args.get("refresh", False)),
+        })
+
+    if name == "polykit_asset_import_external":
+        resolution = str(args.get("resolution") or "2k").lower()
+        if resolution not in {"1k", "2k", "4k", "8k"}:
+            raise ValueError("resolution must be one of 1k, 2k, 4k, or 8k")
+        return await _request_json("POST", "/workspace-library/providers/polyhaven/import", {
+            "asset_id": _required_text(args, "asset_id"),
+            "resolution": resolution,
         })
 
     if name == "polykit_world_build_structure":

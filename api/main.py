@@ -31,6 +31,7 @@ from routers import (
     workspace_library,
     workspace_worlds,
     world_artifacts,
+    polyhaven,
 )
 from services.runtime_paths import runtime_paths
 
@@ -100,6 +101,7 @@ app.include_router(execution_runs.router)
 app.include_router(workflow_runs.router, prefix="/workflow-runs")
 app.include_router(workflow_store.router)
 app.include_router(workspace_library.router)
+app.include_router(polyhaven.router)
 app.include_router(workspace_worlds.router)
 app.include_router(production_recipes.router)
 app.include_router(agent_skills.router)

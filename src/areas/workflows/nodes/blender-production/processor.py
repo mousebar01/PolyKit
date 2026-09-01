@@ -70,6 +70,7 @@ import base64
 import json
 import math
 import pathlib
+import re
 import tempfile
 import zlib
 import bpy
@@ -139,6 +140,7 @@ FRAME = material('Production Frame', (0.13, 0.03, 0.012), 0.42)
 GLASS = material('Production Opening Glass', (0.22, 0.42, 0.62), 0.08, 0.0, 0.88)
 BLACK = material('NPR Outline', (0.008, 0.008, 0.012), 0.95)
 TOON = material('NPR Toon', (0.24, 0.42, 0.8), 0.9)
+BLACK.use_backface_culling = True
 
 def cube(name, location, dimensions, mat=WOOD, target=MODEL, rotation=(0.0, 0.0, 0.0), bevel=0.0):
     bpy.ops.mesh.primitive_cube_add(location=location, rotation=rotation)
@@ -190,6 +192,401 @@ def import_mesh(path):
         obj['polyKitImported'] = True
     return imported
 
+def _interface_socket(group, name, in_out, socket_type, default=None):
+    socket = group.interface.new_socket(name=name, in_out=in_out, socket_type=socket_type)
+    if default is not None:
+        try:
+            socket.default_value = default
+        except Exception:
+            pass
+    return socket
+
+def _set_group_input(node, name, value):
+    socket = node.inputs.get(name)
+    if socket is None:
+        return
+    try:
+        socket.default_value = value
+    except Exception:
+        pass
+
+def build_eevee_outline_group(width, noise_scale, wobble, outline_material):
+    """Build one reusable deformation-following inverted-hull node group."""
+    group = bpy.data.node_groups.get('PolyKit Eevee Inverted Hull')
+    if group is not None:
+        return group
+    group = bpy.data.node_groups.new('PolyKit Eevee Inverted Hull', 'GeometryNodeTree')
+    _interface_socket(group, 'Geometry', 'INPUT', 'NodeSocketGeometry')
+    _interface_socket(group, 'Enable Outline', 'INPUT', 'NodeSocketBool', True)
+    _interface_socket(group, 'Outline Width', 'INPUT', 'NodeSocketFloat', width)
+    _interface_socket(group, 'Noise Scale', 'INPUT', 'NodeSocketFloat', noise_scale)
+    _interface_socket(group, 'Wobble', 'INPUT', 'NodeSocketFloat', wobble)
+    _interface_socket(group, 'Outline Material', 'INPUT', 'NodeSocketMaterial', outline_material)
+    _interface_socket(group, 'Geometry', 'OUTPUT', 'NodeSocketGeometry')
+    nodes = group.nodes
+    links = group.links
+    group_input = nodes.new('NodeGroupInput')
+    group_output = nodes.new('NodeGroupOutput')
+    extrude = nodes.new('GeometryNodeExtrudeMesh')
+    extrude.name = 'Outline Extrude Faces'
+    extrude.mode = 'FACES'
+    extrude.inputs['Selection'].default_value = True
+    separate = nodes.new('GeometryNodeSeparateGeometry')
+    separate.name = 'Outline Top Face Isolation'
+    separate.domain = 'FACE'
+    set_position = nodes.new('GeometryNodeSetPosition')
+    set_position.name = 'Outline Wobble Set Position'
+    normal = nodes.new('GeometryNodeInputNormal')
+    position = nodes.new('GeometryNodeInputPosition')
+    noise = nodes.new('ShaderNodeTexNoise')
+    noise.name = 'Outline Position Noise'
+    map_range = nodes.new('ShaderNodeMapRange')
+    map_range.name = 'Outline Centered Noise'
+    map_range.inputs['From Min'].default_value = 0.0
+    map_range.inputs['From Max'].default_value = 1.0
+    map_range.inputs['To Min'].default_value = -1.0
+    map_range.inputs['To Max'].default_value = 1.0
+    combine = nodes.new('ShaderNodeCombineXYZ')
+    centered = nodes.new('ShaderNodeMath')
+    centered.operation = 'MULTIPLY'
+    vector_mul = nodes.new('ShaderNodeVectorMath')
+    vector_mul.operation = 'MULTIPLY'
+    flip = nodes.new('GeometryNodeFlipFaces')
+    flip.name = 'Outline Flip Faces'
+    set_material = nodes.new('GeometryNodeSetMaterial')
+    set_material.name = 'Outline Set Material'
+    join = nodes.new('GeometryNodeJoinGeometry')
+    join.name = 'Outline Join Source'
+    switch = nodes.new('GeometryNodeSwitch')
+    switch.name = 'Outline Geometry Switch'
+    switch.input_type = 'GEOMETRY'
+
+    links.new(group_input.outputs['Geometry'], extrude.inputs['Mesh'])
+    links.new(group_input.outputs['Outline Width'], extrude.inputs['Offset Scale'])
+    links.new(extrude.outputs['Mesh'], separate.inputs['Geometry'])
+    links.new(extrude.outputs['Top'], separate.inputs['Selection'])
+    links.new(separate.outputs['Selection'], set_position.inputs['Geometry'])
+    links.new(position.outputs['Position'], noise.inputs['Vector'])
+    links.new(group_input.outputs['Noise Scale'], noise.inputs['Scale'])
+    links.new(noise.outputs['Fac'], map_range.inputs['Value'])
+    links.new(map_range.outputs['Result'], centered.inputs[0])
+    links.new(group_input.outputs['Wobble'], centered.inputs[1])
+    links.new(centered.outputs[0], combine.inputs['X'])
+    links.new(centered.outputs[0], combine.inputs['Y'])
+    links.new(centered.outputs[0], combine.inputs['Z'])
+    links.new(normal.outputs['Normal'], vector_mul.inputs[0])
+    links.new(combine.outputs['Vector'], vector_mul.inputs[1])
+    links.new(vector_mul.outputs['Vector'], set_position.inputs['Offset'])
+    links.new(set_position.outputs['Geometry'], flip.inputs['Mesh'])
+    links.new(flip.outputs['Mesh'], set_material.inputs['Geometry'])
+    links.new(group_input.outputs['Outline Material'], set_material.inputs['Material'])
+    links.new(group_input.outputs['Geometry'], join.inputs['Geometry'])
+    links.new(set_material.outputs['Geometry'], join.inputs['Geometry'])
+    links.new(group_input.outputs['Enable Outline'], switch.inputs['Switch'])
+    links.new(join.outputs['Geometry'], switch.inputs['True'])
+    links.new(group_input.outputs['Geometry'], switch.inputs['False'])
+    links.new(switch.outputs['Output'], group_output.inputs['Geometry'])
+
+    return group
+
+def build_eevee_outline(obj, width, noise_scale, wobble, outline_material, group=None):
+    """Attach the shared inverted-hull Geometry Nodes group to an object."""
+    for modifier in list(obj.modifiers):
+        if modifier.name.startswith('PolyKit Eevee Outline'):
+            obj.modifiers.remove(modifier)
+    group = group or build_eevee_outline_group(width, noise_scale, wobble, outline_material)
+    modifier = obj.modifiers.new('PolyKit Eevee Outline', 'NODES')
+    modifier.node_group = group
+    for item in group.interface.items_tree:
+        if getattr(item, 'item_type', None) != 'SOCKET' or item.in_out != 'INPUT':
+            continue
+        values = {
+            'Enable Outline': True,
+            'Outline Width': width,
+            'Noise Scale': noise_scale,
+            'Wobble': wobble,
+            'Outline Material': outline_material,
+        }
+        if item.name in values:
+            try:
+                modifier[item.identifier] = values[item.name]
+            except Exception:
+                pass
+    obj['polyKitNprSystem'] = 'eevee-inverted-hull'
+    obj['polyKitNprOutlineWidth'] = float(width)
+    obj['polyKitNprNoiseScale'] = float(noise_scale)
+    obj['polyKitNprWobble'] = float(wobble)
+    return group
+
+def _toon_shade(color, factor):
+    return tuple(max(0.0, min(1.0, float(channel) * factor)) for channel in color) + (1.0,)
+
+def build_eevee_toon_material(base_color=(0.28, 0.48, 0.92), source_name='default'):
+    safe_source = re.sub(r'[^0-9A-Za-z_]+', '_', str(source_name)).strip('_')[:48] or 'default'
+    mat = bpy.data.materials.new('PolyKit NPR Eevee Toon ' + safe_source)
+    mat.diffuse_color = (*base_color, 1.0)
+    mat['production_material_class'] = 'npr-toon'
+    mat['production_texture_scale_m'] = 1.0
+    mat['production_surface_variant'] = 'renderer-native'
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    output = nodes.new('ShaderNodeOutputMaterial')
+    diffuse = nodes.new('ShaderNodeBsdfDiffuse')
+    diffuse.name = 'Toon Diffuse'
+    diffuse.inputs['Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+    shader_to_rgb = nodes.new('ShaderNodeShaderToRGB')
+    shader_to_rgb.name = 'Discrete Shader To RGB'
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.name = 'Constant Toon Bands'
+    ramp.color_ramp.interpolation = 'CONSTANT'
+    ramp.color_ramp.elements[0].position = 0.30
+    ramp.color_ramp.elements[0].color = _toon_shade(base_color, 0.42)
+    ramp.color_ramp.elements[1].position = 0.54
+    ramp.color_ramp.elements[1].color = _toon_shade(base_color, 0.86)
+    highlight = ramp.color_ramp.elements.new(0.76)
+    highlight.color = _toon_shade(base_color, 1.38)
+    variation = nodes.new('ShaderNodeValToRGB')
+    variation.name = 'Stable Material Variation'
+    variation.color_ramp.elements[0].position = 0.28
+    variation.color_ramp.elements[0].color = (0.86, 0.86, 0.86, 1.0)
+    variation.color_ramp.elements[1].position = 0.74
+    variation.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+    noise = nodes.new('ShaderNodeTexNoise')
+    noise.name = 'Toon Surface Variation'
+    noise.noise_dimensions = '3D'
+    noise.inputs['Scale'].default_value = 4.0
+    noise.inputs['Detail'].default_value = 2.0
+    noise.inputs['Roughness'].default_value = 0.45
+    texcoord = nodes.new('ShaderNodeTexCoord')
+    texcoord.name = 'Toon Object Coordinates'
+    multiply = nodes.new('ShaderNodeMixRGB')
+    multiply.name = 'Toon Palette x Material Variation'
+    multiply.blend_type = 'MULTIPLY'
+    multiply.inputs['Fac'].default_value = 1.0
+    emission = nodes.new('ShaderNodeEmission')
+    emission.name = 'Stable Toon Fill'
+    emission.inputs['Strength'].default_value = 1.0
+    links.new(diffuse.outputs['BSDF'], shader_to_rgb.inputs['Shader'])
+    links.new(shader_to_rgb.outputs['Color'], ramp.inputs['Fac'])
+    links.new(texcoord.outputs['Generated'], noise.inputs['Vector'])
+    links.new(noise.outputs['Fac'], variation.inputs['Fac'])
+    links.new(ramp.outputs['Color'], multiply.inputs['Color1'])
+    links.new(variation.outputs['Color'], multiply.inputs['Color2'])
+    links.new(multiply.outputs['Color'], emission.inputs['Color'])
+    links.new(emission.outputs['Emission'], output.inputs['Surface'])
+    mat['polyKitNprRenderer'] = 'eevee'
+    mat['polyKitNprBands'] = 3
+    mat['polyKitNprBaseColor'] = tuple(float(channel) for channel in base_color)
+    mat['polyKitNprSourceMaterial'] = str(source_name)
+    return mat
+
+def build_cycles_ray_sample_group():
+    group = bpy.data.node_groups.get('PolyKit Cycles Ray Sample')
+    if group is not None:
+        return group
+    group = bpy.data.node_groups.new('PolyKit Cycles Ray Sample', 'ShaderNodeTree')
+    _interface_socket(group, 'Offset', 'INPUT', 'NodeSocketVector', (1.0, 0.0, 0.0))
+    _interface_socket(group, 'Width', 'INPUT', 'NodeSocketFloat', 0.018)
+    _interface_socket(group, 'Ray Length', 'INPUT', 'NodeSocketFloat', 100.0)
+    _interface_socket(group, 'Is Hit', 'OUTPUT', 'NodeSocketFloat')
+    nodes = group.nodes
+    links = group.links
+    group_input = nodes.new('NodeGroupInput')
+    group_output = nodes.new('NodeGroupOutput')
+    transform = nodes.new('ShaderNodeVectorTransform')
+    transform.name = 'Camera Offset To World'
+    transform.vector_type = 'VECTOR'
+    transform.convert_from = 'CAMERA'
+    transform.convert_to = 'WORLD'
+    scale = nodes.new('ShaderNodeVectorMath')
+    scale.name = 'Scale Offset By Width'
+    scale.operation = 'SCALE'
+    geometry = nodes.new('ShaderNodeNewGeometry')
+    add = nodes.new('ShaderNodeVectorMath')
+    add.name = 'Shift Ray Origin'
+    add.operation = 'ADD'
+    reverse = nodes.new('ShaderNodeVectorMath')
+    reverse.name = 'Reverse Incoming'
+    reverse.operation = 'SCALE'
+    reverse.inputs['Scale'].default_value = -1.0
+    raycast = nodes.new('ShaderNodeRaycast')
+    raycast.name = 'Bounded Local Raycast'
+    raycast.only_local = True
+    links.new(group_input.outputs['Offset'], transform.inputs['Vector'])
+    links.new(transform.outputs['Vector'], scale.inputs[0])
+    links.new(group_input.outputs['Width'], scale.inputs['Scale'])
+    links.new(geometry.outputs['Position'], add.inputs[0])
+    links.new(scale.outputs['Vector'], add.inputs[1])
+    links.new(add.outputs['Vector'], raycast.inputs['Position'])
+    links.new(geometry.outputs['Incoming'], reverse.inputs[0])
+    links.new(reverse.outputs['Vector'], raycast.inputs['Direction'])
+    links.new(group_input.outputs['Ray Length'], raycast.inputs['Length'])
+    links.new(raycast.outputs['Is Hit'], group_output.inputs['Is Hit'])
+    return group
+
+def _material_base_color(source):
+    if source is not None:
+        bsdf = principled(source)
+        if bsdf is not None:
+            socket = bsdf.inputs.get('Base Color')
+            if socket is not None and not socket.is_linked:
+                value = socket.default_value
+                return tuple(float(max(0.0, min(1.0, value[index]))) for index in range(3))
+        value = source.diffuse_color
+        return tuple(float(max(0.0, min(1.0, value[index]))) for index in range(3))
+    return (0.28, 0.48, 0.92)
+
+def _source_base_color(obj):
+    for slot in obj.material_slots:
+        if slot.material is not None:
+            return _material_base_color(slot.material)
+    return (0.28, 0.48, 0.92)
+
+def _material_slots_with_toon_variant(obj, make_variant):
+    """Keep authored slots and render through appended NPR variants."""
+    authored = list(obj.data.materials)
+    if not authored:
+        authored = [None]
+    original_indices = [int(polygon.material_index) for polygon in obj.data.polygons]
+    variants = {}
+    variant_indices = {}
+    for index, source in enumerate(authored):
+        base = _source_base_color(obj) if source is None else _material_base_color(source)
+        key = tuple(round(channel, 5) for channel in base)
+        if key not in variants:
+            variants[key] = make_variant(base, source.name if source is not None else 'default')
+        variant = variants[key]
+        try:
+            variant_index = list(obj.data.materials).index(variant)
+        except ValueError:
+            obj.data.materials.append(variant)
+            variant_index = len(obj.data.materials) - 1
+        variant_indices[index] = variant_index
+    for polygon in obj.data.polygons:
+        polygon.material_index = variant_indices.get(polygon.material_index, next(iter(variant_indices.values())))
+    obj['polyKitNprAuthoredMaterials'] = [source.name if source is not None else None for source in authored]
+    obj['polyKitNprOriginalMaterialIndices'] = original_indices
+    obj['polyKitNprAuthoredSlotCount'] = len(authored)
+    obj['polyKitNprMaterialPolicy'] = 'preserved_with_toon_variant'
+    return variants
+
+def presentation_objects(objects):
+    mesh_objects = [obj for obj in objects if obj.type == 'MESH']
+    excluded = []
+    spans = []
+    for obj in mesh_objects:
+        minimum, maximum = bounds([obj])
+        dimensions = maximum - minimum
+        spans.append((obj, dimensions))
+    nonflat_span = max(
+        (max(float(dimensions.x), float(dimensions.y)) for _obj, dimensions in spans if float(dimensions.z) > 0.25),
+        default=0.0,
+    )
+    for obj, dimensions in spans:
+        if obj.type != 'MESH':
+            continue
+        role = str(obj.get('polyKitEnvironmentRole', '')).lower()
+        name = obj.name.lower()
+        planar_receiver = (
+            nonflat_span > 0.0
+            and float(dimensions.z) <= 0.25
+            and max(float(dimensions.x), float(dimensions.y)) >= nonflat_span * 1.6
+        )
+        if role in {'snow-receiver', 'ground', 'backdrop', 'environment'} or planar_receiver or any(token in name for token in ('environment-ground', 'snow-ground', 'backdrop', 'receiver')):
+            excluded.append(obj)
+    candidates = [obj for obj in mesh_objects if obj not in excluded]
+    return candidates or mesh_objects
+
+def build_cycles_npr_material(width, ray_length, base_color=(0.28, 0.48, 0.92), source_name='default'):
+    sample = build_cycles_ray_sample_group()
+    safe_source = re.sub(r'[^0-9A-Za-z_]+', '_', str(source_name)).strip('_')[:48] or 'default'
+    toon_color = tuple(min(1.0, max(0.0, float(channel) * 1.65 + 0.02)) for channel in base_color)
+    look_name = 'PolyKit Cycles Four-Ray NPR ' + safe_source
+    look = bpy.data.node_groups.get(look_name)
+    if look is None:
+        look = bpy.data.node_groups.new(look_name, 'ShaderNodeTree')
+        _interface_socket(look, 'Base Color', 'INPUT', 'NodeSocketColor', (*toon_color, 1.0))
+        _interface_socket(look, 'Outline Color', 'INPUT', 'NodeSocketColor', (0.008, 0.008, 0.012, 1.0))
+        _interface_socket(look, 'Outline Width', 'INPUT', 'NodeSocketFloat', width)
+        _interface_socket(look, 'Ray Length', 'INPUT', 'NodeSocketFloat', ray_length)
+        _interface_socket(look, 'Shader', 'OUTPUT', 'NodeSocketShader')
+        _interface_socket(look, 'Outline Mask', 'OUTPUT', 'NodeSocketFloat')
+        nodes = look.nodes
+        links = look.links
+        group_input = nodes.new('NodeGroupInput')
+        group_output = nodes.new('NodeGroupOutput')
+        try:
+            toon = nodes.new('ShaderNodeBsdfToon')
+            toon.name = 'Cycles Toon BSDF Fill'
+            toon.component = 'DIFFUSE'
+            toon.inputs['Size'].default_value = 0.52
+            toon.inputs['Smooth'].default_value = 0.03
+            look['polyKitNprCyclesFill'] = 'toon-bsdf'
+        except Exception:
+            toon = nodes.new('ShaderNodeBsdfDiffuse')
+            toon.name = 'Cycles Flat Diffuse Fallback'
+            look['polyKitNprCyclesFill'] = 'diffuse-fallback'
+        outline = nodes.new('ShaderNodeEmission')
+        outline.name = 'Cycles Outline Emission'
+        outline.inputs['Strength'].default_value = 1.0
+        mix = nodes.new('ShaderNodeMixShader')
+        offsets = ((1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0))
+        masks = []
+        for index, offset in enumerate(offsets):
+            sample_node = nodes.new('ShaderNodeGroup')
+            sample_node.name = 'Ray Sample ' + ('PosX', 'NegX', 'PosY', 'NegY')[index]
+            sample_node.node_tree = sample
+            _set_group_input(sample_node, 'Offset', offset)
+            links.new(group_input.outputs['Outline Width'], sample_node.inputs['Width'])
+            links.new(group_input.outputs['Ray Length'], sample_node.inputs['Ray Length'])
+            masks.append(sample_node.outputs['Is Hit'])
+        multiply_a = nodes.new('ShaderNodeMath')
+        multiply_a.name = 'Multiply Ray Hits A'
+        multiply_a.operation = 'MULTIPLY'
+        multiply_b = nodes.new('ShaderNodeMath')
+        multiply_b.name = 'Multiply Ray Hits B'
+        multiply_b.operation = 'MULTIPLY'
+        multiply_c = nodes.new('ShaderNodeMath')
+        multiply_c.name = 'Multiply Ray Hits C'
+        multiply_c.operation = 'MULTIPLY'
+        links.new(masks[0], multiply_a.inputs[0])
+        links.new(masks[1], multiply_a.inputs[1])
+        links.new(masks[2], multiply_b.inputs[0])
+        links.new(masks[3], multiply_b.inputs[1])
+        links.new(multiply_a.outputs[0], multiply_c.inputs[0])
+        links.new(multiply_b.outputs[0], multiply_c.inputs[1])
+        links.new(group_input.outputs['Base Color'], toon.inputs['Color'])
+        links.new(group_input.outputs['Outline Color'], outline.inputs['Color'])
+        links.new(multiply_c.outputs[0], mix.inputs[0])
+        links.new(outline.outputs['Emission'], mix.inputs[1])
+        links.new(toon.outputs['BSDF'], mix.inputs[2])
+        links.new(mix.outputs['Shader'], group_output.inputs['Shader'])
+        links.new(multiply_c.outputs[0], group_output.inputs['Outline Mask'])
+    mat = bpy.data.materials.new('PolyKit NPR Cycles Raycast ' + safe_source)
+    mat.use_nodes = True
+    mat['production_material_class'] = 'npr-toon'
+    mat['production_texture_scale_m'] = 1.0
+    mat['production_surface_variant'] = 'renderer-native'
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    output = nodes.new('ShaderNodeOutputMaterial')
+    group_node = nodes.new('ShaderNodeGroup')
+    group_node.name = 'Four Direction Raycast Toon'
+    group_node.node_tree = look
+    _set_group_input(group_node, 'Outline Width', width)
+    _set_group_input(group_node, 'Ray Length', ray_length)
+    links.new(group_node.outputs['Shader'], output.inputs['Surface'])
+    mat['polyKitNprRenderer'] = 'cycles'
+    mat['polyKitNprBaseColor'] = tuple(float(channel) for channel in base_color)
+    mat['polyKitNprToonColor'] = tuple(float(channel) for channel in toon_color)
+    mat['polyKitNprSourceMaterial'] = str(source_name)
+    mat['polyKitNprSystem'] = 'four-direction-shader-raycast'
+    mat['polyKitNprRayLength'] = float(ray_length)
+    return mat, sample, look
+
 def look_at(obj, target):
     obj.rotation_euler = (Vector(target) - obj.location).to_track_quat('-Z', 'Y').to_euler()
 
@@ -215,7 +612,8 @@ def bounds(objects):
     return Vector((min(p.x for p in points), min(p.y for p in points), min(p.z for p in points))), Vector((max(p.x for p in points), max(p.y for p in points), max(p.z for p in points)))
 
 def add_presentation(objects):
-    minimum, maximum = bounds(objects)
+    framed_objects = presentation_objects(objects)
+    minimum, maximum = bounds(framed_objects)
     center = (minimum + maximum) * 0.5
     extent = max((maximum - minimum).length, 1.0)
     # Area-light energy is distance-sensitive. Scale the authored preset for
@@ -249,16 +647,90 @@ def add_presentation(objects):
     look_at(camera, center)
     camera['polyKitInspectionView'] = 'production'
     scene.camera = camera
-    try:
-        scene.render.engine = 'BLENDER_EEVEE_NEXT'
-    except Exception:
-        scene.render.engine = 'BLENDER_EEVEE'
+    # NPR/Cycles selects its renderer before presentation setup; do not let the
+    # generic camera helper silently switch that run back to Eevee.
+    if not (OPERATION == 'npr' and str(PARAMS.get('renderer', 'eevee')).lower() == 'cycles'):
+        try:
+            scene.render.engine = 'BLENDER_EEVEE_NEXT'
+        except Exception:
+            scene.render.engine = 'BLENDER_EEVEE'
     scene.render.resolution_x = 768
     scene.render.resolution_y = 512
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = 'PNG'
     scene.world.color = (0.012, 0.016, 0.03)
+    scene['polyKitPresentationObjectCount'] = len(framed_objects)
+    scene['polyKitPresentationExcluded'] = [obj.name for obj in objects if obj not in framed_objects]
     return camera
+
+def configure_structure_lines(mode):
+    mode = str(mode or 'silhouette').lower()
+    if mode not in {'silhouette', 'structure', 'hybrid'}:
+        raise RuntimeError("line_mode must be 'silhouette', 'structure', or 'hybrid'")
+    if mode == 'silhouette':
+        try:
+            scene.render.use_freestyle = False
+        except Exception:
+            pass
+        return {'mode': mode, 'enabled': False, 'system': 'inverted-hull-or-raycast'}
+    try:
+        scene.render.use_freestyle = True
+        view_layer = scene.view_layers[0]
+        settings = view_layer.freestyle_settings
+        line_set = settings.linesets[0] if len(settings.linesets) else settings.linesets.new('PolyKit Structure Lines')
+        line_set.select_silhouette = mode == 'hybrid'
+        line_set.select_crease = True
+        line_set.select_border = True
+        if hasattr(line_set, 'select_material_boundary'):
+            line_set.select_material_boundary = True
+        style = line_set.linestyle
+        style.color = (0.012, 0.016, 0.025)
+        style.thickness = 1.15
+        return {
+            'mode': mode,
+            'enabled': True,
+            'system': 'freestyle-structure-lines',
+            'lineSet': line_set.name,
+            'crease': True,
+            'materialBoundary': bool(getattr(line_set, 'select_material_boundary', False)),
+        }
+    except Exception as exc:
+        try:
+            scene.render.use_freestyle = False
+        except Exception:
+            pass
+        return {'mode': mode, 'enabled': False, 'system': 'freestyle-unavailable', 'warning': str(exc)}
+
+def render_metrics(path):
+    image = bpy.data.images.get('Render Result')
+    loaded_from_disk = False
+    if (image is None or tuple(image.size) == (0, 0)) and pathlib.Path(path).exists():
+        image = bpy.data.images.load(str(path), check_existing=False)
+        loaded_from_disk = True
+    if image is None or tuple(image.size) == (0, 0):
+        return {'nonblank': False, 'reason': 'render-result-missing'}
+    pixels = list(image.pixels)
+    luminance = []
+    for index in range(0, len(pixels), 4):
+        red, green, blue, alpha = pixels[index:index + 4]
+        if alpha > 0.001:
+            luminance.append(0.2126 * red + 0.7152 * green + 0.0722 * blue)
+    if not luminance:
+        return {'nonblank': False, 'reason': 'no-visible-pixels'}
+    mean = sum(luminance) / len(luminance)
+    deviation = math.sqrt(sum((value - mean) ** 2 for value in luminance) / len(luminance))
+    metrics = {
+        'width': int(image.size[0]),
+        'height': int(image.size[1]),
+        'luminanceMin': round(min(luminance), 6),
+        'luminanceMax': round(max(luminance), 6),
+        'luminanceMean': round(mean, 6),
+        'luminanceStddev': round(deviation, 6),
+        'nonblank': bool(max(luminance) - min(luminance) > 0.08 and deviation > 0.02),
+    }
+    if loaded_from_disk:
+        bpy.data.images.remove(image)
+    return metrics
 
 objects = []
 metadata = {'operation': OPERATION, 'version': 1, 'blenderVersion': bpy.app.version_string, 'warnings': []}
@@ -522,49 +994,90 @@ elif OPERATION in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr'}:
         metadata.update({'simulation': simulation, 'quality': quality, 'bakeRequested': bake_requested, 'bakeStatus': bake_status})
     elif OPERATION == 'npr':
         renderer = str(PARAMS.get('renderer', 'eevee')).lower()
-        toon = material('NPR Toon Surface', (0.24, 0.42, 0.8), 0.9)
-        toon_nodes = toon.node_tree.nodes
-        toon_links = toon.node_tree.links
-        toon_nodes.clear()
-        output_node = toon_nodes.new('ShaderNodeOutputMaterial')
-        diffuse_node = toon_nodes.new('ShaderNodeBsdfDiffuse')
-        diffuse_node.inputs['Color'].default_value = (0.24, 0.42, 0.8, 1.0)
+        outline_width = max(0.001, min(0.2, float(PARAMS.get('outline_width', 0.018))))
+        noise_scale = max(0.1, min(50.0, float(PARAMS.get('outline_noise_scale', 3.0))))
+        wobble = max(0.0, min(0.2, float(PARAMS.get('outline_wobble', 0.0))))
+        line_mode = str(PARAMS.get('line_mode', 'silhouette')).strip().lower()
+        replace_material = PARAMS.get('replace_material', False)
+        if isinstance(replace_material, str):
+            replace_material = replace_material.strip().lower() not in {'', '0', 'false', 'no', 'off'}
+        replace_material = bool(replace_material)
         if renderer == 'eevee':
+            outline_group = build_eevee_outline_group(outline_width, noise_scale, wobble, BLACK)
+            line_info = configure_structure_lines(line_mode)
+            default_toon = build_eevee_toon_material()
+            for obj in objects:
+                if replace_material:
+                    obj.data.materials.clear()
+                    obj.data.materials.append(default_toon)
+                    for polygon in obj.data.polygons:
+                        polygon.material_index = 0
+                    obj['polyKitNprMaterialPolicy'] = 'replaced_by_explicit_request'
+                else:
+                    _material_slots_with_toon_variant(
+                        obj,
+                        lambda base, source: build_eevee_toon_material(base, source),
+                    )
+                build_eevee_outline(obj, outline_width, noise_scale, wobble, BLACK, outline_group)
+                obj['polyKitNprRenderer'] = 'eevee'
             try:
-                shader_to_rgb = toon_nodes.new('ShaderNodeShaderToRGB')
-                ramp = toon_nodes.new('ShaderNodeValToRGB')
-                ramp.color_ramp.interpolation = 'CONSTANT'
-                ramp.color_ramp.elements[0].position = 0.35
-                ramp.color_ramp.elements[0].color = (0.025, 0.06, 0.18, 1.0)
-                ramp.color_ramp.elements[1].position = 0.7
-                ramp.color_ramp.elements[1].color = (0.24, 0.42, 0.8, 1.0)
-                highlight = ramp.color_ramp.elements.new(0.9)
-                highlight.color = (0.7, 0.86, 1.0, 1.0)
-                toon_links.new(diffuse_node.outputs['BSDF'], shader_to_rgb.inputs['Shader'])
-                toon_links.new(shader_to_rgb.outputs['Color'], ramp.inputs['Fac'])
-                toon_links.new(ramp.outputs['Color'], output_node.inputs['Surface'])
+                scene.render.engine = 'BLENDER_EEVEE_NEXT'
             except Exception:
-                toon_links.new(diffuse_node.outputs['BSDF'], output_node.inputs['Surface'])
-                metadata['warnings'].append('shader_to_rgb_unavailable_using_diffuse')
+                scene.render.engine = 'BLENDER_EEVEE'
+            metadata.update({
+                'renderer': 'eevee',
+                'outlineWidth': outline_width,
+                'outlineNoiseScale': noise_scale,
+                'outlineWobble': wobble,
+                'outline': 'geometry-nodes-inverted-hull',
+                'toonFill': 'per-material-diffuse-shader-to-rgb-constant-ramp-emission',
+                'outlineNodeGroups': [outline_group.name],
+                'lineMode': line_info,
+                'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant',
+            })
+        elif renderer == 'cycles':
+            if not hasattr(bpy.types, 'ShaderNodeRaycast'):
+                raise RuntimeError('Cycles NPR requires Blender 5.2 ShaderNodeRaycast; use renderer=eevee as fallback')
+            minimum, maximum = bounds(presentation_objects(objects))
+            extent = max(float((maximum - minimum).length), 1.0)
+            ray_length = max(1.0, min(500.0, float(PARAMS.get('ray_length', extent * 8.0))))
+            line_info = configure_structure_lines(line_mode)
+            cycles_material, sample_group, look_group = build_cycles_npr_material(outline_width, ray_length)
+            for obj in objects:
+                if replace_material:
+                    obj.data.materials.clear()
+                    obj.data.materials.append(cycles_material)
+                    for polygon in obj.data.polygons:
+                        polygon.material_index = 0
+                    obj['polyKitNprMaterialPolicy'] = 'replaced_by_explicit_request'
+                else:
+                    _material_slots_with_toon_variant(
+                        obj,
+                        lambda base, source: build_cycles_npr_material(outline_width, ray_length, base, source)[0],
+                    )
+                obj['polyKitNprRenderer'] = 'cycles'
+            scene.render.engine = 'CYCLES'
+            try:
+                scene.cycles.samples = max(16, min(128, int(PARAMS.get('samples', 32))))
+                scene.cycles.use_denoising = True
+            except Exception:
+                pass
+            metadata.update({
+                'renderer': 'cycles',
+                'outlineWidth': outline_width,
+                'rayLength': ray_length,
+                'outline': 'four-direction-shader-raycast',
+                'raySampleGroup': sample_group.name,
+                'rayLookGroup': look_group.name,
+                'cyclesFill': look_group.get('polyKitNprCyclesFill', 'unknown'),
+                'rayDirections': ['+X', '-X', '+Y', '-Y'],
+                'raycastOnlyLocal': True,
+                'samples': int(PARAMS.get('samples', 32)),
+                'lineMode': line_info,
+                'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant',
+            })
         else:
-            toon_links.new(diffuse_node.outputs['BSDF'], output_node.inputs['Surface'])
-        for obj in objects:
-            obj.data.materials.clear()
-            obj.data.materials.append(toon)
-            obj['polyKitNprRenderer'] = renderer
-            outline = obj.copy()
-            outline.data = obj.data.copy()
-            outline.name = obj.name + '_Outline'
-            MODEL.objects.link(outline)
-            outline.scale = (1.0 + max(0.001, min(0.2, float(PARAMS.get('outline_width', 0.018)))),) * 3
-            outline.data.materials.clear()
-            outline.data.materials.append(BLACK)
-            outline['polyKitNprOutline'] = True
-        try:
-            scene.render.engine = 'BLENDER_EEVEE_NEXT' if renderer == 'eevee' else 'CYCLES'
-        except Exception:
-            pass
-        metadata.update({'renderer': renderer, 'outlineWidth': float(PARAMS.get('outline_width', 0.018)), 'outline': 'editable-scaled-hull'})
+            raise RuntimeError('NPR renderer must be eevee or cycles')
 else:
     raise RuntimeError('unsupported production operation: ' + OPERATION)
 
@@ -579,6 +1092,54 @@ if OPERATION != 'geometry-report':
     preview_path = root / (SCENE_NAME + '.png')
     scene.render.filepath = str(preview_path)
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+    # Render while the renderer-native graph is still active. The GLB export
+    # below intentionally flattens NPR materials for portability and must not
+    # change the evidence image into a PBR fallback.
+    if RENDER_PREVIEW:
+        bpy.ops.render.render(write_still=True)
+        metadata['renderEvidence'] = {
+            'schemaVersion': 1,
+            'engine': scene.render.engine,
+            'camera': camera.name,
+            'preview': {'path': str(preview_path), 'metrics': render_metrics(preview_path)},
+        }
+    if OPERATION == 'npr' and not replace_material:
+        for obj in objects:
+            indices = obj.get('polyKitNprOriginalMaterialIndices')
+            authored_count = int(obj.get('polyKitNprAuthoredSlotCount', 0) or 0)
+            if indices is None or authored_count <= 0:
+                continue
+            try:
+                original_indices = [int(index) for index in indices]
+            except (TypeError, ValueError):
+                original_indices = []
+            for polygon, index in zip(obj.data.polygons, original_indices):
+                polygon.material_index = max(0, min(int(index), authored_count - 1))
+            while len(obj.data.materials) > authored_count:
+                obj.data.materials.pop(index=len(obj.data.materials) - 1)
+        used_materials = {
+            slot.material
+            for obj in objects
+            if obj.type == 'MESH'
+            for slot in obj.material_slots
+            if slot.material is not None
+        }
+        for mat in used_materials:
+            bsdf = principled(mat)
+            if bsdf is None:
+                continue
+            base = bsdf.inputs.get('Base Color')
+            color = tuple(float(channel) for channel in (base.default_value[:3] if base is not None else mat.diffuse_color[:3]))
+            roughness = float(bsdf.inputs.get('Roughness').default_value) if bsdf.inputs.get('Roughness') else 0.75
+            metallic = float(bsdf.inputs.get('Metallic').default_value) if bsdf.inputs.get('Metallic') else 0.0
+            mat.node_tree.nodes.clear()
+            output = mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
+            flat = mat.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+            flat.name = 'Principled BSDF'
+            flat.inputs['Base Color'].default_value = (*color, 1.0)
+            flat.inputs['Roughness'].default_value = roughness
+            flat.inputs['Metallic'].default_value = metallic
+            mat.node_tree.links.new(flat.outputs['BSDF'], output.inputs['Surface'])
     if OPERATION == 'surface':
         # Blender's glTF exporter cannot serialize procedural ColorRamp/Noise
         # links as a portable PBR base color and otherwise falls back to white.
@@ -594,8 +1155,6 @@ if OPERATION != 'geometry-report':
                 if link.to_node == bsdf and link.to_socket == base:
                     mat.node_tree.links.remove(link)
     bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT', export_apply=True)
-    if RENDER_PREVIEW:
-        bpy.ops.render.render(write_still=True)
     def b64(path):
         return base64.b64encode(path.read_bytes()).decode('ascii') if path.exists() else ''
     RESULT = {'glb_b64': b64(glb_path), 'blend_b64': b64(blend_path), 'preview_b64': b64(preview_path) if RENDER_PREVIEW else '', 'metadata': metadata}

@@ -1,10 +1,11 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from fastapi import HTTPException
 
-from routers.workspace_library import LibraryDeleteRequest, LibraryRenameRequest, delete_assets, rename_asset
+from routers.workspace_library import LibraryDeleteRequest, LibraryRenameRequest, _entry, delete_assets, rename_asset
 from services.runtime_paths import runtime_paths
 
 
@@ -28,6 +29,7 @@ class LibraryManageTests(unittest.IsolatedAsyncioTestCase):
 
     def _write(self, name: str, content: bytes = b"x") -> Path:
         p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(content)
         return p
 
@@ -75,6 +77,29 @@ class LibraryManageTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as ctx:
             await rename_asset(LibraryRenameRequest(workspacePath="Workflows/hero.glb", newName="../x.glb"))
         self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_polyhaven_sidecar_is_exposed_as_entry_provenance(self) -> None:
+        mesh = self._write("PolyHaven/barrel_1k.glb", b"glTF")
+        mesh.with_name(mesh.name + ".asset.json").write_text(json.dumps({
+            "provider": "polyhaven",
+            "asset_id": "Barrel_01",
+            "source_url": "https://polyhaven.com/a/Barrel_01",
+            "license": "CC0",
+            "license_url": "https://polyhaven.com/license",
+            "resolution": "1k",
+            "files_hash": "hash-v1",
+        }), encoding="utf-8")
+        entry = _entry("Workflows/PolyHaven/barrel_1k.glb", mesh)
+        self.assertEqual(entry["provenance"]["provider"], "polyhaven")
+        self.assertEqual(entry["provenance"]["assetId"], "Barrel_01")
+        self.assertEqual(entry["provenance"]["license"], "CC0")
+
+    async def test_delete_removes_polyhaven_stem_sidecar(self) -> None:
+        mesh = self._write("polyhaven.glb")
+        sidecar = mesh.with_name(f"{mesh.stem}.asset.json")
+        sidecar.write_text("{}", encoding="utf-8")
+        await delete_assets(LibraryDeleteRequest(workspacePaths=["Workflows/polyhaven.glb"]))
+        self.assertFalse(sidecar.exists())
 
 
 if __name__ == "__main__":

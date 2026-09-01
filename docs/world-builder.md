@@ -58,7 +58,7 @@ ScenePlan is renderer-neutral. Object identity is stable and must not depend on 
 
 `runtime.build` stores the authored construction facts. `POST /workspace-library/worlds/{world_id}/build-structure` compiles one supported building into the canonical Workflow Engine.
 
-The current Blender bridge uses the official `blender-scene/build` process node and publishes a GLB plus optional inspection render. FastAPI owns the WorkflowRun, output naming, artifact paths, cancellation, and persistence.
+The current Blender bridge uses the official `blender-scene/build` process node and publishes a GLB plus optional production/gray inspection renders. The node also records a render-evidence sidecar with camera, light-role, color-management, and non-blank metrics; this is render evidence for a later `VisualValidationReport`, not a replacement for that domain report. It does not own WorkflowRun state. FastAPI owns the WorkflowRun, output naming, artifact paths, cancellation, and persistence.
 
 Construction validators inspect facts and evidence; they never advance a task.
 

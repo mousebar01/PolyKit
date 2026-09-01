@@ -30,6 +30,12 @@ class ParserTests(unittest.TestCase):
         args = cli.build_parser().parse_args(["asset", "from-image", "input.png"])
         self.assertEqual(args.collection, "Workflows")
 
+    def test_external_asset_commands_are_explicit(self) -> None:
+        search = cli.build_parser().parse_args(["asset", "search-external", "wooden chair", "--category", "furniture"])
+        imported = cli.build_parser().parse_args(["asset", "import-external", "Chair_01", "--resolution", "1k"])
+        self.assertIs(search.handler, cli.cmd_asset_search_external)
+        self.assertIs(imported.handler, cli.cmd_asset_import_external)
+
 
 class CommandTests(unittest.TestCase):
     def test_inspect_calls_canonical_observability_endpoint(self) -> None:
@@ -102,6 +108,33 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(kwargs["fields"]["proto_id"], "chair")
         self.assertEqual(kwargs["fields"]["node_id"], "chair")
         self.assertEqual(kwargs["fields"]["collection"], "Workflows")
+
+    def test_external_search_posts_read_only_provider_request(self) -> None:
+        args = cli.build_parser().parse_args([
+            "--api-url", "http://api", "asset", "search-external", "wooden chair", "--category", "furniture", "--limit", "2",
+        ])
+        with patch.object(cli, "_api_json", return_value={"matches": []}) as request:
+            args.handler(args)
+        request.assert_called_once_with(
+            "http://api",
+            "POST",
+            "/workspace-library/providers/polyhaven/search",
+            {"query": "wooden chair", "category": "furniture", "limit": 2, "refresh": False},
+        )
+
+    def test_external_import_posts_explicit_provider_request(self) -> None:
+        args = cli.build_parser().parse_args([
+            "--api-url", "http://api", "asset", "import-external", "Chair_01", "--resolution", "1k",
+        ])
+        with patch.object(cli, "_api_json", return_value={"asset": {"asset_id": "Chair_01"}}) as request:
+            args.handler(args)
+        request.assert_called_once_with(
+            "http://api",
+            "POST",
+            "/workspace-library/providers/polyhaven/import",
+            {"asset_id": "Chair_01", "resolution": "1k"},
+            timeout=180.0,
+        )
 
 
 if __name__ == "__main__":

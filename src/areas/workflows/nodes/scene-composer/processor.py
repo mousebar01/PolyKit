@@ -180,9 +180,14 @@ def _fit_scale(scene: Any, placement: dict[str, Any], path: Path) -> float:
     if not all(math.isfinite(value) and value > 0 for value in target):
         raise ValueError(f"placement {path.name}.size must contain positive finite numbers")
     _, _, source_size = _bounds_after_transform(scene.bounds, np.eye(4))
-    if not all(math.isfinite(value) and value > 0 for value in source_size):
+    if not all(math.isfinite(value) and value >= 0 for value in source_size) or not any(
+        value > 1e-9 for value in source_size
+    ):
         raise ValueError(f"mesh scene has an empty or invalid size: {path.name}")
-    return min(target[index] / source_size[index] for index in range(3))
+    # A valid planar mesh (for example a wall or decal) has zero extent on one
+    # axis.  It can still be composed; that axis simply imposes no uniform
+    # scale constraint rather than causing a division-by-zero rejection.
+    return min(target[index] / source_size[index] for index in range(3) if source_size[index] > 1e-9)
 
 
 def _merge(

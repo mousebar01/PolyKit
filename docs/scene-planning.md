@@ -82,12 +82,23 @@ parts underground in the exported scene.
 When `resolve_assets` is enabled, the server searches `Workflows/` for mesh
 assets using names, aliases, categories, and optional `*.asset.json` sidecars.
 Low-confidence matches are left unresolved so the Agent can call a local
-generation workflow instead.
+generation workflow instead.  For an unresolved prop or set-dressing object,
+the caller may then use the read-only `polykit_asset_search_external` fallback
+against Poly Haven's public API.  Import is an explicit second step with
+`polykit_asset_import_external`; the server downloads and verifies the selected
+glTF bundle, publishes a workspace GLB, and keeps the provider/license
+provenance in an asset sidecar.  External candidates are not mixed into the
+local library index, and provider calls never run in the browser.
+
+Poly Haven assets are CC0.  Live API use must retain clear Poly Haven
+attribution and a unique User-Agent; PolyKit records both on imported assets.
 
 The same operations are exposed through MCP:
 
 - `polykit_world_compile_scene`
 - `polykit_world_find_assets`
+- `polykit_asset_search_external` (read-only Poly Haven fallback)
+- `polykit_asset_import_external` (explicit Poly Haven download/import)
 - `polykit_world_compose_scene`
 
 For an unresolved object, the reference project's asset-creator chain is

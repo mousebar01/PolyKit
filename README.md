@@ -189,6 +189,7 @@ python api/serve.py \
 - `/workflow-runs/*`：工作流运行与观测。
 - `/workflow-definitions/*`：工作流定义。
 - `/workspace-library/worlds/*`：World domain API。
+- `/workspace-library/providers/polyhaven/*`：服务端 Poly Haven 资源搜索与显式导入（CC0 provenance）。
 - `/node_types`：可执行节点目录。
 - `/workspace/*`：工作区文件。
 

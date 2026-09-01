@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -130,6 +131,8 @@ class ModelPackSubprocess:
         self._queue: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
         self._loaded = False
+        self._runtime_probe: Optional[dict[str, Any]] = None
+        self._runtime_probe_at = 0.0
 
         self.hf_repo = manifest.get("hf_repo", "")
         self.hf_skip_prefixes = manifest.get("hf_skip_prefixes", [])
@@ -324,6 +327,65 @@ class ModelPackSubprocess:
             and self._proc is not None
             and self._proc.poll() is None
         )
+
+    def runtime_status(self, *, max_age: float = 30.0) -> dict[str, Any]:
+        """Probe this pack's interpreter without loading its model.
+
+        The API process intentionally stays lightweight, while model packs may
+        have their own CUDA-enabled virtual environments. Reporting only the
+        API interpreter's torch installation therefore gives a false negative
+        for an otherwise runnable isolated pack. Cache the small probe briefly
+        so readiness checks do not spawn a process on every request.
+        """
+        now = time.monotonic()
+        if self._runtime_probe is not None and now - self._runtime_probe_at < max_age:
+            return dict(self._runtime_probe)
+
+        python = _resolve_python(self.pack_dir, self.manifest)
+        result: dict[str, Any] = {
+            "python": str(python),
+            "torch": None,
+            "cuda": {"available": False, "device_count": 0, "devices": []},
+        }
+        if not python.exists():
+            result["cuda"]["error"] = f"Interpreter not found: {python}"
+        else:
+            script = (
+                "import json\n"
+                "try:\n"
+                " import torch\n"
+                " cuda = bool(torch.cuda.is_available())\n"
+                " count = int(torch.cuda.device_count()) if cuda else 0\n"
+                " devices = [torch.cuda.get_device_name(i) for i in range(count)] if cuda else []\n"
+                " print(json.dumps({'torch': getattr(torch, '__version__', None), 'cuda': {'available': cuda, 'device_count': count, 'devices': devices}}))\n"
+                "except Exception as exc:\n"
+                " print(json.dumps({'torch': None, 'cuda': {'available': False, 'device_count': 0, 'devices': [], 'error': str(exc)}}))\n"
+            )
+            try:
+                probe = subprocess.run(
+                    [str(python), "-c", script],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    env=self._build_env(),
+                )
+                lines = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+                payload = json.loads(lines[-1]) if lines else {}
+                if isinstance(payload, dict):
+                    result["torch"] = payload.get("torch")
+                    if isinstance(payload.get("cuda"), dict):
+                        result["cuda"] = payload["cuda"]
+                if probe.returncode != 0:
+                    result["cuda"].setdefault(
+                        "error", (probe.stderr or "probe exited with an error").strip()
+                    )
+            except (OSError, subprocess.SubprocessError, ValueError) as exc:
+                result["cuda"]["error"] = str(exc)
+
+        self._runtime_probe = result
+        self._runtime_probe_at = now
+        return dict(result)
 
     def load(self) -> None:
         self._ensure_started()

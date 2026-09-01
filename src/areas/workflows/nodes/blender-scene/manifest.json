@@ -46,17 +46,6 @@
           "default": "generated_structure"
         },
         {
-          "id": "render_profile",
-          "label": "Render Profile",
-          "type": "select",
-          "default": "production",
-          "options": [
-            { "value": "production", "label": "Production" },
-            { "value": "gray", "label": "Gray" },
-            { "value": "toon", "label": "Toon" }
-          ]
-        },
-        {
           "id": "cabin_width",
           "label": "Cabin Width (m)",
           "type": "float",
@@ -192,6 +181,18 @@
           "default": true
         },
         {
+          "id": "render_profile",
+          "label": "Render Profile",
+          "type": "select",
+          "default": "production",
+          "options": [
+            { "value": "production", "label": "Production" },
+            { "value": "gray", "label": "Gray Review" },
+            { "value": "toon", "label": "Toon Preview" }
+          ],
+          "tooltip": "Production keeps the lit PBR render; gray adds neutral geometry evidence; toon preserves material identity, applies Eevee three-band fill, an inverted-hull silhouette, and camera-aware structure lines."
+        },
+        {
           "id": "render_width",
           "label": "Preview Width",
           "type": "int",
@@ -203,7 +204,7 @@
           "id": "render_height",
           "label": "Preview Height",
           "type": "int",
-          "default": 512,
+          "default": 432,
           "min": 240,
           "max": 1200
         },

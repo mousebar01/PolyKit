@@ -93,6 +93,31 @@ class SceneComposerTests(unittest.TestCase):
             self.assertAlmostEqual(float(transform[2, 3]), -3.0, places=5)
             self.assertEqual(scene.metadata["polyKit"]["inputCoordinateSystem"], "Blender-Z-up")
 
+    def test_source_processor_accepts_planar_mesh_with_zero_thickness_axis(self) -> None:
+        from services.process_runner import run_processor
+
+        with tempfile.TemporaryDirectory(prefix="polykit-scene-composer-planar-") as temp_dir:
+            root = Path(temp_dir)
+            source = root / "wall.glb"
+            trimesh.Trimesh(
+                vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+                faces=[[0, 1, 2]],
+                process=False,
+            ).export(source)
+            output = run_processor(
+                self.source_pack,
+                "processor.py",
+                {"filePath": str(source)},
+                {
+                    "output_name": "planar",
+                    "placements": json.dumps({"wall.glb": {"size": [2, 2, 2]}}),
+                },
+                str(root / "workspace"),
+                str(root / "tmp"),
+            )
+            scene = trimesh.load(Path(str(output["filePath"])), force="scene")
+            self.assertEqual(len(scene.geometry), 1)
+
     def test_workflow_engine_fans_in_mesh_references_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

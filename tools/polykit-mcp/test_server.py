@@ -34,6 +34,8 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("polykit_world_validate", names)
         self.assertIn("polykit_world_build_structure", names)
         self.assertIn("polykit_world_compile_repair", names)
+        self.assertIn("polykit_asset_search_external", names)
+        self.assertIn("polykit_asset_import_external", names)
         forbidden = ("agent_workflow", "session_begin", "session_complete", "world_update_stage")
         self.assertFalse(any(token in name for name in names for token in forbidden))
 
@@ -145,6 +147,44 @@ class PolyKitMcpTests(unittest.TestCase):
             "/workspace-library/worlds/winter%20cabin/validate",
             {"capability": "world.spatial.validate", "run_id": "run-structure"},
         )
+
+    def test_external_asset_search_is_read_only_http_proxy(self) -> None:
+        request = AsyncMock(return_value={"success": True, "provider": "polyhaven", "matches": []})
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch(
+                "polykit_asset_search_external",
+                {"query": "wooden chair", "category": "furniture", "limit": 3},
+            ))
+        self.assertEqual(result["provider"], "polyhaven")
+        request.assert_awaited_once_with(
+            "POST",
+            "/workspace-library/providers/polyhaven/search",
+            {"query": "wooden chair", "category": "furniture", "limit": 3, "refresh": False},
+        )
+
+    def test_external_asset_import_requires_valid_resolution_and_never_creates_run(self) -> None:
+        request = AsyncMock(return_value={"success": True, "provider": "polyhaven", "asset": {"asset_id": "Chair_01"}})
+        with patch.object(server_module, "_request_json", request):
+            result = asyncio.run(server_module._dispatch(
+                "polykit_asset_import_external",
+                {"asset_id": "Chair_01", "resolution": "1k"},
+            ))
+        self.assertEqual(result["asset"]["asset_id"], "Chair_01")
+        request.assert_awaited_once_with(
+            "POST",
+            "/workspace-library/providers/polyhaven/import",
+            {"asset_id": "Chair_01", "resolution": "1k"},
+        )
+        self.assertNotIn("workflow-runs", request.await_args.args[1])
+
+    def test_external_tool_descriptions_separate_search_and_side_effect(self) -> None:
+        tools = {tool.name: tool for tool in asyncio.run(server_module.list_tools())}
+        search_description = tools["polykit_asset_search_external"].description or ""
+        import_description = tools["polykit_asset_import_external"].description or ""
+        self.assertIn("Read-only", search_description)
+        self.assertIn("never downloads", search_description)
+        self.assertIn("side effect", import_description)
+        self.assertIn("asset_id", import_description)
 
     def test_compile_repair_is_a_pure_http_compiler_proxy(self) -> None:
         request = AsyncMock(return_value={"status": "blocked", "workflow_definition": None})

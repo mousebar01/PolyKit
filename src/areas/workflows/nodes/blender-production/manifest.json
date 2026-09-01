@@ -147,6 +147,12 @@
       "params_schema": [
         { "id": "renderer", "label": "Renderer", "type": "select", "default": "eevee", "options": [{ "value": "eevee", "label": "Eevee" }, { "value": "cycles", "label": "Cycles" }] },
         { "id": "outline_width", "label": "Outline Width", "type": "float", "default": 0.018, "min": 0.001, "max": 0.2 },
+        { "id": "outline_noise_scale", "label": "Outline Noise Scale", "type": "float", "default": 3.0, "min": 0.1, "max": 50.0 },
+        { "id": "outline_wobble", "label": "Outline Wobble", "type": "float", "default": 0.0, "min": 0.0, "max": 0.2 },
+        { "id": "line_mode", "label": "Line Mode", "type": "select", "default": "silhouette", "options": [{ "value": "silhouette", "label": "Silhouette" }, { "value": "structure", "label": "Structure" }, { "value": "hybrid", "label": "Hybrid" }], "tooltip": "Silhouette uses the NPR outline; structure adds Freestyle crease/material-boundary lines; hybrid combines both." },
+        { "id": "replace_material", "label": "Replace Materials", "type": "boolean", "default": false, "tooltip": "Explicitly replace authored material slots. The default preserves them and appends NPR variants." },
+        { "id": "ray_length", "label": "Ray Length", "type": "float", "default": 100.0, "min": 1.0, "max": 500.0, "tooltip": "Cycles-only bound for the four local silhouette ray tests." },
+        { "id": "samples", "label": "Cycles Samples", "type": "int", "default": 32, "min": 16, "max": 128 },
         { "id": "render_preview", "label": "Render Preview", "type": "boolean", "default": true }
       ]
     },
