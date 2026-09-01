@@ -1,13 +1,14 @@
 """Mesh evidence process nodes.
 
-This pack keeps evidence generation in the existing process-node protocol. The
-first operation, ``component-audit``, is intentionally read-only: it inspects
-the scene graph and returns the original mesh plus a JSON report describing
-component footprints and pairwise spatial relationships.
+This pack keeps component audits, material gates, normalization, and
+multi-view evidence generation in the existing process-node protocol. The
+read-only operations return the original mesh plus JSON sidecars; the explicit
+normalizer is the only operation that writes transformed geometry.
 """
 from __future__ import annotations
 
 import json
+import colorsys
 import math
 import re
 import shutil
@@ -464,6 +465,143 @@ def _turntable_evidence(input_path: Path, workspace_dir: Path, params: dict[str,
     }
 
 
+def _component_id_sheet(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Render a flat-color object-ID pass for every mesh component."""
+    import numpy as np
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for component ID evidence: {exc}") from exc
+
+    scene = _load_scene(input_path)
+    scene_min, scene_max = _bounds(scene.bounds)
+    center = (scene_min + scene_max) / 2.0
+    radius = max(float(np.max(scene_max - scene_min)) / 2.0, 1e-6)
+    views = _bounded_int(params.get("views", 6), 6, 4, 12)
+    elevation = max(-80.0, min(80.0, float(params.get("elevation", 20.0) or 20.0)))
+    max_faces = _bounded_int(params.get("max_faces", 20000), 20000, 100, 200000)
+    image_size = _bounded_int(params.get("image_size", 512), 512, 128, 2048)
+    columns = min(4, views)
+    rows = int(math.ceil(views / columns))
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_component-id.png"
+    report_path = workspace_dir / f"{token}_component-id.json"
+
+    components: list[tuple[Any, Any, str, tuple[int, int, int]]] = []
+    for index, node_name in enumerate(sorted(scene.graph.nodes_geometry, key=str)):
+        try:
+            transform, geometry_name = scene.graph.get(node_name)
+            geometry = scene.geometry[geometry_name]
+            if not hasattr(geometry, "vertices") or not hasattr(geometry, "faces"):
+                continue
+            hue = (index * 0.61803398875) % 1.0
+            color_float = colorsys.hsv_to_rgb(hue, 0.72, 0.95)
+            color = tuple(int(round(channel * 255.0)) for channel in color_float)
+            components.append((geometry, np.asarray(transform, dtype=float), str(node_name), color))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not components:
+        raise ValueError("mesh contains no renderable components")
+
+    canvas = Image.new("RGB", (columns * image_size, rows * image_size), "white")
+    draw = ImageDraw.Draw(canvas)
+    elevation_radians = math.radians(elevation)
+    rendered_faces = 0
+    view_manifest: list[dict[str, Any]] = []
+    for index in range(views):
+        azimuth = (360.0 * index) / views
+        azimuth_radians = math.radians(azimuth)
+        forward = np.array([
+            math.cos(elevation_radians) * math.cos(azimuth_radians),
+            math.cos(elevation_radians) * math.sin(azimuth_radians),
+            math.sin(elevation_radians),
+        ])
+        right = np.array([-math.sin(azimuth_radians), math.cos(azimuth_radians), 0.0])
+        up = np.array([
+            -math.sin(elevation_radians) * math.cos(azimuth_radians),
+            -math.sin(elevation_radians) * math.sin(azimuth_radians),
+            math.cos(elevation_radians),
+        ])
+        cell_x = (index % columns) * image_size
+        cell_y = (index // columns) * image_size
+        margin = max(8, image_size // 12)
+        scale = (image_size - 2 * margin) / max(2.0 * radius, 1e-6)
+        polygons: list[tuple[float, list[tuple[float, float]], tuple[int, int, int]]] = []
+        for geometry, transform, _node_name, color in components:
+            vertices = np.asarray(geometry.vertices, dtype=float)
+            vertices = (vertices @ transform[:3, :3].T) + transform[:3, 3]
+            faces = np.asarray(geometry.faces, dtype=int)
+            if len(faces) > max_faces:
+                stride = max(1, int(math.ceil(len(faces) / max_faces)))
+                faces = faces[::stride][:max_faces]
+            for face in faces:
+                points = vertices[face]
+                relative = points - center
+                projected_x = relative @ right
+                projected_y = relative @ up
+                projected_depth = float(np.mean(relative @ forward))
+                polygon = [
+                    (
+                        cell_x + image_size / 2.0 + float(x) * scale,
+                        cell_y + image_size / 2.0 - float(y) * scale,
+                    )
+                    for x, y in zip(projected_x, projected_y)
+                ]
+                polygons.append((projected_depth, polygon, color))
+            if index == 0:
+                rendered_faces += len(faces)
+        for _depth, polygon, color in sorted(polygons, key=lambda item: item[0]):
+            draw.polygon(polygon, fill=color)
+        draw.rectangle((cell_x, cell_y, cell_x + image_size - 1, cell_y + image_size - 1), outline=(17, 24, 39), width=2)
+        view_manifest.append({"index": index, "azimuth": _round(azimuth), "elevation": _round(elevation)})
+    canvas.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.component-id-sheet",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {"name": input_path.name, "format": input_path.suffix.lower().lstrip(".") or "unknown"},
+        "components": [
+            {
+                "id": node_name,
+                "color": "#%02x%02x%02x" % color,
+                "geometry": str(getattr(geometry, "metadata", {}).get("name") or node_name),
+            }
+            for geometry, _transform, node_name, color in components
+        ],
+        "render": {
+            "views": view_manifest,
+            "imageSize": image_size,
+            "columns": columns,
+            "rows": rows,
+            "maxFacesPerComponent": max_faces,
+            "facesRenderedPerView": rendered_faces,
+            "background": "#ffffff",
+            "mode": "flat-object-id",
+        },
+        "reviewNotes": [
+            "Each component color is an object-ID token for coverage and correspondence checks, not a material color.",
+            "Use the component-to-color map with a renderer segmentation pass or region comparator for localized corrections.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "component-id-sheet",
+            "schema_version": 1,
+            "status": "pass",
+            "view_count": views,
+            "component_count": len(components),
+            "report": report_path.name,
+        },
+    }
+
+
 def _load_scene(input_path: Path) -> Any:
     try:
         import trimesh
@@ -602,6 +740,9 @@ def main() -> None:
         elif node_id == "turntable-evidence":
             progress(25, "Rendering turntable views…")
             result = _turntable_evidence(input_path, workspace_dir, params)
+        elif node_id == "component-id-sheet":
+            progress(25, "Rendering component ID pass…")
+            result = _component_id_sheet(input_path, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported asset evidence node '{node_id}'")
         progress(90, "Writing mesh evidence…")

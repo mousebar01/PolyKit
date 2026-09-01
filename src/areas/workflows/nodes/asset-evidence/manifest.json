@@ -152,6 +152,59 @@
           "tooltip": "Approximate pixel size of each view cell."
         }
       ]
+    },
+    {
+      "id": "component-id-sheet",
+      "name": "Component ID Sheet",
+      "input": "mesh",
+      "output": "image",
+      "description": "Renders stable flat colors per mesh component across multiple views for coverage and correspondence checks.",
+      "i18n": {
+        "zh-CN": { "name": "组件 ID 证据图" },
+        "en-US": { "name": "Component ID Sheet" }
+      },
+      "params_schema": [
+        {
+          "id": "views",
+          "label": "Views",
+          "type": "select",
+          "default": 6,
+          "options": [
+            { "value": 4, "label": "4" },
+            { "value": 6, "label": "6" },
+            { "value": 8, "label": "8" },
+            { "value": 12, "label": "12" }
+          ],
+          "tooltip": "Number of multi-view object-ID panels."
+        },
+        {
+          "id": "elevation",
+          "label": "Elevation",
+          "type": "float",
+          "default": 20.0,
+          "min": -80.0,
+          "max": 80.0,
+          "tooltip": "Elevation angle shared by every ID panel."
+        },
+        {
+          "id": "max_faces",
+          "label": "Max Faces / Component",
+          "type": "int",
+          "default": 20000,
+          "min": 100,
+          "max": 200000,
+          "tooltip": "Caps rasterized faces per component for responsive evidence generation."
+        },
+        {
+          "id": "image_size",
+          "label": "View Size",
+          "type": "int",
+          "default": 512,
+          "min": 128,
+          "max": 2048,
+          "tooltip": "Approximate pixel size of each ID panel."
+        }
+      ]
     }
   ]
 }

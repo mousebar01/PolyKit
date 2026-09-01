@@ -140,6 +140,124 @@
           "tooltip": "Downsamples large references before palette extraction to keep the node responsive."
         }
       ]
+    },
+    {
+      "id": "landmark-guide",
+      "name": "Landmark Guide",
+      "input": "image",
+      "output": "image",
+      "description": "Draws a normalized anatomy guide and emits an unreviewed landmark skeleton for character proportion work.",
+      "i18n": {
+        "zh-CN": { "name": "关键点引导" },
+        "en-US": { "name": "Landmark Guide" }
+      },
+      "params_schema": [
+        {
+          "id": "subject_type",
+          "label": "Subject Type",
+          "type": "string",
+          "default": "character",
+          "tooltip": "Label stored in the guide report; it does not perform subject classification."
+        }
+      ]
+    },
+    {
+      "id": "camera-guide",
+      "name": "Reference Camera Guide",
+      "input": "image",
+      "output": "image",
+      "description": "Emits a heuristic referenceCamera descriptor and a framing overlay for silhouette and landmark alignment.",
+      "i18n": {
+        "zh-CN": { "name": "参考相机引导" },
+        "en-US": { "name": "Reference Camera Guide" }
+      },
+      "params_schema": [
+        {
+          "id": "fov_degrees",
+          "label": "FOV Degrees",
+          "type": "float",
+          "default": 35.0,
+          "min": 10.0,
+          "max": 120.0,
+          "tooltip": "Vertical field of view; the default is a starting guess based on image aspect ratio."
+        },
+        {
+          "id": "distance",
+          "label": "Camera Distance",
+          "type": "float",
+          "default": 2.5,
+          "min": 0.01,
+          "max": 10000.0,
+          "tooltip": "Starting distance hint in scene units; confirm it against a fitted mesh."
+        },
+        {
+          "id": "height_offset",
+          "label": "Height Offset",
+          "type": "float",
+          "default": 0.0,
+          "min": -10000.0,
+          "max": 10000.0,
+          "tooltip": "Vertical position hint in scene units."
+        },
+        {
+          "id": "yaw",
+          "label": "Yaw",
+          "type": "float",
+          "default": 0.0,
+          "min": -180.0,
+          "max": 180.0,
+          "tooltip": "Optional horizontal camera orientation hint in degrees."
+        },
+        {
+          "id": "pitch",
+          "label": "Pitch",
+          "type": "float",
+          "default": 0.0,
+          "min": -89.0,
+          "max": 89.0,
+          "tooltip": "Optional vertical camera orientation hint in degrees."
+        },
+        {
+          "id": "roll",
+          "label": "Roll",
+          "type": "float",
+          "default": 0.0,
+          "min": -180.0,
+          "max": 180.0,
+          "tooltip": "Optional camera roll hint in degrees."
+        }
+      ]
+    },
+    {
+      "id": "delight-albedo",
+      "name": "De-light Albedo",
+      "input": "image",
+      "output": "image",
+      "description": "Suppresses broad illumination with deterministic low-frequency division before projection texturing.",
+      "i18n": {
+        "zh-CN": { "name": "去光照底色" },
+        "en-US": { "name": "De-light Albedo" }
+      },
+      "params_schema": [
+        {
+          "id": "blur_radius",
+          "label": "Illumination Blur",
+          "type": "float",
+          "default": 24.0,
+          "min": 1.0,
+          "max": 128.0,
+          "tooltip": "Scale of lighting variation to suppress; use a larger radius for broad studio lighting."
+        },
+        {
+          "id": "strength",
+          "label": "Correction Strength",
+          "type": "float",
+          "default": 0.85,
+          "min": 0.0,
+          "max": 1.0,
+          "tooltip": "Blend between the original reference and the de-lit approximation."
+        }
+      ]
     }
   ]
 }

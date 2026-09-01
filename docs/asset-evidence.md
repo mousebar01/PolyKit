@@ -11,6 +11,7 @@ the measured facts are published as a JSON sidecar.
 | `asset-evidence/material-audit` | Records declared PBR channels, source labels, confidence, and missing base-color/roughness gates | None; input mesh is copied unchanged |
 | `asset-evidence/normalize-mesh` | Applies target-size scaling, explicit up-axis grounding, and optional horizontal centering | Yes; exports a new GLB and records the transform |
 | `asset-evidence/turntable-evidence` | Renders a deterministic 4–12 view contact sheet with camera angles for silhouette/assembly review | No; emits an image artifact and JSON sidecar |
+| `asset-evidence/component-id-sheet` | Renders stable flat colors per component across multiple views for object-ID/coverage checks | No; emits an image artifact and JSON sidecar |
 
 The reports are evidence, not visual truth scores. For example, an AABB
 overlap can be intentional in a manufactured assembly, and a declared

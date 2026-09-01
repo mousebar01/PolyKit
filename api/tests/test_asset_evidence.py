@@ -13,6 +13,48 @@ PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/asse
 
 
 class AssetEvidenceProcessorTests(unittest.TestCase):
+    def test_component_id_sheet_renders_distinct_component_colors(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "ids.glb"
+            scene = trimesh.Scene()
+            scene.add_geometry(trimesh.creation.box(extents=(1, 1, 1)), geom_name="body", node_name="body")
+            scene.add_geometry(
+                trimesh.creation.icosphere(subdivisions=1, radius=0.3),
+                geom_name="accent",
+                node_name="accent",
+                transform=trimesh.transformations.translation_matrix((0.9, 0, 0)),
+            )
+            scene.export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "component-id-sheet", "views": 4, "image_size": 128},
+                str(workspace),
+                str(temp),
+            )
+
+            from PIL import Image
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as image:
+                self.assertEqual(image.format, "PNG")
+                self.assertEqual(image.size, (512, 128))
+                colors = {color for _count, color in image.convert("RGB").getcolors(maxcolors=512 * 128) or []}
+                self.assertGreaterEqual(len(colors - {(255, 255, 255)}), 2)
+            self.assertEqual(report["kind"], "polykit.component-id-sheet")
+            self.assertEqual(len(report["components"]), 2)
+            self.assertNotEqual(report["components"][0]["color"], report["components"][1]["color"])
+            self.assertEqual(result["metadata"]["component_count"], 2)
+
     def test_turntable_evidence_renders_contact_sheet_and_view_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

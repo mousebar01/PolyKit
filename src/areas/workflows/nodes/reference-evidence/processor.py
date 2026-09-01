@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import colorsys
+import math
 import re
 import sys
 import uuid
@@ -378,6 +379,252 @@ def _run_material_palette(input_path: Path, workspace_dir: Path, params: dict[st
     }
 
 
+def _run_landmark_guide(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for landmark guide: {exc}") from exc
+
+    subject_type = str(params.get("subject_type") or "character").strip()[:32] or "character"
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_landmark-guide.png"
+    report_path = workspace_dir / f"{token}_landmark-guide.json"
+    guides = {
+        "head_top": (0.50, 0.10),
+        "hairline": (0.50, 0.24),
+        "eye_line": (0.50, 0.40),
+        "nose_base": (0.50, 0.57),
+        "mouth_line": (0.50, 0.68),
+        "chin": (0.50, 0.80),
+        "shoulder_line": (0.50, 0.86),
+        "left_shoulder": (0.28, 0.86),
+        "right_shoulder": (0.72, 0.86),
+        "left_hip": (0.37, 0.98),
+        "right_hip": (0.63, 0.98),
+    }
+    with Image.open(input_path) as source:
+        width, height = source.size
+        overlay = source.convert("RGBA")
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        line_width = max(1, min(width, height) // 320)
+        for fraction in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+            x = int(width * fraction)
+            y = int(height * fraction)
+            draw.line((x, 0, x, height - 1), fill=(148, 163, 184, 105), width=1)
+            draw.line((0, y, width - 1, y), fill=(148, 163, 184, 105), width=1)
+        for name, (x_fraction, y_fraction) in guides.items():
+            x = int(round(width * x_fraction))
+            y = int(round(height * y_fraction))
+            if name.endswith("_line"):
+                draw.line((0, y, width - 1, y), fill=(34, 211, 238, 215), width=line_width)
+            else:
+                radius = max(3, min(width, height) // 80)
+                draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline=(251, 191, 36, 230), width=line_width)
+        overlay.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.landmark-guide",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "subjectType": subject_type,
+        "sourceImage": {
+            "name": input_path.name,
+            "sha256": _sha256(input_path),
+            "width": width,
+            "height": height,
+        },
+        "guide": {
+            "grid": "10-percent",
+            "landmarks": [
+                {"id": name, "guide": [x, y], "x": None, "y": None, "confidence": 0.0, "status": "unreviewed"}
+                for name, (x, y) in guides.items()
+            ],
+        },
+        "reviewNotes": [
+            "Guide positions are scaffolding only; replace them with measured normalized coordinates from the reference.",
+            "Use the reviewed landmarks to drive head-unit proportions, feature placement, and pose-silhouette checks.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "landmark-guide",
+            "schema_version": 1,
+            "status": report["status"],
+            "landmark_count": len(guides),
+            "report": report_path.name,
+        },
+    }
+
+
+def _run_camera_guide(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Emit a reviewable starting camera descriptor from image dimensions."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for camera guide: {exc}") from exc
+
+    def bounded_float(name: str, default: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(params.get(name, default) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
+    fov_supplied = params.get("fov_degrees") not in (None, "")
+    distance_supplied = params.get("distance") not in (None, "")
+    fov_degrees = bounded_float("fov_degrees", 35.0, 10.0, 120.0)
+    distance = bounded_float("distance", 2.5, 0.01, 10000.0)
+    yaw = bounded_float("yaw", 0.0, -180.0, 180.0)
+    pitch = bounded_float("pitch", 0.0, -89.0, 89.0)
+    roll = bounded_float("roll", 0.0, -180.0, 180.0)
+    height_offset = bounded_float("height_offset", 0.0, -10000.0, 10000.0)
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_camera-guide.png"
+    report_path = workspace_dir / f"{token}_camera-guide.json"
+
+    with Image.open(input_path) as source:
+        width, height = source.size
+        aspect = round(width / height, 4) if height else 1.0
+        if not fov_supplied:
+            fov_degrees = 38.0 if aspect < 0.75 else 35.0
+        overlay = source.convert("RGBA")
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        center_x, center_y = width / 2.0, height / 2.0
+        line_width = max(1, min(width, height) // 320)
+        color = (34, 211, 238, 220)
+        draw.line((center_x, 0, center_x, height - 1), fill=color, width=line_width)
+        draw.line((0, center_y, width - 1, center_y), fill=color, width=line_width)
+        margin_x = int(round(width * 0.1))
+        margin_y = int(round(height * 0.1))
+        draw.rectangle((margin_x, margin_y, width - 1 - margin_x, height - 1 - margin_y), outline=(251, 191, 36, 210), width=line_width)
+        # Show a conservative perspective frustum hint without claiming that
+        # the image itself contains enough evidence to calibrate a camera.
+        half_fov = math.radians(fov_degrees / 2.0)
+        frustum = max(0.05, min(0.45, math.tan(half_fov) / max(1.0, math.tan(math.radians(60.0)))) )
+        top = center_y - height * frustum
+        bottom = center_y + height * frustum
+        draw.line((center_x, center_y, 0, top), fill=(248, 113, 113, 190), width=line_width)
+        draw.line((center_x, center_y, width - 1, top), fill=(248, 113, 113, 190), width=line_width)
+        draw.line((center_x, center_y, 0, bottom), fill=(248, 113, 113, 190), width=line_width)
+        draw.line((center_x, center_y, width - 1, bottom), fill=(248, 113, 113, 190), width=line_width)
+        overlay.save(output_path, format="PNG")
+
+    camera = {
+        "version": "1.0",
+        "sourceImage": input_path.name,
+        "method": "heuristic-default-guess",
+        "imageWidth": width,
+        "imageHeight": height,
+        "fovDegrees": {"value": round(fov_degrees, 2), "source": "user-supplied" if fov_supplied else "default-guess", "agentFill": not fov_supplied},
+        "aspect": {"value": aspect, "source": "image-dimensions", "agentFill": False},
+        "orientation": {
+            "yawDegrees": {"value": round(yaw, 3), "source": "user-supplied" if params.get("yaw") not in (None, "") else "placeholder", "agentFill": params.get("yaw") in (None, "")},
+            "pitchDegrees": {"value": round(pitch, 3), "source": "user-supplied" if params.get("pitch") not in (None, "") else "placeholder", "agentFill": params.get("pitch") in (None, "")},
+            "rollDegrees": {"value": round(roll, 3), "source": "user-supplied" if params.get("roll") not in (None, "") else "placeholder", "agentFill": params.get("roll") in (None, "")},
+        },
+        "position": {
+            "hint": [0.0, round(height_offset, 3), round(distance, 3)],
+            "distance": {"value": round(distance, 3), "source": "user-supplied" if distance_supplied else "placeholder", "agentFill": not distance_supplied},
+        },
+        "confidence": 0.35,
+        "limitations": [
+            "No true camera calibration is performed; focal length, distortion, and 6-DoF pose are not recovered from pixels.",
+            "Confirm the descriptor by rendering the fitted mesh and reviewing a silhouette/landmark overlay.",
+        ],
+    }
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.reference-camera",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": width, "height": height},
+        "referenceCamera": camera,
+        "overlay": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "reference-camera",
+            "schema_version": 1,
+            "status": report["status"],
+            "fov_degrees": round(fov_degrees, 2),
+            "aspect": aspect,
+            "report": report_path.name,
+        },
+    }
+
+
+def _run_delight_albedo(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter, ImageMath
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for de-lighting: {exc}") from exc
+
+    blur_radius = max(1.0, min(128.0, float(params.get("blur_radius", 24.0) or 24.0)))
+    try:
+        strength = float(params.get("strength", 0.85) or 0.85)
+    except (TypeError, ValueError):
+        strength = 0.85
+    strength = max(0.0, min(1.0, strength))
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_delighted-albedo.png"
+    report_path = workspace_dir / f"{token}_delighted-albedo.json"
+
+    with Image.open(input_path) as source:
+        source_rgb = source.convert("RGB")
+        illumination = source_rgb.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        # Divide out low-frequency lighting, then restore a mid-range exposure.
+        corrected_channels = []
+        for source_channel, illumination_channel in zip(source_rgb.split(), illumination.split()):
+            # Pillow 12 removed ImageChops.divide. ImageMath's lambda evaluator
+            # keeps the operation dependency-free and works on single-band data.
+            divided = ImageMath.lambda_eval(
+                lambda operands: (operands["source"] * 255) / (operands["illumination"] + 1),
+                source=source_channel,
+                illumination=illumination_channel,
+            )
+            corrected_channels.append(divided.convert("L"))
+        corrected = Image.merge("RGB", corrected_channels)
+        corrected = ImageEnhance.Brightness(corrected).enhance(0.5)
+        albedo = Image.blend(source_rgb, corrected, strength)
+        albedo.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.delighted-albedo",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": source_rgb.width, "height": source_rgb.height},
+        "settings": {"blurRadius": blur_radius, "strength": strength, "method": "low-frequency-division"},
+        "output": {"name": output_path.name, "format": "png"},
+        "reviewNotes": [
+            "This is a deterministic approximation that suppresses broad illumination; it does not recover physically correct albedo from a photograph.",
+            "Inspect highlights, shadows, and color drift before using the result for projection texturing.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "delighted-albedo",
+            "schema_version": 1,
+            "status": "pass",
+            "strength": strength,
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_detail_inventory(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageDraw
@@ -471,6 +718,15 @@ def main() -> None:
         elif node_id == "material-palette":
             progress(20, "Extracting material palette…")
             result = _run_material_palette(input_path, workspace_dir, params)
+        elif node_id == "landmark-guide":
+            progress(20, "Drawing landmark guide…")
+            result = _run_landmark_guide(input_path, workspace_dir, params)
+        elif node_id == "camera-guide":
+            progress(20, "Estimating reference camera…")
+            result = _run_camera_guide(input_path, workspace_dir, params)
+        elif node_id == "delight-albedo":
+            progress(20, "Estimating illumination…")
+            result = _run_delight_albedo(input_path, workspace_dir, params)
         else:
             progress(20, "Building detail regions…")
             result = _run_detail_inventory(input_path, workspace_dir, params)

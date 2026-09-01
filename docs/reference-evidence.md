@@ -15,6 +15,20 @@ adds a swatch board, and records RGB/HSV/luminance shares in a
 `*-material-palette.json` sidecar. The palette is a prioritization aid, not a
 calibrated PBR measurement.
 
+`reference-evidence/landmark-guide` adds a 10-percent anatomy grid and
+head/face/shoulder/hip guide points, with an unreviewed normalized landmark
+skeleton in JSON. It packages the measurement surface for character work but
+does not claim to detect a face automatically.
+
+`reference-evidence/delight-albedo` makes a deterministic low-frequency
+illumination correction and emits a PNG plus method report. It is a projection
+texturing aid only: highlights, cast shadows, and color drift still require
+visual review before the image is treated as an albedo reference.
+
+`reference-evidence/camera-guide` emits a `referenceCamera` descriptor with an
+aspect-ratio-aware FOV starting guess, pose/distance hints, and a framing
+overlay. It is deliberately a review scaffold rather than camera calibration.
+
 `reference-evidence/detail-inventory` accepts an image and produces:
 
 - a normal PNG image artifact with a 2×2 through 5×5 review grid;
