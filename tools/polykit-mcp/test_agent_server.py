@@ -85,6 +85,21 @@ class PolyKitAgentServerEfficiencyTests(unittest.TestCase):
         self.assertTrue(result["has_older_events"])
         self.assertTrue(result["events_truncated_before"])
 
+    def test_inspect_without_events_returns_only_live_forward_cursor(self) -> None:
+        response = {"events": [{"seq": index} for index in range(1, 31)], "nodes": {"a": {"status": "done"}}}
+        with patch.object(agent_server, "_BASE_DISPATCH", AsyncMock(return_value=response)):
+            result = asyncio.run(agent_server._dispatch(
+                "polykit_workflow_inspect",
+                {"run_id": "run-1", "include_events": False},
+            ))
+        self.assertEqual(result["events"], [])
+        self.assertEqual(result["next_event_seq"], 30)
+        self.assertEqual(result["previous_event_seq"], 0)
+        self.assertFalse(result["has_more_events"])
+        self.assertFalse(result["has_older_events"])
+        self.assertTrue(result["events_truncated_before"])
+        self.assertEqual(result["nodes"]["a"]["status"], "done")
+
     def test_inspect_rejects_conflicting_forward_and_backward_cursors(self) -> None:
         response = {"events": [{"seq": 1}]}
         with patch.object(agent_server, "_BASE_DISPATCH", AsyncMock(return_value=response)):
