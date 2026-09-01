@@ -289,26 +289,30 @@ class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
                 allow_missing=False,
             )
 
-    async def test_compose_route_delegates_to_canonical_workflow_run(self):
-        mesh = Path(self._tmp.name) / "Workflows" / "lamp.glb"
-        mesh.parent.mkdir(parents=True, exist_ok=True)
-        mesh.write_bytes(b"glb")
+    async def test_compose_route_delegates_to_application_command(self):
         scene = {
             "objects": [{"id": "lamp", "name": "Lamp", "asset": {"workspacePath": "Workflows/lamp.glb"}}],
             "instances": [{"id": "instance_lamp", "objectId": "lamp", "position": [0, 0, 0]}],
         }
         save_world("cabin", self._world(scene))
-        with patch("routers.workflow_runs.execute_workflow", autospec=True) as execute:
-            execute.return_value = {"run_id": "run-1", "status": "pending"}
+        prepared = object()
+        with (
+            patch("routers.workspace_worlds.prepare_world_composition_run", return_value=prepared) as prepare,
+            patch("routers.workspace_worlds._schedule_world_run", return_value={"run_id": "run-1", "status": "pending"}) as schedule,
+        ):
             response = await compose_world_scene(
                 "cabin",
                 SceneComposeRequest(output_name="cabin"),
                 BackgroundTasks(),
             )
         self.assertEqual(response["run_id"], "run-1")
-        submitted = execute.await_args.args[0]
-        self.assertEqual(submitted.metadata["world_id"], "cabin")
-        self.assertEqual(submitted.prompt["compose"].class_type, "scene-composer/compose")
+        command = prepare.call_args.kwargs["command"]
+        initiator = prepare.call_args.kwargs["initiator"]
+        self.assertEqual(command.output_name, "cabin")
+        self.assertEqual(command.collection, "Scenes")
+        self.assertEqual(initiator.type, "user")
+        self.assertEqual(initiator.surface, "worlds.compose")
+        self.assertIs(schedule.call_args.args[0], prepared)
 
 
 if __name__ == "__main__":
