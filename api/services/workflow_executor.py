@@ -1,8 +1,8 @@
-"""Workflow graph primitives and node-execution support helpers.
+"""Execution graph primitives and node-execution support helpers.
 
-The DAG engine lives in :mod:`services.workflow_engine`. This module contains
-the reusable graph, cache, input-decoding, and node-adapter functions consumed
-by that engine; it does not define a second workflow engine.
+The runtime engine lives behind :mod:`services.execution_engine`. This module
+contains reusable graph, cache, input-decoding, and node-adapter functions.
+Legacy workflow-prefixed schema names remain during protocol migration.
 """
 from __future__ import annotations
 
@@ -18,6 +18,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 from services.asset_names import output_name
+from services.execution_references import (
+    is_legacy_reference,
+    iter_input_references,
+    referenced_node_ids,
+)
 from services.model_runtime_registry import model_runtime_registry
 from services.generators.base import smooth_progress
 from services.model_runtime import execute_model
@@ -38,19 +43,26 @@ BUILTIN_NODES = SOURCE_NODES | SINK_NODES
 
 
 class WorkflowError(ValueError):
-    """User-facing workflow validation/execution error."""
+    """User-facing execution validation/execution error.
+
+    The compatibility name is retained while callers migrate to the generic
+    execution layer.
+    """
 
 
 def is_reference(value: Any) -> bool:
-    return (
-        isinstance(value, list)
-        and len(value) == 2
-        and all(isinstance(part, str) for part in value)
-    )
+    """Compatibility helper for the legacy ``[node_id, output_name]`` shape."""
+
+    return is_legacy_reference(value)
 
 
 def topological_order(prompt: Dict[str, WorkflowExecutionNode]) -> List[str]:
-    """Return node ids in stable topological order, rejecting invalid DAGs."""
+    """Return node ids in stable topological order, rejecting invalid DAGs.
+
+    Batch-capable inputs may carry references recursively. Dependency counting
+    uses unique upstream node ids so two outputs from the same node form one DAG
+    edge rather than corrupting indegree accounting.
+    """
     if not prompt:
         raise WorkflowError("Workflow prompt is empty")
 
@@ -62,8 +74,7 @@ def topological_order(prompt: Dict[str, WorkflowExecutionNode]) -> List[str]:
         for input_name, value in node.inputs.items():
             if not input_name.strip():
                 raise WorkflowError(f"Node '{node_id}' has an empty input name")
-            if is_reference(value):
-                ref_node, output_name = value
+            for ref_node, output_name in iter_input_references(input_name, value):
                 if ref_node not in prompt:
                     raise WorkflowError(
                         f"Node '{node_id}' input '{input_name}' references missing node '{ref_node}'"
@@ -76,11 +87,12 @@ def topological_order(prompt: Dict[str, WorkflowExecutionNode]) -> List[str]:
     indegree: Dict[str, int] = {node_id: 0 for node_id in prompt}
     dependents: Dict[str, List[str]] = {node_id: [] for node_id in prompt}
     for node_id, node in prompt.items():
-        for value in node.inputs.values():
-            if is_reference(value):
-                ref_node = value[0]
-                indegree[node_id] += 1
-                dependents[ref_node].append(node_id)
+        dependencies: list[str] = []
+        for input_name, value in node.inputs.items():
+            dependencies.extend(referenced_node_ids(input_name, value))
+        for ref_node in dict.fromkeys(dependencies):
+            indegree[node_id] += 1
+            dependents[ref_node].append(node_id)
 
     order: List[str] = []
     queue = [node_id for node_id, degree in indegree.items() if degree == 0]
@@ -102,7 +114,7 @@ def select_execution_prompt(request: WorkflowExecutionRequest) -> Dict[str, Work
 
     ``target_node_ids`` mirrors ComfyUI's partial execution behavior: when one
     or more output/preview sinks are selected, only their upstream dependency
-    closure is scheduled.  A missing target or a non-sink target is rejected
+    closure is scheduled. A missing target or a non-sink target is rejected
     before a job is queued so the editor can surface a useful error.
     """
     targets = request.target_node_ids
@@ -126,9 +138,9 @@ def select_execution_prompt(request: WorkflowExecutionRequest) -> Dict[str, Work
                 f"Execution target '{node_id}' must be an output or preview sink"
             )
         required.add(node_id)
-        for value in node.inputs.values():
-            if is_reference(value):
-                pending.append(value[0])
+        for input_name, value in node.inputs.items():
+            for ref_node, _output_name in iter_input_references(input_name, value):
+                pending.append(ref_node)
 
     # Keep the original insertion order. The DAG validator will still reject
     # cycles or malformed references in the selected branch.
@@ -162,20 +174,9 @@ def validate_prompt_links(
             defn_cache[class_type] = get_node_definition(class_type)
         return defn_cache[class_type]
 
-    def _references(value: Any) -> list[list[str]]:
-        if is_reference(value):
-            return [value]
-        if isinstance(value, list):
-            refs: list[list[str]] = []
-            for item in value:
-                refs.extend(_references(item))
-            return refs
-        return []
-
     for node_id, node in prompt.items():
         for input_name, value in node.inputs.items():
-            for reference in _references(value):
-                ref_node_id = reference[0]
+            for ref_node_id, _output_name in iter_input_references(input_name, value):
                 if ref_node_id not in prompt:
                     continue
                 upstream_def = _definition(prompt[ref_node_id].class_type)
@@ -236,6 +237,41 @@ def _canonical(value: Any) -> Any:
     return {"__repr__": repr(value)}
 
 
+def _canonical_reference_value(value: Any, ref_sigs: Dict[str, str]) -> Any:
+    """Canonicalize nested batch inputs while injecting upstream signatures."""
+    if is_reference(value):
+        ref_node, output_name = value
+        return {
+            "__ref__": {
+                "node": ref_node,
+                "output": output_name,
+                "signature": ref_sigs.get(ref_node, "?"),
+            }
+        }
+    if isinstance(value, dict):
+        # Preserve file/base64 identity handling as one literal unit.
+        if value.get("kind") in {"workspace_path", "base64"}:
+            return _canonical(value)
+        return {
+            str(k): _canonical_reference_value(v, ref_sigs)
+            for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_canonical_reference_value(item, ref_sigs) for item in value]
+    return _canonical(value)
+
+
+def _canonical_input_signature(input_name: str, value: Any, ref_sigs: Dict[str, str]) -> Any:
+    # Preserve a direct legacy params reference, but do not recursively infer
+    # references inside parameter containers because ["a", "b"] may be a
+    # perfectly valid literal parameter value.
+    if is_reference(value):
+        return _canonical_reference_value(value, ref_sigs)
+    if input_name == "params":
+        return _canonical(value)
+    return _canonical_reference_value(value, ref_sigs)
+
+
 class NodeOutputCache:
     """Output cache keyed by transitive input signature."""
 
@@ -245,12 +281,7 @@ class NodeOutputCache:
     def signature(self, class_type: str, inputs: Dict[str, Any], ref_sigs: Dict[str, str]) -> str:
         parts: List[Any] = [class_type]
         for name in sorted(inputs.keys()):
-            value = inputs[name]
-            if is_reference(value):
-                ref_node = value[0]
-                parts.append((name, "ref", ref_node, ref_sigs.get(ref_node, "?")))
-            else:
-                parts.append((name, "lit", _canonical(value)))
+            parts.append((name, _canonical_input_signature(name, inputs[name], ref_sigs)))
         raw = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
