@@ -32,7 +32,7 @@ class ResolveWorldAssetsCommand(BaseModel):
     generate_missing: bool = True
     include_context: bool = False
     include_scatter: bool = False
-    min_library_score: float = Field(default=3.0, ge=0, le=100)
+    min_library_score: float = Field(default=5.0, ge=0, le=100)
     image_model_id: str = Field(default="anima/generate", min_length=1, max_length=200)
     mesh_model_id: str = Field(default="trellis2/generate", min_length=1, max_length=200)
     enable_texture: bool = True
@@ -135,7 +135,7 @@ def compile_world_asset_resolution(
         category = str(raw.get("category") or "")
         image_prompt = str(raw.get("imagePrompt") or raw.get("image_prompt") or name)
         matches = find_asset_candidates(
-            " ".join(part for part in (name, category, image_prompt) if part),
+            " ".join(part for part in (name, image_prompt) if part),
             category=category or None,
             limit=1,
             meshes_only=True,
