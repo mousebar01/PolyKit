@@ -228,6 +228,41 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertLess(fail_report["signals"]["silhouetteIoU"], 0.85)
             self.assertTrue(fail_report["gates"]["silhouetteGateAuthoritative"])
 
+    def test_hair_evidence_measures_dark_head_bands_without_inventing_geometry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "character.png"
+            image = Image.new("RGBA", (128, 200), (0, 0, 0, 0))
+            for x in range(32, 96):
+                for y in range(20, 180):
+                    image.putpixel((x, y), (42, 42, 48, 255) if y < 32 else (220, 170, 130, 255))
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "hair-evidence"},
+                str(workspace),
+                str(temp),
+            )
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as overlay:
+                self.assertEqual(overlay.size, (128, 200))
+                self.assertEqual(overlay.mode, "RGBA")
+            self.assertEqual(report["kind"], "polykit.hair-evidence")
+            self.assertEqual(report["status"], "measured")
+            self.assertEqual(report["maskSource"], "alpha")
+            self.assertGreater(report["hairFraction"], 0.3)
+            self.assertGreater(report["bands"]["crown"]["coverage"], report["bands"]["jaw"]["coverage"])
+            self.assertEqual(result["metadata"]["evidence_kind"], "hair-evidence")
+
     def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

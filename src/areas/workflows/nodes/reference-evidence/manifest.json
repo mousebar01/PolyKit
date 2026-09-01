@@ -450,6 +450,18 @@
       "params_schema": []
     },
     {
+      "id": "hair-evidence",
+      "name": "Hair Evidence",
+      "input": "image",
+      "output": "image",
+      "description": "Measures head-region dark coverage, crown/mid/jaw bands, and a cautious hairline from one reference image.",
+      "i18n": {
+        "zh-CN": { "name": "头发证据" },
+        "en-US": { "name": "Hair Evidence" }
+      },
+      "params_schema": []
+    },
+    {
       "id": "multi-view-evidence",
       "name": "Multi-view Evidence",
       "input": "image",

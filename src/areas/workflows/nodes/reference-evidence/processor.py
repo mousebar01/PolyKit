@@ -1308,6 +1308,144 @@ def _review_iou(reference: list[bool], candidate: list[bool]) -> float:
     return intersection / union if union else 1.0
 
 
+def _hair_otsu(values: list[float], bins: int = 64) -> tuple[float, float, float]:
+    if not values:
+        return 0.0, 0.0, 0.0
+    low, high = min(values), max(values)
+    if high - low < 1e-9:
+        return low, 0.0, 0.0
+    width = (high - low) / bins
+    histogram = [0] * bins
+    for value in values:
+        histogram[min(bins - 1, int((value - low) / width))] += 1
+    total = len(values)
+    total_sum = sum((low + (index + 0.5) * width) * count for index, count in enumerate(histogram))
+    below_count = 0
+    below_sum = 0.0
+    best_index = 0
+    best_variance = -1.0
+    for index, count in enumerate(histogram[:-1]):
+        below_count += count
+        below_sum += (low + (index + 0.5) * width) * count
+        above_count = total - below_count
+        if not below_count or not above_count:
+            continue
+        mean_below = below_sum / below_count
+        mean_above = (total_sum - below_sum) / above_count
+        variance = below_count * above_count * (mean_below - mean_above) ** 2
+        if variance > best_variance:
+            best_variance = variance
+            best_index = index
+    threshold = low + (best_index + 1) * width
+    below = [value for value in values if value <= threshold]
+    above = [value for value in values if value > threshold]
+    if not below or not above:
+        return threshold, 0.0, 0.0
+    mean_below = sum(below) / len(below)
+    mean_above = sum(above) / len(above)
+    separation = abs(mean_above - mean_below)
+    spread = math.sqrt(sum((value - mean_below) ** 2 for value in below) / len(below)) + math.sqrt(sum((value - mean_above) ** 2 for value in above) / len(above))
+    separability = min(separation / spread, 1.0e6) if spread > 1e-9 else 1.0e6
+    return threshold, separation, separability
+
+
+def _run_hair_evidence(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Measure dark hair coverage in the image head band without inventing lock geometry."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for hair evidence: {exc}") from exc
+
+    with Image.open(input_path) as source:
+        image = source.convert("RGBA")
+        width, height = image.size
+        pixels = list(image.getdata())
+        alpha_values = [pixel[3] for pixel in pixels]
+        alpha_authoritative = max(alpha_values, default=0) - min(alpha_values, default=0) > 32
+        if alpha_authoritative:
+            mask = [pixel[3] >= 20 for pixel in pixels]
+            mask_source = "alpha"
+        else:
+            corners = [pixels[0], pixels[width - 1], pixels[(height - 1) * width], pixels[-1]]
+            background = tuple(sum(pixel[channel] for pixel in corners) / len(corners) for channel in range(3))
+            mask = [math.sqrt(sum((pixel[channel] - background[channel]) ** 2 for channel in range(3))) >= 24.0 for pixel in pixels]
+            mask_source = "corner-distance"
+        points = [(index % width, index // width) for index, active in enumerate(mask) if active]
+        token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        output_path = workspace_dir / f"{token}_hair-evidence.png"
+        report_path = workspace_dir / f"{token}_hair-evidence.json"
+        if not points:
+            overlay = image.copy()
+            overlay.save(output_path, format="PNG")
+            report = {"schemaVersion": 1, "kind": "polykit.hair-evidence", "status": "no-foreground", "createdAt": datetime.now(timezone.utc).isoformat(), "maskSource": mask_source, "warnings": ["no foreground pixels were detected"], "reviewNotes": ["This image cannot provide hair coverage evidence without a foreground region."]}
+            report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "hair-evidence", "schema_version": 1, "status": report["status"], "report": report_path.name}}
+
+        x0, y0 = min(point[0] for point in points), min(point[1] for point in points)
+        x1, y1 = max(point[0] for point in points), max(point[1] for point in points)
+        figure_height = max(1, y1 - y0 + 1)
+        head_bottom = min(height, y0 + max(1, int(figure_height * 0.15)))
+        head_pixels: list[tuple[int, int, float]] = []
+        for y in range(y0, head_bottom):
+            for x in range(x0, x1 + 1):
+                if mask[y * width + x]:
+                    pixel = pixels[y * width + x]
+                    head_pixels.append((x, y, 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2]))
+        threshold, separation, separability = _hair_otsu([item[2] for item in head_pixels])
+        status = "measured" if head_pixels and separation >= 12.0 and separability >= 2.0 else "no-hair-skin-split"
+        hair = {(x, y) for x, y, luma in head_pixels if luma <= threshold}
+        head_height = max(1, head_bottom - y0)
+        bands: dict[str, dict[str, float]] = {}
+        for band_index, name in enumerate(("crown", "mid", "jaw")):
+            top = y0 + int(head_height * band_index / 3)
+            bottom = y0 + int(head_height * (band_index + 1) / 3)
+            region = [(x, y) for x, y, _luma in head_pixels if top <= y < max(top + 1, bottom)]
+            dark = [point for point in region if point in hair]
+            bands[name] = {"coverage": round(len(dark) / max(1, len(region)), 4), "pixelCount": len(region)}
+        rows = sorted({y for _x, y in hair})
+        hairline = None
+        if rows:
+            last_row = rows[0]
+            for row in rows[1:]:
+                if row - last_row > 2:
+                    break
+                last_row = row
+            hairline = round((last_row - y0) / figure_height, 4)
+        overlay = image.copy()
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        draw.rectangle((x0, y0, x1, y1), outline=(35, 211, 238, 230), width=max(1, min(width, height) // 320))
+        draw.rectangle((x0, y0, x1, max(y0, head_bottom - 1)), outline=(245, 158, 11, 230), width=max(1, min(width, height) // 320))
+        for index in (1, 2):
+            y = y0 + int(head_height * index / 3)
+            draw.line((x0, y, x1, y), fill=(245, 158, 11, 180), width=max(1, min(width, height) // 320))
+        overlay.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.hair-evidence",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "width": width, "height": height},
+        "maskSource": mask_source,
+        "figureBox": [x0, y0, x1, y1],
+        "headBox": [x0, y0, x1, head_bottom],
+        "darkThreshold": round(threshold, 3),
+        "classSeparation": round(separation, 3),
+        "separability": round(separability, 3),
+        "hairFraction": round(len(hair) / max(1, len(head_pixels)), 4),
+        "bands": bands,
+        "hairline": hairline,
+        "warnings": [] if status == "measured" else ["head luminance does not form a reliable hair/skin split"],
+        "reviewNotes": [
+            "Dark coverage is evidence, not a hair-lock or hairstyle generator; a single view cannot reveal hidden geometry.",
+            "Review the overlay and measured bands before choosing hair materials or geometry.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "hair-evidence", "schema_version": 1, "status": status, "hair_fraction": report["hairFraction"], "report": report_path.name}}
+
+
 def _run_divine_eye(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Score a render against a reference with deterministic multi-signal gates."""
     try:
@@ -1702,6 +1840,12 @@ def main() -> None:
                 return
             progress(20, "Running multi-signal visual review…")
             result = _run_divine_eye(paths[0], paths[1], workspace_dir, params)
+        elif node_id == "hair-evidence":
+            if input_path is None or not input_path.is_file():
+                error(f"reference-evidence: hair evidence image not found: {input_raw}")
+                return
+            progress(20, "Measuring hair coverage evidence…")
+            result = _run_hair_evidence(input_path, workspace_dir, params)
         elif node_id == "multi-view-evidence":
             raw_paths = input_data.get("filePaths")
             paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
