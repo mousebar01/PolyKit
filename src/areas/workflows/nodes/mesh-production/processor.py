@@ -498,6 +498,178 @@ def _uv_unwrap(input_path: Path, workspace_dir: Path, params: dict[str, Any]) ->
     }
 
 
+def _rasterize_uv_values(
+    uv: Any,
+    faces: Any,
+    values: Any,
+    resolution: int,
+    channels: int,
+    fill: float,
+) -> tuple[Any, Any]:
+    """Rasterize per-vertex values into a small UV image with barycentric interpolation."""
+    import numpy as np
+
+    uv_array = np.asarray(uv, dtype=np.float32)
+    face_array = np.asarray(faces, dtype=np.int64)
+    value_array = np.asarray(values, dtype=np.float32)
+    if value_array.ndim == 1:
+        value_array = value_array[:, None]
+    image = np.full((resolution, resolution, channels), fill, dtype=np.float32)
+    covered = np.zeros((resolution, resolution), dtype=bool)
+    for face in face_array:
+        tri_uv = uv_array[face]
+        px = np.clip(tri_uv[:, 0] * (resolution - 1), 0, resolution - 1)
+        py = np.clip((1.0 - tri_uv[:, 1]) * (resolution - 1), 0, resolution - 1)
+        min_x, max_x = int(np.floor(px.min())), int(np.ceil(px.max()))
+        min_y, max_y = int(np.floor(py.min())), int(np.ceil(py.max()))
+        if max_x < min_x or max_y < min_y:
+            continue
+        grid_x, grid_y = np.meshgrid(
+            np.arange(min_x, max_x + 1, dtype=np.float32),
+            np.arange(min_y, max_y + 1, dtype=np.float32),
+        )
+        ax, ay = px[0], py[0]
+        bx, by = px[1], py[1]
+        cx, cy = px[2], py[2]
+        denominator = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(float(denominator)) <= 1e-8:
+            continue
+        weight_a = ((by - cy) * (grid_x - cx) + (cx - bx) * (grid_y - cy)) / denominator
+        weight_b = ((cy - ay) * (grid_x - cx) + (ax - cx) * (grid_y - cy)) / denominator
+        weight_c = 1.0 - weight_a - weight_b
+        inside = (weight_a >= -1e-5) & (weight_b >= -1e-5) & (weight_c >= -1e-5)
+        if not np.any(inside):
+            continue
+        sampled = (
+            weight_a[..., None] * value_array[face[0]]
+            + weight_b[..., None] * value_array[face[1]]
+            + weight_c[..., None] * value_array[face[2]]
+        )
+        target = image[min_y : max_y + 1, min_x : max_x + 1]
+        target[inside] = sampled[inside, :channels]
+        covered[min_y : max_y + 1, min_x : max_x + 1][inside] = True
+    return np.clip(image, 0.0, 1.0), covered
+
+
+def _surface_map_bake(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Bake world-space normal and vertex-derived AO maps beside a UV mesh."""
+    import numpy as np
+    import pymeshlab
+    import trimesh
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for surface map bake: {exc}") from exc
+
+    method = str(params.get("uv_method") or "flat-plane").strip().lower()
+    if method not in {"flat-plane", "triangle-trivial"}:
+        method = "flat-plane"
+    try:
+        requested_resolution = int(params.get("resolution", 512) or 512)
+    except (TypeError, ValueError):
+        requested_resolution = 512
+    resolution = max(64, min(2048, requested_resolution))
+
+    scene = _load_scene(input_path)
+    source = _world_mesh(scene)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = _token(input_path, "maps")
+    output_path = workspace_dir / f"{token}.glb"
+    normal_path = workspace_dir / f"{token}_normal.png"
+    ao_path = workspace_dir / f"{token}_ao.png"
+    report_path = workspace_dir / f"{token}.json"
+    temp_dir = Path(tempfile.mkdtemp(prefix="polykit-maps-", dir=str(workspace_dir)))
+    try:
+        source_path = temp_dir / "source.ply"
+        source.export(source_path)
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.load_new_mesh(str(source_path))
+        if method == "triangle-trivial":
+            mesh_set.compute_texcoord_parametrization_triangle_trivial_per_wedge()
+        else:
+            mesh_set.compute_texcoord_parametrization_flat_plane_per_wedge()
+        uv_mesh = mesh_set.current_mesh()
+        if not uv_mesh.has_wedge_tex_coord():
+            raise RuntimeError("surface map bake produced no UV coordinates")
+        vertices = np.asarray(uv_mesh.vertex_matrix(), dtype=float)
+        source_faces = np.asarray(uv_mesh.face_matrix(), dtype=np.int64)
+        wedge_uv = np.asarray(uv_mesh.wedge_tex_coord_matrix(), dtype=np.float32)
+        if wedge_uv.shape != (len(source_faces) * 3, 2):
+            raise RuntimeError("surface map bake returned invalid wedge UV coordinates")
+        corner_indices = source_faces.reshape(-1)
+        faces = np.arange(len(corner_indices), dtype=np.int64).reshape(-1, 3)
+        unwrapped = trimesh.Trimesh(vertices=vertices[corner_indices], faces=faces, process=False)
+        unwrapped.visual = trimesh.visual.texture.TextureVisuals(uv=wedge_uv)
+        unwrapped.export(output_path)
+
+        normals = np.asarray(unwrapped.vertex_normals, dtype=np.float32)
+        normal_values = np.clip((normals + 1.0) * 0.5, 0.0, 1.0)
+        normal_image, normal_coverage = _rasterize_uv_values(
+            wedge_uv, faces, normal_values, resolution, 3, 0.5
+        )
+        Image.fromarray(np.uint8(np.round(normal_image * 255.0)), mode="RGB").save(normal_path)
+
+        ao_method = "pymeshlab-vertex-ambient-occlusion"
+        try:
+            mesh_set.compute_scalar_ambient_occlusion()
+            ao_values = np.asarray(mesh_set.current_mesh().vertex_scalar_array(), dtype=float)
+            if len(ao_values) != len(vertices) or not np.isfinite(ao_values).all():
+                raise ValueError("invalid ambient occlusion scalar field")
+            low, high = float(ao_values.min()), float(ao_values.max())
+            if high - low <= 1e-9:
+                ao_values = np.ones(len(ao_values), dtype=np.float32)
+            else:
+                ao_values = ((ao_values - low) / (high - low)).astype(np.float32)
+            ao_values = ao_values[corner_indices]
+        except Exception:
+            ao_method = "normal-upward-fallback"
+            ao_values = np.clip((normals[:, 2] + 1.0) * 0.5, 0.0, 1.0)
+        ao_image, ao_coverage = _rasterize_uv_values(
+            wedge_uv, faces, ao_values, resolution, 1, 1.0
+        )
+        Image.fromarray(np.uint8(np.round(ao_image[:, :, 0] * 255.0)), mode="L").save(ao_path)
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.surface-map-bake",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(scene)),
+            "vertices": int(len(source.vertices)),
+            "faces": int(len(source.faces)),
+        },
+        "maps": {
+            "resolution": [resolution, resolution],
+            "normal": {"file": normal_path.name, "space": "world", "coverage": _round(float(normal_coverage.mean()))},
+            "ambientOcclusion": {"file": ao_path.name, "method": ao_method, "coverage": _round(float(ao_coverage.mean()))},
+            "uvMethod": method,
+        },
+        "reviewNotes": [
+            "Normal output is world-space RGB, not a tangent-space high-to-low bake.",
+            "AO is derived from the source mesh vertex field; inspect seams, padding, and map fidelity before production use.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(normal_path), str(ao_path), str(report_path)],
+        "metadata": {
+            "evidence_kind": "surface-map-bake",
+            "schema_version": 1,
+            "status": report["status"],
+            "normal_space": "world",
+            "ao_method": report["maps"]["ambientOcclusion"]["method"],
+            "report": report_path.name,
+        },
+    }
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
@@ -536,6 +708,9 @@ def main() -> None:
         elif node_id == "uv-unwrap":
             progress(25, "Generating UV coordinates…")
             result = _uv_unwrap(input_path, workspace_dir, params)
+        elif node_id == "surface-map-bake":
+            progress(25, "Baking normal and AO maps…")
+            result = _surface_map_bake(input_path, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported mesh production node '{node_id}'")
         progress(90, "Writing mesh derivatives…")

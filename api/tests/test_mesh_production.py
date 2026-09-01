@@ -166,6 +166,42 @@ class MeshProductionProcessorTests(unittest.TestCase):
             self.assertTrue(report["uv"]["hasWedgeCoordinates"])
             self.assertEqual(result["metadata"]["evidence_kind"], "uv-unwrap")
 
+    def test_surface_map_bake_writes_normal_and_ao_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.glb"
+            trimesh.creation.icosphere(subdivisions=1, radius=1.0).export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "surface-map-bake", "resolution": 64},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith(".json"))
+            normal_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith("_normal.png"))
+            ao_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith("_ao.png"))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            baked = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsNotNone(getattr(baked.visual, "uv", None))
+            with Image.open(normal_path) as normal, Image.open(ao_path) as ao:
+                self.assertEqual(normal.size, (64, 64))
+                self.assertEqual(normal.mode, "RGB")
+                self.assertEqual(ao.size, (64, 64))
+                self.assertEqual(ao.mode, "L")
+            self.assertEqual(report["kind"], "polykit.surface-map-bake")
+            self.assertEqual(report["maps"]["normal"]["space"], "world")
+            self.assertEqual(result["metadata"]["evidence_kind"], "surface-map-bake")
+
     def test_collision_mesh_builds_convex_proxy_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

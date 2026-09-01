@@ -200,6 +200,39 @@
           "tooltip": "Selects the deterministic pymeshlab parametrization. Inspect island distortion before baking production textures."
         }
       ]
+    },
+    {
+      "id": "surface-map-bake",
+      "name": "Surface Map Bake",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Bakes world-space normal and vertex-derived ambient-occlusion PNG sidecars onto a UV-enabled GLB derivative.",
+      "i18n": {
+        "zh-CN": { "name": "表面贴图烘焙" },
+        "en-US": { "name": "Surface Map Bake" }
+      },
+      "params_schema": [
+        {
+          "id": "resolution",
+          "label": "Map Resolution",
+          "type": "int",
+          "default": 512,
+          "min": 64,
+          "max": 2048,
+          "tooltip": "Square resolution for the normal and ambient-occlusion sidecar images."
+        },
+        {
+          "id": "uv_method",
+          "label": "UV Method",
+          "type": "select",
+          "default": "flat-plane",
+          "options": [
+            { "value": "flat-plane", "label": "Flat Plane Charts" },
+            { "value": "triangle-trivial", "label": "Triangle Trivial" }
+          ],
+          "tooltip": "Parametrization used before map rasterization."
+        }
+      ]
     }
   ]
 }
