@@ -1,0 +1,70 @@
+{
+  "id": "reference-evidence",
+  "name": "Reference Evidence",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Creates a reviewable detail grid, region crops, and a machine-readable detail inventory from a reference image.",
+  "requirements": ["Pillow"],
+  "i18n": {
+    "zh-CN": {
+      "name": "参考图证据",
+      "description": "从参考图生成细节分区、裁剪图和可复核的细节清单。"
+    },
+    "en-US": {
+      "name": "Reference Evidence",
+      "description": "Creates a reviewable detail grid, region crops, and a machine-readable detail inventory from a reference image."
+    }
+  },
+  "nodes": [
+    {
+      "id": "detail-inventory",
+      "name": "Detail Inventory",
+      "input": "image",
+      "output": "image",
+      "i18n": {
+        "zh-CN": { "name": "细节清单" },
+        "en-US": { "name": "Detail Inventory" }
+      },
+      "params_schema": [
+        {
+          "id": "grid_size",
+          "label": "Evidence Grid",
+          "type": "select",
+          "default": 3,
+          "options": [
+            { "value": 2, "label": "2 × 2" },
+            { "value": 3, "label": "3 × 3" },
+            { "value": 4, "label": "4 × 4" },
+            { "value": 5, "label": "5 × 5" }
+          ],
+          "tooltip": "Splits the reference into review regions and writes one crop per region."
+        },
+        {
+          "id": "target_min_details",
+          "label": "Minimum Detail Checks",
+          "type": "int",
+          "default": 8,
+          "min": 1,
+          "max": 64,
+          "tooltip": "Review target recorded in the evidence report; semantic confirmation remains a human or model review step."
+        },
+        {
+          "id": "subject",
+          "label": "Subject",
+          "type": "string",
+          "default": "",
+          "tooltip": "Optional subject name stored in the evidence report."
+        },
+        {
+          "id": "include_crops",
+          "label": "Write Region Crops",
+          "type": "boolean",
+          "default": true,
+          "tooltip": "Include PNG crops as sidecars for focused review."
+        }
+      ]
+    }
+  ]
+}
