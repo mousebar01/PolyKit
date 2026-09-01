@@ -292,6 +292,15 @@ def _resolve_skill_dir(name: str, root: Path | None = None) -> tuple[Path, Path]
     return resolved_root, skill_dir
 
 
+def _validated_skill_metadata(skill_dir: Path) -> dict[str, Any]:
+    """Validate one Skill identity from frontmatter only, without loading instructions."""
+
+    skill_path = skill_dir / SKILL_FILENAME
+    if not skill_path.is_file():
+        raise AgentSkillError(f"Missing {SKILL_FILENAME} in {skill_dir.name}")
+    return _validate_metadata(skill_dir, _read_skill_frontmatter(skill_path))
+
+
 def load_agent_skill(skill_dir: Path, *, include_body: bool = True) -> dict[str, Any]:
     """Load and validate one skill directory."""
 
@@ -330,9 +339,10 @@ def get_agent_skill(name: str, root: Path | None = None) -> dict[str, Any]:
 
 
 def read_agent_skill_resource(name: str, resource_path: str, root: Path | None = None) -> dict[str, Any]:
-    """Read one small UTF-8 skill resource without reloading SKILL.md."""
+    """Read one small UTF-8 skill resource after lightweight identity validation."""
 
     _, skill_dir = _resolve_skill_dir(name, root=root)
+    skill_meta = _validated_skill_metadata(skill_dir)
     relative = Path(resource_path)
     if relative.is_absolute() or not relative.parts or relative.parts[0] not in _RESOURCE_DIRS:
         raise AgentSkillError("Skill resources must live under scripts/, references/, or assets/")
@@ -354,7 +364,7 @@ def read_agent_skill_resource(name: str, resource_path: str, root: Path | None =
     return {
         "schema_version": AGENT_SKILL_SCHEMA_VERSION,
         "kind": "agent-skill-resource",
-        "skill": skill_dir.name,
+        "skill": skill_meta["name"],
         "path": relative.as_posix(),
         "content": content,
         "executable_by_polykit": False,
