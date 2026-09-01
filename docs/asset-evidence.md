@@ -1,40 +1,16 @@
 # Asset evidence
 
-PolyKit ships the official `asset-evidence` process pack for mesh-side checks
-that can run without a Blender session. Every operation keeps the original
-WorkflowRun and workspace artifact contract: a mesh is the primary output and
-the measured facts are published as a JSON sidecar.
+The built-in `asset-evidence` pack keeps four generic scene-level mesh helpers.
 
-| Node | Behavior | Mesh mutation |
-| --- | --- | --- |
-| `asset-evidence/component-audit` | Lists scene components, world bounds, XY/XZ/YZ footprints, and overlap/near/separate relationships | None; input mesh is copied unchanged |
-| `asset-evidence/pairwise-penetration` | Samples component surfaces with deterministic ray-parity point-in-solid checks and reports unallowed interpenetration | None; input mesh is copied unchanged |
-| `asset-evidence/material-audit` | Records declared PBR channels, source labels, confidence, and missing base-color/roughness gates | None; input mesh is copied unchanged |
-| `asset-evidence/normalize-mesh` | Applies target-size scaling, explicit up-axis grounding, and optional horizontal centering | Yes; exports a new GLB and records the transform |
-| `asset-evidence/turntable-evidence` | Renders a deterministic 4–12 view contact sheet with camera angles for silhouette/assembly review | No; emits an image artifact and JSON sidecar |
-| `asset-evidence/component-id-sheet` | Renders stable flat colors per component across multiple views for object-ID/coverage checks | No; emits an image artifact and JSON sidecar |
+| Node | Purpose |
+| --- | --- |
+| `component-audit` | Reports scene components, world-space footprints, and overlap/near relationships without modifying geometry. |
+| `pairwise-penetration` | Samples component surfaces to flag likely penetration, with explicit allowed-contact pairs. |
+| `material-audit` | Reports declared PBR material channels and flags missing base-color or roughness evidence. |
+| `normalize-mesh` | Applies an explicit scale/center/ground transform and records the normalization report. |
 
-The reports are evidence, not visual truth scores. For example, an AABB
-overlap can be intentional in a manufactured assembly, and a declared
-roughness factor does not prove that the material matches a reference. Use the
-reports to decide which components or channels need a later Blender render,
-reference comparison, or localized correction.
+These checks complement `mesh-production/geometry-integrity`: mesh-production focuses on topology and triangle-level validity, while asset-evidence focuses on scene composition, component relationships, materials, and normalization.
 
-Pairwise penetration is a geometry-level follow-up to the cheaper AABB
-relations: vertices, unique edge midpoints, and face centroids are tested in
-both directions with three fixed ray directions. Intentional contacts must be
-listed in `allowed_pairs`; the report keeps the sampling limit and limitation
-visible, so a clean sampled result is not mistaken for an exact collision proof.
+Turntable and component-ID rendering are intentionally not separate built-in evidence nodes. Multi-view reference organization belongs to `reference-evidence`, while inspection rendering should be owned by the Blender/render workflow that actually needs it.
 
-## Example mesh chain
-
-```text
-Load 3D Mesh → Component Audit → Material Audit → Normalize Mesh → Output
-                                      └→ Turntable Evidence → Image Output
-```
-
-The turntable renderer is a software orthographic projection built on Pillow;
-it does not require Matplotlib, a GPU, or a Blender session. Each audit can
-also be connected directly to `Preview`. The server keeps
-intermediate files run-private until a sink publishes them, and sidecars are
-placed beside the published mesh in the selected workspace collection.
+Read-only audits return the original mesh with JSON sidecars. `normalize-mesh` is the only node in this pack that intentionally writes transformed geometry.
