@@ -431,6 +431,21 @@
           "tooltip": "Relative gap threshold used to separate neighboring vertex bands."
         }
       ]
+    },
+    {
+      "id": "clothing-blockout",
+      "name": "Clothing Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds a deterministic garment blockout GLB from explicit top, skirt, pants, or cape dimensions; it is geometry, not a fitted cloth simulation.",
+      "i18n": {
+        "zh-CN": { "name": "服装块面生成" },
+        "en-US": { "name": "Clothing Blockout" }
+      },
+      "params_schema": [
+        { "id": "sections", "label": "Radial Sections", "type": "int", "default": 24, "min": 8, "max": 96, "tooltip": "Section count for skirt/cape frustums." },
+        { "id": "default_clearance", "label": "Default Clearance", "type": "float", "default": 0.02, "min": 0.0, "max": 1.0, "tooltip": "Recorded garment-to-body clearance when a garment omits an explicit value." }
+      ]
     }
   ]
 }

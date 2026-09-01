@@ -17,6 +17,7 @@ without leaving the server-owned workflow runtime.
 | `mesh-production/animation-audit` | Original mesh + animation JSON | Checks glTF/GLB skin bindings, joint declarations, animation channels, and morph targets without modifying the asset. |
 | `mesh-production/morph-target-bake` | Original mesh + morph JSON | Computes relative vertex deltas from a base mesh and target vertex arrays for blend-shape preparation. |
 | `mesh-production/joint-loop-audit` | Original mesh + joint JSON | Counts independent vertex bands around declared bones to catch topology that will crease under deformation. |
+| `mesh-production/clothing-blockout` | GLB mesh + JSON | Builds closed top/skirt/pants/cape blockout solids from explicit dimensions for a later cloth/body fitting pass. |
 
 Collision output preserves the source world-space frame, but it is an
 interaction proxy rather than a render asset. LOD output keeps LOD0 as the
@@ -72,6 +73,13 @@ exporter binds the sidecar.
 Joint-loop-audit takes a text JSON bone list with `jointPos` and `tipPos`
 coordinates. It measures bands along each bone axis and reports failing joints;
 it does not infer true quad loops or replace a pose/deformation smoke test.
+
+Clothing blockout takes a text descriptor such as
+`{"garments":[{"id":"shirt","kind":"top","width":0.6,"height":0.7,"depth":0.3}]}`.
+It emits actual closed GLB solids for `top`, `skirt`, `pants`, and `cape` garments,
+plus bounds and source dimensions. These are intentionally blockout solids:
+they do not fit a body, sew 2D patterns, or run cloth simulation. Use the
+Blender simulation setup node and a clearance review before production use.
 
 All nodes write into the run-private process workspace. The normal workflow
 sink publishes the primary output and sidecars into the selected collection.

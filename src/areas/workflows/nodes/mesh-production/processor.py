@@ -1696,6 +1696,170 @@ def _joint_loop_audit(input_path: Path, bone_text: str, workspace_dir: Path, par
     }
 
 
+def _clothing_blockout(descriptor_text: str, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build closed, low-resolution garment solids from explicit dimensions."""
+    import numpy as np
+    import trimesh
+
+    try:
+        descriptor = json.loads(descriptor_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"clothing descriptor is not valid JSON: {exc.msg}") from exc
+    if not isinstance(descriptor, dict) or not isinstance(descriptor.get("garments"), list) or not descriptor["garments"]:
+        raise ValueError("clothing descriptor must contain a non-empty garments array")
+    try:
+        sections = max(8, min(96, int(params.get("sections", 24))))
+    except (TypeError, ValueError):
+        sections = 24
+    try:
+        default_clearance = float(params.get("default_clearance", 0.02) or 0.02)
+    except (TypeError, ValueError):
+        default_clearance = 0.02
+    default_clearance = max(0.0, min(1.0, default_clearance))
+
+    def number(item: dict[str, Any], key: str, *, default: float | None = None) -> float:
+        value = item.get(key, default)
+        if value is None or isinstance(value, bool):
+            raise ValueError(f"garment {item.get('id', '?')!r} needs numeric {key}")
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"garment {item.get('id', '?')!r} has invalid {key}") from exc
+        if not math.isfinite(parsed) or parsed <= 0.0:
+            raise ValueError(f"garment {item.get('id', '?')!r} {key} must be positive")
+        return parsed
+
+    def position(item: dict[str, Any], key: str, default: float = 0.0) -> float:
+        value = item.get(key, default)
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"garment {item.get('id', '?')!r} has invalid {key}") from exc
+        if not math.isfinite(parsed):
+            raise ValueError(f"garment {item.get('id', '?')!r} {key} must be finite")
+        return parsed
+
+    def clearance(item: dict[str, Any]) -> float:
+        value = item.get("clearance", default_clearance)
+        if isinstance(value, bool):
+            raise ValueError(f"garment {item.get('id', '?')!r} clearance must be a non-negative number")
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"garment {item.get('id', '?')!r} clearance must be a non-negative number") from exc
+        if not math.isfinite(parsed) or parsed < 0.0:
+            raise ValueError(f"garment {item.get('id', '?')!r} clearance must be a non-negative number")
+        return min(1.0, parsed)
+
+    def ring_solid(bottom: tuple[float, float], top: tuple[float, float], height: float, radial_sections: int) -> Any:
+        """Create a closed cylindrical frustum around the Y axis."""
+        vertices: list[list[float]] = []
+        for y, (rx, rz) in ((0.0, bottom), (height, top)):
+            for index in range(radial_sections):
+                angle = index / radial_sections * math.tau
+                vertices.append([rx * math.cos(angle), y, rz * math.sin(angle)])
+        faces: list[list[int]] = []
+        for index in range(radial_sections):
+            next_index = (index + 1) % radial_sections
+            faces.append([index, next_index, radial_sections + next_index])
+            faces.append([index, radial_sections + next_index, radial_sections + index])
+        # Keep every face the same arity so the mesh can be exported to GLB.
+        for index in range(1, radial_sections - 1):
+            faces.append([0, index + 1, index])
+            faces.append([radial_sections, radial_sections + index, radial_sections + index + 1])
+        return trimesh.Trimesh(vertices=np.asarray(vertices, dtype=float), faces=np.asarray(faces, dtype=int), process=False)
+
+    def rectangular_solid(bottom: tuple[float, float], top: tuple[float, float], height: float) -> Any:
+        bx, bz = bottom[0] / 2.0, bottom[1] / 2.0
+        tx, tz = top[0] / 2.0, top[1] / 2.0
+        vertices = np.asarray([
+            [-bx, 0.0, -bz], [bx, 0.0, -bz], [bx, 0.0, bz], [-bx, 0.0, bz],
+            [-tx, height, -tz], [tx, height, -tz], [tx, height, tz], [-tx, height, tz],
+        ], dtype=float)
+        faces = np.asarray([
+            [0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2],
+            [2, 6, 7, 3], [4, 0, 3, 7],
+        ], dtype=int)
+        return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    scene = trimesh.Scene()
+    records: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    allowed = {"top", "skirt", "pants", "cape"}
+    for index, item in enumerate(descriptor["garments"]):
+        if not isinstance(item, dict):
+            raise ValueError(f"garments[{index}] must be an object")
+        garment_id = str(item.get("id") or f"garment-{index + 1}").strip()
+        if not garment_id:
+            raise ValueError(f"garments[{index}].id must be non-empty")
+        if garment_id in seen_ids:
+            raise ValueError(f"duplicate garment id: {garment_id}")
+        seen_ids.add(garment_id)
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind not in allowed:
+            raise ValueError(f"garment {garment_id!r} kind must be one of: {', '.join(sorted(allowed))}")
+        width = number(item, "width")
+        height = number(item, "height")
+        depth = number(item, "depth")
+        garment_clearance = clearance(item)
+        base_y = position(item, "y")
+        offset_x, offset_z = position(item, "x"), position(item, "z")
+        if kind == "top":
+            shoulder_width = number(item, "top_width", default=width)
+            shoulder_depth = number(item, "top_depth", default=depth)
+            mesh = rectangular_solid((width, depth), (shoulder_width, shoulder_depth), height)
+            parts = [garment_id]
+        elif kind == "skirt":
+            top_width = number(item, "top_width", default=width * 0.78)
+            mesh = ring_solid((width / 2.0, depth / 2.0), (top_width / 2.0, depth * 0.42), height, sections)
+            parts = [garment_id]
+        elif kind == "cape":
+            mesh = rectangular_solid((width, max(depth, 0.01)), (width * 0.72, max(depth * 0.65, 0.01)), height)
+            parts = [garment_id]
+        else:
+            gap = number(item, "leg_gap", default=width * 0.08)
+            leg_width = max(width * 0.42, (width - gap) / 2.0)
+            leg_depth = depth
+            parts = [f"{garment_id}-L", f"{garment_id}-R"]
+            left = trimesh.creation.box(extents=[leg_width, height, leg_depth])
+            right = trimesh.creation.box(extents=[leg_width, height, leg_depth])
+            left.apply_translation([-(leg_width + gap) / 2.0, height / 2.0, 0.0])
+            right.apply_translation([(leg_width + gap) / 2.0, height / 2.0, 0.0])
+            left.apply_translation([offset_x, base_y, offset_z])
+            right.apply_translation([offset_x, base_y, offset_z])
+            scene.add_geometry(left, geom_name=parts[0])
+            scene.add_geometry(right, geom_name=parts[1])
+            records.append({"id": garment_id, "kind": kind, "parts": parts, "width": round(width, 6), "height": round(height, 6), "depth": round(depth, 6), "clearance": round(garment_clearance, 6)})
+            continue
+        mesh.apply_translation([offset_x, base_y, offset_z])
+        scene.add_geometry(mesh, geom_name=parts[0])
+        records.append({"id": garment_id, "kind": kind, "parts": parts, "width": round(width, 6), "height": round(height, 6), "depth": round(depth, 6), "clearance": round(garment_clearance, 6)})
+
+    if not scene.geometry:
+        raise ValueError("clothing descriptor produced no geometry")
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = f"clothing_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_path = workspace_dir / f"{token}.glb"
+    report_path = workspace_dir / f"{token}.json"
+    scene.export(output_path)
+    bounds = scene.bounds
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.clothing-blockout",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "garments": records,
+        "summary": {"garmentCount": len(records), "geometryCount": len(scene.geometry), "bounds": [[round(float(value), 6) for value in row] for row in bounds]},
+        "settings": {"sections": sections, "defaultClearance": round(default_clearance, 6), "solidBlockout": True},
+        "reviewNotes": [
+            "This node creates closed low-resolution garment solids from authored dimensions; it does not fit a body, sew 2D patterns, or run cloth simulation.",
+            "Use Blender cloth/simulation setup and inspect clearance against the body before treating the blockout as production clothing.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "clothing-blockout", "schema_version": 1, "status": "pass", "garment_count": len(records), "geometry_count": len(scene.geometry), "report": report_path.name}}
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
@@ -1703,6 +1867,20 @@ def main() -> None:
     params = data.get("params") or {}
     node_id = str(params.get("_node_id") or "collision-mesh")
     workspace_dir = Path(str(data.get("workspaceDir") or ""))
+    if node_id == "clothing-blockout":
+        descriptor_text = input_data.get("text")
+        if not isinstance(descriptor_text, str) or not descriptor_text.strip():
+            error("mesh-production: clothing blockout requires a JSON descriptor on the text input")
+            return
+        try:
+            progress(5, "Reading clothing dimensions…")
+            result = _clothing_blockout(descriptor_text, workspace_dir, params)
+            progress(90, "Writing clothing blockout…")
+            progress(100, "Clothing blockout ready")
+            emit({"type": "done", "result": result})
+        except Exception as exc:
+            error(f"mesh-production: {exc}")
+        return
     if node_id == "visual-hull":
         descriptor_text = input_data.get("text")
         if not isinstance(descriptor_text, str) or not descriptor_text.strip():
