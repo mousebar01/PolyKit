@@ -12,7 +12,8 @@ export function useApi() {
     signal?: AbortSignal,
   ): Promise<{ jobId: string }> {
     // Uploaded browser files are kept behind the runtime adapter until they
-    // are sent to the server.
+    // are sent to the server. The multipart compatibility endpoint now
+    // compiles the upload into the same ExecutionPlan used by canonical Runs.
     const base64 = imageData ?? await window.polykit.fs.readFileBase64(imagePath)
     const byteArray = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
     const blob = new Blob([byteArray], { type: 'image/png' })
@@ -40,7 +41,7 @@ export function useApi() {
     outputUrl?: string
     error?: string
   }> {
-    const { data } = await client.get(`/workflow-runs/${jobId}`)
+    const { data } = await client.get(`/runs/${jobId}`)
     return { ...data, outputUrl: data.output_url }
   }
 
@@ -56,7 +57,7 @@ export function useApi() {
   }
 
   async function cancelJob(jobId: string): Promise<void> {
-    await client.post(`/workflow-runs/${jobId}/cancel`).catch(() => {})
+    await client.delete(`/runs/${jobId}`).catch(() => {})
   }
 
   async function smoothMesh(
