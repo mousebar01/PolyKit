@@ -6,6 +6,7 @@ from services.runtime_paths import runtime_paths
 from services.world_domain import create_world_document
 from services.world_validation import validate_world
 from services.world_workflows import build_structure_workflow
+from services.world_store import WorldStoreError
 
 
 class WorldWorkflowBridgeTests(unittest.TestCase):
@@ -146,8 +147,57 @@ class WorldWorkflowBridgeTests(unittest.TestCase):
         self.assertEqual(params["cabin_depth"], 7.0)
         self.assertEqual(params["wall_height"], 4.2)
         self.assertEqual(params["contact_tolerance"], 0.03)
+        self.assertEqual(params["render_profile"], "production")
         self.assertEqual(request.metadata["workflow_recipe"], "building-construction")
         self.assertEqual(request.metadata["world_id"], world["id"])
+
+    def test_structure_compiler_accepts_toon_render_profile(self) -> None:
+        world = self._world()
+        request = build_structure_workflow(world, world_id=world["id"], render_profile="toon")
+        self.assertEqual(request.prompt["build"].inputs["params"]["render_profile"], "toon")
+
+    def test_structure_compiler_integrates_subway_reference_prompt_and_preset(self) -> None:
+        world = self._world()
+        reference_prompt = (
+            "Reconstruct a cinematic 16:9 night subway platform from a low eye-level view: the camera is tucked "
+            "behind a large tiled foreground column on the right and looks diagonally down twin rails into a deep "
+            "shadowed tunnel; both left and right platform edges carry matching proportionally inset, thin yellow textured "
+            "tactile strips flush with the platform slabs, with raised dots and dark safety edges, repeating square tiled columns show visible grout and microtexture, open platform "
+            "edges remain unobstructed as the station recedes into the distance, the left side is one continuous platform running flush from the tiled wall to the track with no side corridor or railing, the ceiling has long linear recessed grooves with dark metal housings, evenly spaced LED beads, and flush transparent glass diffuser panels, with cool white light and a restrained ceiling wash keeping the top "
+            "panels readable without crushed black, blue-gray porcelain and concrete, slightly reflective floor, high contrast, "
+            "no people, no train, no readable signage."
+        )
+        world["name"] = "Night Subway Station"
+        world["runtime"]["intent"]["prompt"] = reference_prompt
+        building = world["runtime"]["build"]["buildings"][0]
+        building["id"] = "subway-station"
+        building["name"] = "Night Subway Station"
+        building["parameters"] = {
+            "preset": "subway_station",
+            "width": 20.0,
+            "length": 48.0,
+            "ceilingHeight": 5.8,
+            "platformWidth": 4.6,
+            "platformHeight": 0.95,
+            "columnSpacing": 8.0,
+            "columnSize": 0.9,
+            "railGauge": 1.5,
+            "tactileWidthRatio": 0.16,
+            "tactileInsetRatio": 0.04,
+            "contactTolerance": 0.04,
+        }
+        request = build_structure_workflow(world, world_id=world["id"], building_id="subway-station")
+        self.assertEqual(request.prompt["brief"].inputs["text"], reference_prompt)
+        self.assertEqual(request.prompt["build"].inputs["params"]["preset"], "subway_station")
+        self.assertEqual(request.prompt["build"].inputs["params"]["station_length"], 48.0)
+        self.assertEqual(request.prompt["build"].inputs["params"]["column_spacing"], 8.0)
+        self.assertEqual(request.prompt["build"].inputs["params"]["tactile_width_ratio"], 0.16)
+        self.assertEqual(request.prompt["build"].inputs["params"]["tactile_inset_ratio"], 0.04)
+
+    def test_structure_compiler_rejects_unknown_render_profile(self) -> None:
+        world = self._world()
+        with self.assertRaises(WorldStoreError):
+            build_structure_workflow(world, world_id=world["id"], render_profile="sketch")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,48 @@
+{
+  "templateId": "blender-subway-reference",
+  "nodePackId": "blender-scene",
+  "requires": ["blender-scene"],
+  "name": "Night Subway Station Reference",
+  "description": "Rebuild the dark 16:9 subway-platform reference as a validated Blender scene and GLB.",
+  "nodes": [
+    {
+      "id": "scene-brief",
+      "type": "textNode",
+      "position": { "x": 80, "y": 220 },
+      "data": {
+        "enabled": true,
+        "params": {
+          "text": "Reconstruct a cinematic 16:9 night subway platform from a low eye-level view: the camera is tucked behind a large tiled foreground column on the right and looks diagonally down twin rails into a deep shadowed tunnel; both left and right platform edges carry matching proportionally inset, thin yellow textured tactile strips flush with the platform slabs, with raised dots and dark safety edges, repeating square tiled columns show visible grout and microtexture, open platform edges remain unobstructed as the station recedes into the distance, the left side is one continuous platform running flush from the tiled wall to the track with no side corridor or railing, the ceiling has long linear recessed grooves with dark metal housings, evenly spaced LED beads, and flush transparent glass diffuser panels, with cool white light and a restrained ceiling wash keeping the top panels readable without crushed black, blue-gray porcelain and concrete, slightly reflective floor, high contrast, no people, no train, no readable signage."
+        }
+      }
+    },
+    {
+      "id": "build-scene",
+      "type": "nodePackNode",
+      "position": { "x": 430, "y": 220 },
+      "data": {
+        "nodePackId": "blender-scene/build",
+        "enabled": true,
+        "params": {
+          "preset": "subway_station",
+          "scene_name": "subway_station_reference",
+          "render_preview": true,
+          "render_width": 768,
+          "render_height": 432,
+          "tactile_width_ratio": 0.16,
+          "tactile_inset_ratio": 0.04
+        }
+      }
+    },
+    {
+      "id": "scene-output",
+      "type": "outputNode",
+      "position": { "x": 800, "y": 220 },
+      "data": { "enabled": true, "params": {} }
+    }
+  ],
+  "edges": [
+    { "id": "brief-to-build", "source": "scene-brief", "sourceHandle": "output", "target": "build-scene", "targetHandle": "input-0" },
+    { "id": "build-to-output", "source": "build-scene", "sourceHandle": "output", "target": "scene-output" }
+  ]
+}
