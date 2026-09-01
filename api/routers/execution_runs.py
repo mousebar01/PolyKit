@@ -6,17 +6,24 @@ commands or ExecutionPlans here.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from application.execution import prepare_execution_run
 from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
+from application.run_control import (
+    RunNotFoundError,
+    RunStateError,
+    cancel_run as cancel_application_run,
+    inspect_run as inspect_application_run,
+    prepare_run_retry,
+    prepare_run_signal,
+)
 from schemas.execution import ExecutionInitiator, ExecutionPlan
 from services.execution_runtime import run_execution
 from services.run_coordinator import run_coordinator
-from services.run_observability import finalize_workflow_run
 
 
 router = APIRouter(tags=["runs"])
@@ -33,6 +40,11 @@ class GenerateAssetSubmission(GenerateAssetCommand):
     initiator: ExecutionInitiator = Field(
         default_factory=lambda: ExecutionInitiator(type="user", surface="assets.generate")
     )
+
+
+class RunSignalRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    payload: Any = None
 
 
 class RunStatus(BaseModel):
@@ -56,6 +68,11 @@ def _schedule(prepared, background_tasks: BackgroundTasks) -> dict:
         "workflow_id": prepared.request.workflow_id,
         "queued_nodes": prepared.queued_nodes,
     }
+
+
+def _schedule_resume(prepared, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+    return {"run_id": prepared.run_id, "status": "pending", "resumed": True}
 
 
 @router.post("/runs")
@@ -110,15 +127,55 @@ async def get_run(run_id: str):
     )
 
 
+@router.get("/runs/{run_id}/inspect")
+async def inspect_run(run_id: str):
+    """Inspect durable Run telemetry, checkpoints, and waiting state."""
+
+    try:
+        return inspect_application_run(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/signals")
+async def signal_run(run_id: str, signal: RunSignalRequest, background_tasks: BackgroundTasks):
+    """Deliver an expected external signal and resume the same Run id."""
+
+    try:
+        prepared, accepted = prepare_run_signal(
+            run_id,
+            name=signal.name,
+            payload=signal.payload,
+        )
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RunStateError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    result = _schedule_resume(prepared, background_tasks)
+    return {**result, "signal_id": accepted["id"], "signal_name": accepted["name"]}
+
+
+@router.post("/runs/{run_id}/retry")
+async def retry_run(run_id: str, background_tasks: BackgroundTasks):
+    """Resume a failed/interrupted Run from durable completed-node checkpoints."""
+
+    try:
+        prepared = prepare_run_retry(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except RunStateError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _schedule_resume(prepared, background_tasks)
+
+
 @router.delete("/runs/{run_id}")
 async def cancel_run(run_id: str):
-    """Cancel one Run through the shared coordinator."""
+    """Cancel one Run through the shared Application control boundary."""
 
-    job = run_coordinator.cancel(run_id)
-    if job is None:
-        raise HTTPException(404, "Run not found")
-    finalize_workflow_run(job, status="cancelled")
-    run_coordinator.persist(job)
+    try:
+        job = cancel_application_run(run_id)
+    except RunNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return {"run_id": run_id, "status": job.status}
 
 
