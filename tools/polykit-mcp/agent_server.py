@@ -226,11 +226,14 @@ def _project_inspect(value: Any, args: dict[str, Any]) -> Any:
     before_seq = max(0, int(args.get("before_seq", 0) or 0))
 
     if not include_events:
+        # No event page was returned, so do not advertise a backward-page cursor
+        # that points at the earliest event and would immediately return nothing.
+        # next_event_seq still acts as a live cursor for a later since_seq call.
         selected: list[Any] = []
         next_seq = latest_seq
-        previous_seq = earliest_seq
+        previous_seq = 0
         has_more = False
-        has_older = bool(sequenced)
+        has_older = False
         truncated_before = bool(events)
     elif since_provided:
         candidates = [event for seq, event in sequenced if seq > since_seq]
