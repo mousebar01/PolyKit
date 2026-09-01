@@ -107,7 +107,7 @@ export async function resolveWorldAssets(
       generate_missing: options.generateMissing ?? true,
       include_context: options.includeContext ?? false,
       include_scatter: options.includeScatter ?? false,
-      min_library_score: options.minLibraryScore ?? 3,
+      min_library_score: options.minLibraryScore ?? 5,
       collection: options.collection ?? 'WorldAssets',
       enable_texture: options.enableTexture ?? true,
       enable_optimize: options.enableOptimize ?? true,
