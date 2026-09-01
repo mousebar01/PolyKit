@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field
 from application.execution import prepare_execution_run
 from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
 from schemas.execution import ExecutionInitiator, ExecutionPlan
+from services.execution_runtime import run_execution
 from services.run_coordinator import run_coordinator
+from services.run_observability import finalize_workflow_run
 
 
 router = APIRouter(tags=["runs"])
@@ -45,12 +47,7 @@ class RunStatus(BaseModel):
 
 
 def _schedule(prepared, background_tasks: BackgroundTasks) -> dict:
-    # Transitional adapter: the generic runtime implementation still lives in
-    # workflow_runs while the public protocol migrates. Keeping this import
-    # local avoids making the Application layer depend on a router.
-    from routers.workflow_runs import _run_workflow_dag
-
-    background_tasks.add_task(_run_workflow_dag, prepared.run_id, prepared.request)
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
     source = prepared.request.source.model_dump(mode="json") if prepared.request.source else None
     return {
         "run_id": prepared.run_id,
@@ -98,6 +95,9 @@ async def get_run(run_id: str):
     job = run_coordinator.jobs.get(run_id)
     if job is None:
         raise HTTPException(404, "Run not found")
+    scene_candidate = None
+    if job.status == "done" and job.output_url:
+        scene_candidate = {"workspace_path": job.output_url.removeprefix("/workspace/")}
     return RunStatus(
         run_id=job.job_id,
         status=job.status,
@@ -105,7 +105,7 @@ async def get_run(run_id: str):
         step=job.step,
         output_url=job.output_url,
         error=job.error,
-        scene_candidate=getattr(job, "scene_candidate", None),
+        scene_candidate=scene_candidate,
         meta=job.meta,
     )
 
@@ -117,6 +117,8 @@ async def cancel_run(run_id: str):
     job = run_coordinator.cancel(run_id)
     if job is None:
         raise HTTPException(404, "Run not found")
+    finalize_workflow_run(job, status="cancelled")
+    run_coordinator.persist(job)
     return {"run_id": run_id, "status": job.status}
 
 
