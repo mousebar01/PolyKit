@@ -48,7 +48,7 @@ Use a smaller profile only when the caller already knows the task domain:
 POLYKIT_MCP_PROFILE=asset npm run mcp:serve
 ```
 
-An unknown profile value deliberately falls back to `all`, so a typo cannot silently remove Agent capabilities. Switching profiles is an operator/client choice; PolyKit does not automatically hide tools based on model guesses.
+An unknown profile value deliberately falls back to `all`, so a typo cannot silently remove Agent capabilities. Switching profiles is an operator/client choice; PolyKit does not automatically hide tools based on model guesses. Hidden tools are only omitted from discovery; profiles are a context-control mechanism, not a security boundary.
 
 ## Development
 
