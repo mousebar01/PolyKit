@@ -1,7 +1,7 @@
 """Read-only API for bundled Agent Skills."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from services.agent_skills import AgentSkillError, get_agent_skill, list_agent_skills, read_agent_skill_resource
 
@@ -37,11 +37,21 @@ async def get_skill(name: str):
 
 
 @router.get("/{name}/resources/{resource_path:path}")
-async def read_skill_resource(name: str, resource_path: str):
-    """Read one bounded UTF-8 resource; scripts are returned as text, never executed."""
+async def read_skill_resource(
+    name: str,
+    resource_path: str,
+    offset: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=256 * 1024),
+):
+    """Read one UTF-8 resource or a bounded chunk; scripts are never executed."""
 
     try:
-        return read_agent_skill_resource(name, resource_path)
+        return read_agent_skill_resource(
+            name,
+            resource_path,
+            offset=offset,
+            limit=limit,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Agent Skill resource was not found") from exc
     except AgentSkillError as exc:
