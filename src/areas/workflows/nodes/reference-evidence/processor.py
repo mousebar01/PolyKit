@@ -379,6 +379,112 @@ def _run_material_palette(input_path: Path, workspace_dir: Path, params: dict[st
     }
 
 
+def _run_material_region(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Extract localized material evidence from a normalized image region."""
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for material region analysis: {exc}") from exc
+
+    def bounded_fraction(name: str, default: float) -> float:
+        try:
+            value = float(params.get(name, default) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(0.0, min(1.0, value))
+
+    x, y = bounded_fraction("x", 0.0), bounded_fraction("y", 0.0)
+    region_width = bounded_fraction("width", 1.0)
+    region_height = bounded_fraction("height", 1.0)
+    region_width = max(0.001, min(1.0 - x, region_width))
+    region_height = max(0.001, min(1.0 - y, region_height))
+    material_id = str(params.get("material_id") or "material-region").strip()[:120] or "material-region"
+    color_count = _bounded_int(params.get("colors", 5), 5, 2, 8)
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_material-region.png"
+    report_path = workspace_dir / f"{token}_material-region.json"
+
+    with Image.open(input_path) as source:
+        source_rgb = source.convert("RGB")
+        left = max(0, min(source_rgb.width - 1, round(x * source_rgb.width)))
+        top = max(0, min(source_rgb.height - 1, round(y * source_rgb.height)))
+        right = max(left + 1, min(source_rgb.width, round((x + region_width) * source_rgb.width)))
+        bottom = max(top + 1, min(source_rgb.height, round((y + region_height) * source_rgb.height)))
+        crop = source_rgb.crop((left, top, right, bottom))
+        crop.save(output_path, format="PNG")
+        gray = crop.convert("L")
+        luminance_stats = ImageStat.Stat(gray)
+        edge_mean = float(ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).mean[0])
+        pixels = list(crop.getdata())
+        saturation_mean = 0.0
+        for red, green, blue in pixels:
+            _hue, saturation, _value = colorsys.rgb_to_hsv(red / 255.0, green / 255.0, blue / 255.0)
+            saturation_mean += saturation
+        saturation_mean /= max(1, len(pixels))
+        quantized = crop.quantize(colors=color_count, method=Image.Quantize.MEDIANCUT)
+        raw_colors = quantized.getcolors(maxcolors=color_count * 4) or []
+        raw_colors.sort(key=lambda item: item[0], reverse=True)
+        palette_data = quantized.getpalette() or []
+        total = max(1, sum(count for count, _index in raw_colors))
+        palette: list[dict[str, Any]] = []
+        for rank, (count, index) in enumerate(raw_colors[:color_count], start=1):
+            start = int(index) * 3
+            rgb = tuple(int(max(0, min(255, value))) for value in palette_data[start:start + 3])
+            if len(rgb) != 3:
+                continue
+            palette.append({
+                "rank": rank,
+                "hex": "#%02x%02x%02x" % rgb,
+                "rgb": list(rgb),
+                "share": round(count / total, 6),
+            })
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.material-region",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "materialId": material_id,
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": source_rgb.width, "height": source_rgb.height},
+        "region": {
+            "normalized": [round(x, 6), round(y, 6), round(region_width, 6), round(region_height, 6)],
+            "pixels": [left, top, right, bottom],
+            "coverage": round(((right - left) * (bottom - top)) / max(1, source_rgb.width * source_rgb.height), 6),
+        },
+        "metrics": {
+            "luminanceMean": round(float(luminance_stats.mean[0]), 3),
+            "luminanceStdDev": round(float(luminance_stats.stddev[0]), 3),
+            "saturationMean": round(saturation_mean, 6),
+            "edgeMean": round(edge_mean, 3),
+        },
+        "palette": palette,
+        "pbrEvidence": {
+            "baseColor": {"source": "image-palette", "confidence": 0.4 if palette else 0.0},
+            "roughness": {"source": "not-observable-from-single-crop", "confidence": 0.0},
+            "metallic": {"source": "not-observable-from-single-crop", "confidence": 0.0},
+            "normal": {"source": "not-observable-from-single-crop", "confidence": 0.0},
+        },
+        "reviewNotes": [
+            "The crop provides localized color and frequency evidence; it is not an inverse-rendered PBR estimate.",
+            "Confirm the region belongs to the intended component before assigning base color, roughness, metallic, or normal values.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "material-region",
+            "schema_version": 1,
+            "status": report["status"],
+            "material_id": material_id,
+            "region_coverage": report["region"]["coverage"],
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_landmark_guide(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageDraw
@@ -562,6 +668,162 @@ def _run_camera_guide(input_path: Path, workspace_dir: Path, params: dict[str, A
     }
 
 
+def _run_projection_plan(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Package a validated projection-texture plan without baking mesh pixels."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for projection planning: {exc}") from exc
+
+    projection_modes = {"perspective-camera-projection", "orthographic-front-projection", "triplanar-fallback"}
+    unseen_strategies = {"mirror-symmetry", "palette-continue", "request-additional-view", "leave-unprojected"}
+    projection_mode = str(params.get("projection_mode") or "perspective-camera-projection")
+    if projection_mode not in projection_modes:
+        projection_mode = "perspective-camera-projection"
+    unseen_strategy = str(params.get("unseen_strategy") or "mirror-symmetry")
+    if unseen_strategy not in unseen_strategies:
+        unseen_strategy = "mirror-symmetry"
+    mesh_id = str(params.get("mesh_id") or "target-mesh").strip()[:120] or "target-mesh"
+    texture_size = _bounded_int(params.get("texture_size", 1024), 1024, 64, 8192)
+    unseen_confidence = {
+        "mirror-symmetry": 0.45,
+        "palette-continue": 0.3,
+        "request-additional-view": 0.0,
+        "leave-unprojected": 0.0,
+    }[unseen_strategy]
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_projection-plan.png"
+    report_path = workspace_dir / f"{token}_projection-plan.json"
+
+    with Image.open(input_path) as source:
+        width, height = source.size
+        overlay = source.convert("RGBA")
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        line_width = max(1, min(width, height) // 320)
+        draw.rectangle((0, 0, width - 1, height - 1), outline=(52, 211, 153, 230), width=line_width)
+        draw.line((width / 2.0, 0, width / 2.0, height - 1), fill=(52, 211, 153, 160), width=line_width)
+        draw.line((0, height / 2.0, width - 1, height / 2.0), fill=(52, 211, 153, 160), width=line_width)
+        overlay.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.projected-texture-plan",
+        "status": "needs_runtime_bake",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "targetMeshId": mesh_id,
+        "projectionMode": projection_mode,
+        "textureSize": texture_size,
+        "sourceImages": {"reference": input_path.name, "delit": None},
+        "unseenRegionStrategy": {
+            "mode": unseen_strategy,
+            "confidence": unseen_confidence,
+            "note": "Back, occluded, and underside regions are inferred rather than observed from this image.",
+        },
+        "bakeSteps": [
+            "Load the target mesh and its UV layout in the renderer.",
+            "Prefer a reviewed de-lit image as the projection source.",
+            f"Construct a {projection_mode} camera from the reviewed referenceCamera block.",
+            "Project only visible, front-facing surfaces within the camera frustum.",
+            f"Handle unseen regions with the '{unseen_strategy}' strategy and record uncovered texels.",
+            f"Rasterize the projection into a {texture_size}×{texture_size} UV texture.",
+            "Render an overlay against the reference before accepting the bake.",
+        ],
+        "runtimeApproach": "Three.js projective ShaderMaterial or an equivalent camera-space projection shader must perform the actual sampling and UV bake.",
+        "limitations": [
+            "This node validates and records the plan; it does not sample a mesh, rasterize UVs, or write a baked texture.",
+            "Camera accuracy and unseen-region quality must be reviewed before using the plan for likeness-critical work.",
+        ],
+        "overlay": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "projected-texture-plan",
+            "schema_version": 1,
+            "status": report["status"],
+            "projection_mode": projection_mode,
+            "texture_size": texture_size,
+            "report": report_path.name,
+        },
+    }
+
+
+def _run_reference_compare(reference_path: Path, candidate_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Create a deterministic reference/candidate contact sheet and metrics."""
+    try:
+        from PIL import Image, ImageChops, ImageDraw, ImageOps, ImageStat
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for reference comparison: {exc}") from exc
+
+    threshold = _bounded_int(params.get("pixel_threshold", 16), 16, 0, 255)
+    cutoff = max(1, threshold)
+    token = f"{_slug(reference_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_reference-compare.png"
+    report_path = workspace_dir / f"{token}_reference-compare.json"
+
+    with Image.open(reference_path) as reference_source, Image.open(candidate_path) as candidate_source:
+        reference = reference_source.convert("RGB")
+        candidate_original_size = candidate_source.size
+        candidate = candidate_source.convert("RGB")
+        resized = candidate.size != reference.size
+        if resized:
+            candidate = candidate.resize(reference.size, Image.Resampling.LANCZOS)
+        difference = ImageChops.difference(reference, candidate)
+        gray_difference = difference.convert("L")
+        statistics = ImageStat.Stat(difference)
+        extrema = difference.getextrema()
+        histogram = gray_difference.histogram()
+        changed_pixels = sum(count for index, count in enumerate(histogram) if index >= cutoff)
+        total_pixels = max(1, reference.width * reference.height)
+        mean_absolute_error = sum(float(value) for value in statistics.mean) / (len(statistics.mean) * 255.0)
+        heatmap = ImageOps.colorize(gray_difference, black=(15, 23, 42), white=(239, 68, 68))
+        canvas = Image.new("RGB", (reference.width * 3, reference.height), "white")
+        canvas.paste(reference, (0, 0))
+        canvas.paste(candidate, (reference.width, 0))
+        canvas.paste(heatmap, (reference.width * 2, 0))
+        draw = ImageDraw.Draw(canvas)
+        for index in range(3):
+            left = index * reference.width
+            draw.rectangle((left, 0, left + reference.width - 1, reference.height - 1), outline=(15, 23, 42), width=max(1, min(reference.size) // 320))
+        canvas.save(output_path, format="PNG")
+
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.reference-compare",
+        "status": "pass" if mean_absolute_error == 0.0 else "needs_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "reference": {"name": reference_path.name, "sha256": _sha256(reference_path), "width": reference.width, "height": reference.height},
+        "candidate": {"name": candidate_path.name, "sha256": _sha256(candidate_path), "originalWidth": candidate_original_size[0], "originalHeight": candidate_original_size[1], "resizedToReference": resized},
+        "metrics": {
+            "meanAbsoluteError": round(mean_absolute_error, 6),
+            "maxChannelDifference": max(int(pair[1]) for pair in extrema),
+            "changedPixelRatio": round(changed_pixels / total_pixels, 6),
+            "pixelThreshold": threshold,
+        },
+        "panels": ["reference", "candidate-resized-to-reference", "difference-heatmap"],
+        "reviewNotes": [
+            "Metrics measure pixel differences only; they do not establish semantic or geometric correctness.",
+            "Use the heatmap to localize camera, silhouette, material, and lighting discrepancies before editing the mesh.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "reference-compare",
+            "schema_version": 1,
+            "status": report["status"],
+            "changed_pixel_ratio": report["metrics"]["changedPixelRatio"],
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_delight_albedo(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageEnhance, ImageFilter, ImageMath
@@ -702,28 +964,41 @@ def main() -> None:
     data = json.loads(raw)
     input_data = data.get("input") or {}
     params = data.get("params") or {}
+    node_id = str(params.get("_node_id") or "detail-inventory")
     input_raw = input_data.get("filePath")
     input_path = Path(str(input_raw)) if input_raw else None
-    if input_path is None or not input_path.is_file():
-        error(f"reference-evidence: input image not found: {input_raw}")
-        return
-
     workspace_dir = Path(str(data.get("workspaceDir") or ""))
     try:
         progress(5, "Reading reference image…")
-        node_id = str(params.get("_node_id") or "detail-inventory")
-        if node_id == "reference-quality":
+        if node_id == "reference-compare":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) != 2 or any(not path.is_file() for path in paths):
+                error(f"reference-evidence: comparison requires exactly two image files: {raw_paths}")
+                return
+            progress(20, "Comparing reference and candidate…")
+            result = _run_reference_compare(paths[0], paths[1], workspace_dir, params)
+        elif input_path is None or not input_path.is_file():
+            error(f"reference-evidence: input image not found: {input_raw}")
+            return
+        elif node_id == "reference-quality":
             progress(20, "Measuring reference quality…")
             result = _run_reference_quality(input_path, workspace_dir, params)
         elif node_id == "material-palette":
             progress(20, "Extracting material palette…")
             result = _run_material_palette(input_path, workspace_dir, params)
+        elif node_id == "material-region":
+            progress(20, "Analyzing material region…")
+            result = _run_material_region(input_path, workspace_dir, params)
         elif node_id == "landmark-guide":
             progress(20, "Drawing landmark guide…")
             result = _run_landmark_guide(input_path, workspace_dir, params)
         elif node_id == "camera-guide":
             progress(20, "Estimating reference camera…")
             result = _run_camera_guide(input_path, workspace_dir, params)
+        elif node_id == "projection-plan":
+            progress(20, "Validating texture projection plan…")
+            result = _run_projection_plan(input_path, workspace_dir, params)
         elif node_id == "delight-albedo":
             progress(20, "Estimating illumination…")
             result = _run_delight_albedo(input_path, workspace_dir, params)

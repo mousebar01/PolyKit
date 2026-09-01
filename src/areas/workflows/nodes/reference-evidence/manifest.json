@@ -142,6 +142,39 @@
       ]
     },
     {
+      "id": "material-region",
+      "name": "Material Region",
+      "input": "image",
+      "output": "image",
+      "description": "Extracts localized color, luminance, saturation, edge, and cautious PBR evidence from a normalized image crop.",
+      "i18n": {
+        "zh-CN": { "name": "材质区域分析" },
+        "en-US": { "name": "Material Region" }
+      },
+      "params_schema": [
+        {
+          "id": "material_id",
+          "label": "Material ID",
+          "type": "string",
+          "default": "material-region",
+          "tooltip": "Stable material or component id recorded in the evidence report."
+        },
+        { "id": "x", "label": "Region X", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized left coordinate." },
+        { "id": "y", "label": "Region Y", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized top coordinate." },
+        { "id": "width", "label": "Region Width", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop width." },
+        { "id": "height", "label": "Region Height", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop height." },
+        {
+          "id": "colors",
+          "label": "Palette Colors",
+          "type": "int",
+          "default": 5,
+          "min": 2,
+          "max": 8,
+          "tooltip": "Number of dominant crop colors recorded as evidence."
+        }
+      ]
+    },
+    {
       "id": "landmark-guide",
       "name": "Landmark Guide",
       "input": "image",
@@ -256,6 +289,83 @@
           "min": 0.0,
           "max": 1.0,
           "tooltip": "Blend between the original reference and the de-lit approximation."
+        }
+      ]
+    },
+    {
+      "id": "projection-plan",
+      "name": "Projected Texture Plan",
+      "input": "image",
+      "output": "image",
+      "description": "Validates a camera-space projection plan and emits an overlay plus a runtime bake descriptor.",
+      "i18n": {
+        "zh-CN": { "name": "投影贴图计划" },
+        "en-US": { "name": "Projected Texture Plan" }
+      },
+      "params_schema": [
+        {
+          "id": "mesh_id",
+          "label": "Target Mesh ID",
+          "type": "string",
+          "default": "target-mesh",
+          "tooltip": "Stable mesh/component identifier consumed by the downstream projection runtime."
+        },
+        {
+          "id": "projection_mode",
+          "label": "Projection Mode",
+          "type": "select",
+          "default": "perspective-camera-projection",
+          "options": [
+            { "value": "perspective-camera-projection", "label": "Perspective Camera" },
+            { "value": "orthographic-front-projection", "label": "Orthographic Front" },
+            { "value": "triplanar-fallback", "label": "Triplanar Fallback" }
+          ],
+          "tooltip": "Projection strategy recorded for the renderer-side bake."
+        },
+        {
+          "id": "texture_size",
+          "label": "Texture Size",
+          "type": "int",
+          "default": 1024,
+          "min": 64,
+          "max": 8192,
+          "tooltip": "Square texture resolution requested by the downstream bake."
+        },
+        {
+          "id": "unseen_strategy",
+          "label": "Unseen Regions",
+          "type": "select",
+          "default": "mirror-symmetry",
+          "options": [
+            { "value": "mirror-symmetry", "label": "Mirror Symmetry" },
+            { "value": "palette-continue", "label": "Continue Palette" },
+            { "value": "request-additional-view", "label": "Request More Views" },
+            { "value": "leave-unprojected", "label": "Leave Unprojected" }
+          ],
+          "tooltip": "How the runtime should mark regions the single reference camera cannot observe."
+        }
+      ]
+    },
+    {
+      "id": "reference-compare",
+      "name": "Reference Compare",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Compares two connected images with a resized candidate panel and a deterministic difference heatmap.",
+      "i18n": {
+        "zh-CN": { "name": "参考图对比" },
+        "en-US": { "name": "Reference Compare" }
+      },
+      "params_schema": [
+        {
+          "id": "pixel_threshold",
+          "label": "Pixel Threshold",
+          "type": "int",
+          "default": 16,
+          "min": 0,
+          "max": 255,
+          "tooltip": "Difference intensity counted as changed in the heatmap metrics; 0 means any non-zero difference."
         }
       ]
     }

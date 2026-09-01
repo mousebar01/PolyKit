@@ -1,7 +1,7 @@
 # Reference evidence
 
-PolyKit now includes the `reference-evidence` process pack. Its two nodes are
-the first modeling-quality gates inspired by the local `img2threejs` reference:
+PolyKit now includes the `reference-evidence` process pack. Its evidence nodes
+are modeling-quality gates inspired by the local `img2threejs` reference:
 before geometry is judged, the reference needs an explicit, reviewable detail
 inventory and enough image quality to support that review.
 
@@ -14,6 +14,12 @@ low-information references before an expensive model run.
 adds a swatch board, and records RGB/HSV/luminance shares in a
 `*-material-palette.json` sidecar. The palette is a prioritization aid, not a
 calibrated PBR measurement.
+
+`reference-evidence/material-region` narrows that evidence to a normalized
+crop, recording local luminance, saturation, edge energy, and a small palette
+alongside explicit low-confidence PBR channel placeholders. It keeps region
+assignment reviewable instead of treating a whole-image color as a material
+truth.
 
 `reference-evidence/landmark-guide` adds a 10-percent anatomy grid and
 head/face/shoulder/hip guide points, with an unreviewed normalized landmark
@@ -28,6 +34,17 @@ visual review before the image is treated as an albedo reference.
 `reference-evidence/camera-guide` emits a `referenceCamera` descriptor with an
 aspect-ratio-aware FOV starting guess, pose/distance hints, and a framing
 overlay. It is deliberately a review scaffold rather than camera calibration.
+
+`reference-evidence/projection-plan` validates a target mesh id, projection
+mode, texture size, and unseen-region strategy, then emits a framed overlay and
+a renderer-facing bake descriptor. It records the real runtime steps while
+leaving pixel sampling to a downstream Three.js projection pass.
+
+`reference-evidence/reference-compare` accepts two connected images (reference
+first, candidate second), resizes the candidate to the reference frame, and
+emits a three-panel contact sheet with a difference heatmap and pixel metrics.
+The metrics localize discrepancies but do not replace geometric or semantic
+review.
 
 `reference-evidence/detail-inventory` accepts an image and produces:
 

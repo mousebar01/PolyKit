@@ -268,18 +268,260 @@ def _lod_generate(input_path: Path, workspace_dir: Path, params: dict[str, Any])
     }
 
 
+def _projection_bake(image_path: Path, mesh_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Project an image into per-vertex UVs and embed it in an exported GLB."""
+    import numpy as np
+    import trimesh
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for projection bake: {exc}") from exc
+
+    modes = {"perspective-camera-projection", "orthographic-front-projection", "triplanar-fallback"}
+    strategies = {"mirror-symmetry", "palette-continue", "request-additional-view", "leave-unprojected"}
+    mode = str(params.get("projection_mode") or "perspective-camera-projection")
+    if mode not in modes:
+        mode = "perspective-camera-projection"
+    strategy = str(params.get("unseen_strategy") or "leave-unprojected")
+    if strategy not in strategies:
+        strategy = "leave-unprojected"
+    fov = _ratio(params.get("fov_degrees"), 35.0, 10.0, 120.0)
+    distance = _ratio(params.get("distance"), 2.5, 0.01, 10000.0)
+    yaw = _ratio(params.get("yaw"), 0.0, -180.0, 180.0)
+    pitch = _ratio(params.get("pitch"), 0.0, -89.0, 89.0)
+    roll = _ratio(params.get("roll"), 0.0, -180.0, 180.0)
+    try:
+        requested_texture_size = int(params.get("texture_size", 2048) or 2048)
+    except (TypeError, ValueError):
+        requested_texture_size = 2048
+    texture_size = max(64, min(8192, requested_texture_size))
+
+    scene = _load_scene(mesh_path)
+    components = _components(scene)
+    scene_min, scene_max = np.asarray(scene.bounds[0], dtype=float), np.asarray(scene.bounds[1], dtype=float)
+    center = (scene_min + scene_max) / 2.0
+    world_vertices: list[np.ndarray] = []
+    faces: list[np.ndarray] = []
+    offset = 0
+    for geometry, transform, _name in components:
+        vertices = np.asarray(geometry.vertices, dtype=float)
+        matrix = np.asarray(transform, dtype=float)
+        world = (vertices @ matrix[:3, :3].T) + matrix[:3, 3]
+        world_vertices.append(world)
+        faces.append(np.asarray(geometry.faces, dtype=int) + offset)
+        offset += len(world)
+    vertices_array = np.vstack(world_vertices)
+    faces_array = np.vstack(faces)
+
+    yaw_radians = math.radians(yaw)
+    pitch_radians = math.radians(pitch)
+    roll_radians = math.radians(roll)
+    forward = np.array([
+        math.cos(pitch_radians) * math.cos(yaw_radians),
+        math.cos(pitch_radians) * math.sin(yaw_radians),
+        math.sin(pitch_radians),
+    ])
+    right = np.array([-math.sin(yaw_radians), math.cos(yaw_radians), 0.0])
+    up = np.array([
+        -math.sin(pitch_radians) * math.cos(yaw_radians),
+        -math.sin(pitch_radians) * math.sin(yaw_radians),
+        math.cos(pitch_radians),
+    ])
+    cos_roll, sin_roll = math.cos(roll_radians), math.sin(roll_radians)
+    rolled_right = right * cos_roll + up * sin_roll
+    rolled_up = -right * sin_roll + up * cos_roll
+    relative = vertices_array - center
+    projected_x = relative @ rolled_right
+    projected_y = relative @ rolled_up
+    aspect = 1.0
+    with Image.open(image_path) as source:
+        source_image = source.convert("RGBA")
+        aspect = source_image.width / max(1, source_image.height)
+        if max(source_image.size) > texture_size:
+            source_image.thumbnail((texture_size, texture_size), Image.Resampling.LANCZOS)
+        if mode == "perspective-camera-projection":
+            depth = distance - (relative @ forward)
+            visible = depth > 1e-6
+            safe_depth = np.maximum(depth, 1e-6)
+            tangent = math.tan(math.radians(fov) / 2.0)
+            u = 0.5 + projected_x / (2.0 * safe_depth * tangent * max(aspect, 1e-6))
+            v = 0.5 - projected_y / (2.0 * safe_depth * tangent)
+        else:
+            visible = np.ones(len(vertices_array), dtype=bool)
+            x_range = max(float(projected_x.max() - projected_x.min()), 1e-9)
+            y_range = max(float(projected_y.max() - projected_y.min()), 1e-9)
+            u = (projected_x - projected_x.min()) / x_range
+            v = 1.0 - (projected_y - projected_y.min()) / y_range
+        raw_uv = np.column_stack((u, v))
+        out_of_view = (~visible) | (raw_uv[:, 0] < 0.0) | (raw_uv[:, 0] > 1.0) | (raw_uv[:, 1] < 0.0) | (raw_uv[:, 1] > 1.0)
+        uv = np.clip(raw_uv, 0.0, 1.0).astype(np.float32)
+        textured = trimesh.Trimesh(vertices=vertices_array, faces=faces_array, process=False)
+        textured.visual = trimesh.visual.texture.TextureVisuals(uv=uv, image=source_image.copy())
+
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        token = _token(mesh_path, "projection")
+        output_path = workspace_dir / f"{token}.glb"
+        report_path = workspace_dir / f"{token}.json"
+        textured.export(output_path)
+
+    unseen_count = int(np.count_nonzero(out_of_view))
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.projection-bake",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": image_path.name, "width": source_image.width, "height": source_image.height},
+        "sourceMesh": {"name": mesh_path.name, "componentCount": len(components), "vertices": int(len(vertices_array)), "faces": int(len(faces_array))},
+        "camera": {
+            "projectionMode": mode,
+            "fovDegrees": _round(fov),
+            "distance": _round(distance),
+            "yawDegrees": _round(yaw),
+            "pitchDegrees": _round(pitch),
+            "rollDegrees": _round(roll),
+            "target": _vector(center),
+        },
+        "texture": {"embedded": True, "requestedMaxSize": texture_size, "actualSize": [source_image.width, source_image.height], "uvMode": "per-vertex-camera-projection"},
+        "coverage": {"unseenVertexCount": unseen_count, "unseenVertexRatio": _round(unseen_count / max(1, len(vertices_array))), "clampedUvVertexCount": int(np.count_nonzero(np.any(np.abs(raw_uv - uv) > 1e-6, axis=1)))},
+        "unseenRegionStrategy": {"mode": strategy, "applied": False, "note": "The selected strategy is recorded for downstream inference; this single-image bake flags and clamps unseen UVs instead of inventing pixels."},
+        "reviewNotes": [
+            "The GLB contains the source image as an embedded texture with camera-projected UVs.",
+            "Review a render from the reference camera; back, underside, and occluded regions remain uncertain.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "projection-bake",
+            "schema_version": 1,
+            "status": report["status"],
+            "unseen_vertex_ratio": report["coverage"]["unseenVertexRatio"],
+            "report": report_path.name,
+        },
+    }
+
+
+def _uv_unwrap(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Generate wedge UVs with a deterministic, dependency-local parametrizer.
+
+    Pymeshlab owns the chart projection; the exported mesh duplicates vertices
+    at UV seams so GLB consumers receive ordinary per-vertex UV coordinates.
+    This is intentionally a reviewable unwrap derivative, not a promise that
+    one camera-independent chart layout is ideal for every asset.
+    """
+    import numpy as np
+    import pymeshlab
+    import trimesh
+
+    scene = _load_scene(input_path)
+    source = _world_mesh(scene)
+    method = str(params.get("method") or "flat-plane").strip().lower()
+    if method not in {"flat-plane", "triangle-trivial"}:
+        method = "flat-plane"
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = _token(input_path, "uv")
+    output_path = workspace_dir / f"{token}.glb"
+    report_path = workspace_dir / f"{token}.json"
+    temp_dir = Path(tempfile.mkdtemp(prefix="polykit-uv-", dir=str(workspace_dir)))
+    try:
+        source_path = temp_dir / "source.ply"
+        source.export(source_path)
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.load_new_mesh(str(source_path))
+        if method == "triangle-trivial":
+            mesh_set.compute_texcoord_parametrization_triangle_trivial_per_wedge()
+        else:
+            mesh_set.compute_texcoord_parametrization_flat_plane_per_wedge()
+        uv_mesh = mesh_set.current_mesh()
+        if not uv_mesh.has_wedge_tex_coord():
+            raise RuntimeError("UV parametrization produced no wedge coordinates")
+        vertices = np.asarray(uv_mesh.vertex_matrix(), dtype=float)
+        faces = np.asarray(uv_mesh.face_matrix(), dtype=np.int64)
+        wedge_uv = np.asarray(uv_mesh.wedge_tex_coord_matrix(), dtype=np.float32)
+        if wedge_uv.shape != (len(faces) * 3, 2):
+            raise RuntimeError("UV parametrization returned an invalid wedge coordinate array")
+        corner_indices = faces.reshape(-1)
+        unwrapped = trimesh.Trimesh(
+            vertices=vertices[corner_indices],
+            faces=np.arange(len(corner_indices), dtype=np.int64).reshape(-1, 3),
+            process=False,
+        )
+        unwrapped.visual = trimesh.visual.texture.TextureVisuals(uv=wedge_uv)
+        unwrapped.export(output_path)
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    uv_min = wedge_uv.min(axis=0)
+    uv_max = wedge_uv.max(axis=0)
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.uv-unwrap",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(scene)),
+            "vertices": int(len(source.vertices)),
+            "faces": int(len(source.faces)),
+        },
+        "uv": {
+            "method": method,
+            "hasWedgeCoordinates": True,
+            "sourceVertexCount": int(len(source.vertices)),
+            "unwrappedVertexCount": int(len(unwrapped.vertices)),
+            "faceCount": int(len(unwrapped.faces)),
+            "uvBounds": [_vector(uv_min), _vector(uv_max)],
+            "seamVertexExpansion": int(len(unwrapped.vertices) - len(source.vertices)),
+        },
+        "reviewNotes": [
+            "Vertices are duplicated at UV wedges so the GLB carries explicit seam-safe coordinates.",
+            "Inspect island scale, padding, orientation, and distortion before using the unwrap for baking.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "uv-unwrap",
+            "schema_version": 1,
+            "status": report["status"],
+            "method": method,
+            "uv_vertex_count": int(len(unwrapped.vertices)),
+            "report": report_path.name,
+        },
+    }
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
     input_data = data.get("input") or {}
     params = data.get("params") or {}
-    input_raw = input_data.get("filePath")
+    # Multi-input process nodes receive named paths from the workflow executor
+    # (for example ``meshPath`` for the target mesh). Keep ``filePath`` as the
+    # compatibility shape used by the single-input collision/LOD nodes.
+    input_raw = input_data.get("meshPath") or input_data.get("filePath")
     input_path = Path(str(input_raw)) if input_raw else None
+    image_raw = input_data.get("imagePath")
+    image_path = Path(str(image_raw)) if image_raw else None
+    node_id = str(params.get("_node_id") or "collision-mesh")
     if input_path is None or not input_path.is_file():
         error(f"mesh-production: input mesh not found: {input_raw}")
         return
+    if node_id == "projection-bake":
+        if image_path is None or not image_path.is_file():
+            error(f"mesh-production: projection image not found: {image_raw}")
+            return
+        if input_path is None or not input_path.is_file():
+            error(f"mesh-production: projection mesh not found: {input_raw}")
+            return
     workspace_dir = Path(str(data.get("workspaceDir") or ""))
-    node_id = str(params.get("_node_id") or "collision-mesh")
     try:
         progress(5, "Loading mesh…")
         if node_id == "collision-mesh":
@@ -288,6 +530,12 @@ def main() -> None:
         elif node_id == "lod-generate":
             progress(25, "Generating LOD levels…")
             result = _lod_generate(input_path, workspace_dir, params)
+        elif node_id == "projection-bake":
+            progress(25, "Projecting reference texture…")
+            result = _projection_bake(image_path, input_path, workspace_dir, params)
+        elif node_id == "uv-unwrap":
+            progress(25, "Generating UV coordinates…")
+            result = _uv_unwrap(input_path, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported mesh production node '{node_id}'")
         progress(90, "Writing mesh derivatives…")

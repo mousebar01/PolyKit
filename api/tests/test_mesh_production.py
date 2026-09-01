@@ -1,17 +1,171 @@
 import json
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import trimesh
+from PIL import Image
 
+from schemas.workflow import WorkflowExecutionNode
 from services.process_runner import run_processor
+from services.workflow_executor import _run_process_node
 
 
 PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/mesh-production"
 
 
 class MeshProductionProcessorTests(unittest.TestCase):
+    def test_executor_preserves_named_image_and_mesh_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            image = root / "reference.png"
+            mesh = root / "model.glb"
+            output = root / "result.glb"
+            image.write_bytes(b"image")
+            mesh.write_bytes(b"mesh")
+            output.write_bytes(b"result")
+            process_tuple = (
+                PACK_DIR,
+                {"entry": "processor.py"},
+                {"id": "projection-bake", "inputs": ["image", "mesh"], "output": "mesh"},
+            )
+
+            with patch("services.workflow_executor.process_node_pack", return_value=process_tuple), patch(
+                "services.workflow_executor.run_processor",
+                return_value={"filePath": str(output)},
+            ) as run:
+                async def execute():
+                    return await _run_process_node(
+                        asyncio.get_running_loop(),
+                        WorkflowExecutionNode(
+                            class_type="mesh-production/projection-bake",
+                            inputs={"image": image, "mesh": mesh, "params": {}},
+                        ),
+                        lambda value: value,
+                        root,
+                        root,
+                        None,
+                        lambda *_args: None,
+                    )
+
+                result = asyncio.run(execute())
+
+            input_data = run.call_args.args[2]
+            self.assertEqual(input_data["imagePath"], str(image))
+            self.assertEqual(input_data["meshPath"], str(mesh))
+            self.assertEqual(result["mesh"], output)
+
+    def test_executor_preserves_batched_image_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            candidate = root / "candidate.png"
+            output = root / "comparison.png"
+            reference.write_bytes(b"reference")
+            candidate.write_bytes(b"candidate")
+            output.write_bytes(b"comparison")
+            process_tuple = (
+                PACK_DIR,
+                {"entry": "processor.py"},
+                {"id": "reference-compare", "input": "image", "batch_input": "image", "output": "image"},
+            )
+
+            with patch("services.workflow_executor.process_node_pack", return_value=process_tuple), patch(
+                "services.workflow_executor.run_processor",
+                return_value={"filePath": str(output)},
+            ) as run:
+                async def execute():
+                    return await _run_process_node(
+                        asyncio.get_running_loop(),
+                        WorkflowExecutionNode(
+                            class_type="reference-evidence/reference-compare",
+                            inputs={"image": [reference, candidate], "params": {}},
+                        ),
+                        lambda value: value,
+                        root,
+                        root,
+                        None,
+                        lambda *_args: None,
+                    )
+
+                result = asyncio.run(execute())
+
+            input_data = run.call_args.args[2]
+            self.assertEqual(input_data["filePaths"], [str(reference), str(candidate)])
+            self.assertEqual(result["image"], output)
+
+    def test_projection_bake_embeds_reference_texture_and_uvs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            image = root / "reference.png"
+            mesh = root / "model.glb"
+            Image.new("RGBA", (32, 24), (220, 80, 60, 255)).save(image)
+            trimesh.creation.box(extents=(1, 1, 1)).export(mesh)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"imagePath": str(image), "meshPath": str(mesh)},
+                {
+                    "_node_id": "projection-bake",
+                    "projection_mode": "orthographic-front-projection",
+                    "texture_size": 64,
+                    "unseen_strategy": "leave-unprojected",
+                },
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            baked = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(baked, trimesh.Trimesh)
+            self.assertIsNotNone(getattr(baked.visual, "uv", None))
+            texture = getattr(baked.visual.material, "baseColorTexture", None)
+            self.assertIsNotNone(texture)
+            self.assertEqual(texture.size, (32, 24))
+            self.assertEqual(report["kind"], "polykit.projection-bake")
+            self.assertTrue(report["texture"]["embedded"])
+            self.assertEqual(report["texture"]["actualSize"], [32, 24])
+            self.assertEqual(result["metadata"]["evidence_kind"], "projection-bake")
+
+    def test_uv_unwrap_exports_explicit_seam_safe_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.glb"
+            trimesh.creation.box(extents=(2, 1, 1)).export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "uv-unwrap", "method": "flat-plane"},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            unwrapped = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(unwrapped, trimesh.Trimesh)
+            self.assertIsNotNone(getattr(unwrapped.visual, "uv", None))
+            self.assertEqual(unwrapped.visual.uv.shape, (len(unwrapped.vertices), 2))
+            self.assertEqual(report["kind"], "polykit.uv-unwrap")
+            self.assertTrue(report["uv"]["hasWedgeCoordinates"])
+            self.assertEqual(result["metadata"]["evidence_kind"], "uv-unwrap")
+
     def test_collision_mesh_builds_convex_proxy_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

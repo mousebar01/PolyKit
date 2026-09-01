@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "author": "PolyKit",
   "description": "Creates game-ready mesh derivatives such as collision geometry and level-of-detail assets.",
-  "requirements": ["trimesh", "pymeshlab"],
+  "requirements": ["trimesh", "pymeshlab", "Pillow"],
   "i18n": {
     "zh-CN": {
       "name": "网格生产",
@@ -81,6 +81,123 @@
           "min": 4,
           "max": 100000,
           "tooltip": "Prevents a small component from collapsing below a usable triangle count."
+        }
+      ]
+    },
+    {
+      "id": "projection-bake",
+      "name": "Projection Bake",
+      "inputs": ["image", "mesh"],
+      "input_labels": ["Reference Image", "Target Mesh"],
+      "output": "mesh",
+      "description": "Projects a reference image into mesh UVs with a deterministic camera model and embedded GLB texture.",
+      "i18n": {
+        "zh-CN": { "name": "投影贴图烘焙" },
+        "en-US": { "name": "Projection Bake" }
+      },
+      "params_schema": [
+        {
+          "id": "projection_mode",
+          "label": "Projection Mode",
+          "type": "select",
+          "default": "perspective-camera-projection",
+          "options": [
+            { "value": "perspective-camera-projection", "label": "Perspective Camera" },
+            { "value": "orthographic-front-projection", "label": "Orthographic Front" },
+            { "value": "triplanar-fallback", "label": "Triplanar Fallback" }
+          ],
+          "tooltip": "Camera-space UV projection used to place the embedded reference texture."
+        },
+        {
+          "id": "fov_degrees",
+          "label": "FOV Degrees",
+          "type": "float",
+          "default": 35.0,
+          "min": 10.0,
+          "max": 120.0,
+          "tooltip": "Vertical field of view for perspective projection."
+        },
+        {
+          "id": "distance",
+          "label": "Camera Distance",
+          "type": "float",
+          "default": 2.5,
+          "min": 0.01,
+          "max": 10000.0,
+          "tooltip": "Distance from the mesh bounds center in the same units as the mesh."
+        },
+        {
+          "id": "yaw",
+          "label": "Yaw",
+          "type": "float",
+          "default": 0.0,
+          "min": -180.0,
+          "max": 180.0,
+          "tooltip": "Horizontal camera orientation in degrees."
+        },
+        {
+          "id": "pitch",
+          "label": "Pitch",
+          "type": "float",
+          "default": 0.0,
+          "min": -89.0,
+          "max": 89.0,
+          "tooltip": "Vertical camera orientation in degrees."
+        },
+        {
+          "id": "roll",
+          "label": "Roll",
+          "type": "float",
+          "default": 0.0,
+          "min": -180.0,
+          "max": 180.0,
+          "tooltip": "Camera roll in degrees."
+        },
+        {
+          "id": "texture_size",
+          "label": "Texture Max Size",
+          "type": "int",
+          "default": 2048,
+          "min": 64,
+          "max": 8192,
+          "tooltip": "Downsamples oversized source images before embedding them in the GLB."
+        },
+        {
+          "id": "unseen_strategy",
+          "label": "Unseen Regions",
+          "type": "select",
+          "default": "leave-unprojected",
+          "options": [
+            { "value": "mirror-symmetry", "label": "Mirror Symmetry" },
+            { "value": "palette-continue", "label": "Continue Palette" },
+            { "value": "request-additional-view", "label": "Request More Views" },
+            { "value": "leave-unprojected", "label": "Leave Unprojected" }
+          ],
+          "tooltip": "Records how surfaces outside the camera view should be handled downstream; unseen texture samples are always flagged."
+        }
+      ]
+    },
+    {
+      "id": "uv-unwrap",
+      "name": "UV Unwrap",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Generates explicit seam-safe UV coordinates with a deterministic local parametrizer and exports a GLB derivative.",
+      "i18n": {
+        "zh-CN": { "name": "UV 展开" },
+        "en-US": { "name": "UV Unwrap" }
+      },
+      "params_schema": [
+        {
+          "id": "method",
+          "label": "UV Method",
+          "type": "select",
+          "default": "flat-plane",
+          "options": [
+            { "value": "flat-plane", "label": "Flat Plane Charts" },
+            { "value": "triangle-trivial", "label": "Triangle Trivial" }
+          ],
+          "tooltip": "Selects the deterministic pymeshlab parametrization. Inspect island distortion before baking production textures."
         }
       ]
     }

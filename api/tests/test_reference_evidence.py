@@ -46,6 +46,111 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(camera["orientation"]["pitchDegrees"]["value"], 8.0)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-camera")
 
+    def test_projection_plan_validates_runtime_bake_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "reference.png"
+            Image.new("RGB", (80, 60), (70, 90, 120)).save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {
+                    "_node_id": "projection-plan",
+                    "mesh_id": "hero-body",
+                    "projection_mode": "orthographic-front-projection",
+                    "texture_size": 2048,
+                    "unseen_strategy": "request-additional-view",
+                },
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as overlay:
+                self.assertEqual(overlay.size, (80, 60))
+                self.assertEqual(overlay.mode, "RGBA")
+            self.assertEqual(report["kind"], "polykit.projected-texture-plan")
+            self.assertEqual(report["status"], "needs_runtime_bake")
+            self.assertEqual(report["targetMeshId"], "hero-body")
+            self.assertEqual(report["textureSize"], 2048)
+            self.assertEqual(report["unseenRegionStrategy"]["confidence"], 0.0)
+            self.assertEqual(result["metadata"]["projection_mode"], "orthographic-front-projection")
+
+    def test_reference_compare_emits_heatmap_and_difference_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            candidate = root / "candidate.png"
+            Image.new("RGB", (40, 30), (20, 30, 40)).save(reference)
+            Image.new("RGB", (20, 15), (80, 90, 100)).save(candidate)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(reference), str(candidate)]},
+                {"_node_id": "reference-compare", "pixel_threshold": 4},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as sheet:
+                self.assertEqual(sheet.format, "PNG")
+                self.assertEqual(sheet.size, (120, 30))
+            self.assertEqual(report["kind"], "polykit.reference-compare")
+            self.assertTrue(report["candidate"]["resizedToReference"])
+            self.assertGreater(report["metrics"]["changedPixelRatio"], 0.99)
+            self.assertEqual(result["metadata"]["evidence_kind"], "reference-compare")
+
+    def test_material_region_emits_localized_palette_and_pbr_gates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "materials.png"
+            image = Image.new("RGB", (100, 80), (24, 30, 40))
+            for x in range(25, 75):
+                for y in range(20, 60):
+                    image.putpixel((x, y), (180, 80, 40))
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "material-region", "material_id": "paint", "x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5, "colors": 3},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as crop:
+                self.assertEqual(crop.size, (50, 40))
+            self.assertEqual(report["kind"], "polykit.material-region")
+            self.assertEqual(report["materialId"], "paint")
+            self.assertGreater(report["metrics"]["saturationMean"], 0.3)
+            self.assertGreaterEqual(len(report["palette"]), 1)
+            self.assertEqual(report["pbrEvidence"]["roughness"]["confidence"], 0.0)
+            self.assertEqual(result["metadata"]["evidence_kind"], "material-region")
+
     def test_delight_albedo_writes_a_corrected_image_and_method_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
