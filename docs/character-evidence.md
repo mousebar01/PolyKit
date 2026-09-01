@@ -15,8 +15,15 @@ table exists, so interpolation cannot masquerade as measurement.
 scalp-bound `(u, v)` roots, hairline controls, flow-field coordinates, supported
 representation tiers/primitives, and positive mass dimensions. Lock-tier values
 are reported as derived/uncalibrated because the local reference has no
-separated hair mesh. The node validates the profile only; it does not claim to
-compile it into lock geometry.
+separated hair mesh.
+
+`character-evidence/hair-profile-compile` consumes the same validated schema and
+emits an explicit scalp-attached `componentTree` with one hair group and one
+component per authored mass. It preserves UV roots, flow fields, primitive
+choices, and authored dimensions without filling missing values. Missing
+geometry descriptors return `needs_review`; the node emits declarative
+components only, so a geometry node still has to build the actual sweeps or
+lathe meshes.
 
 `character-evidence/scalp-exposure` is the geometric hard channel for hair
 review. Given a ring-stack skull and hair points, it samples the scalp with

@@ -41,6 +41,21 @@ class CharacterEvidenceProcessorTests(unittest.TestCase):
         )
         return json.loads(str(result["text"]))
 
+    def _run_hair_compile(self, root: Path, profile: dict) -> dict:
+        workspace = root / "workspace"
+        workspace.mkdir(exist_ok=True)
+        temp = root / "tmp"
+        temp.mkdir(exist_ok=True)
+        result = run_processor(
+            PACK_DIR,
+            "processor.py",
+            {"text": json.dumps(profile)},
+            {"_node_id": "hair-profile-compile"},
+            str(workspace),
+            str(temp),
+        )
+        return json.loads(str(result["text"]))
+
     def test_canonical_eight_head_table_is_explicitly_provenanced(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             report = self._run(Path(td))
@@ -106,6 +121,40 @@ class CharacterEvidenceProcessorTests(unittest.TestCase):
         self.assertTrue(any("plane-card" in error for error in report["errors"]))
         self.assertTrue(any("scalp {u, v}" in error for error in report["errors"]))
         self.assertTrue(any("duplicate id" in error for error in report["errors"]))
+
+    def test_hair_profile_compile_emits_scalp_attached_components_without_inventing_geometry(self) -> None:
+        profile = {
+            "componentId": "hair-system",
+            "representationTier": "masses",
+            "scalpComponentId": "head",
+            "hairline": {"controlPoints": [{"u": 0.2, "v": 0.3}, {"u": 0.5, "v": 0.28}, {"u": 0.8, "v": 0.3}]},
+            "flowField": {"gravity": 0.35, "partLine": {"u": 0.52}},
+            "masses": [{"id": "fringe", "region": "fringe", "primitive": "tapered-sweep", "root": {"u": 0.5, "v": 0.3}, "length": 0.4, "width": 0.12, "thickness": 0.04}],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            report = self._run_hair_compile(Path(td), profile)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["componentTree"][0]["parent"], "head")
+        self.assertEqual(report["componentTree"][0]["attachment"]["anchor"], "head")
+        mass = report["componentTree"][1]
+        self.assertEqual(mass["primitive"], "tapered-sweep")
+        self.assertEqual(mass["surfaceUv"], {"u": 0.5, "v": 0.3})
+        self.assertEqual(mass["parameters"]["length"], 0.4)
+
+    def test_hair_profile_compile_needs_review_when_mass_geometry_is_underspecified(self) -> None:
+        profile = {"representationTier": "masses", "scalpComponentId": "head", "masses": [{"id": "side", "root": {"u": 0.5, "v": 0.5}}]}
+        with tempfile.TemporaryDirectory() as td:
+            report = self._run_hair_compile(Path(td), profile)
+        self.assertEqual(report["status"], "needs_review")
+        self.assertIn("hair-side.primitive", report["unresolved"])
+        self.assertIn("hair-side.parameters", report["unresolved"])
+
+    def test_hair_profile_compile_rejects_self_parenting_component_id(self) -> None:
+        profile = {"componentId": "head", "representationTier": "shell", "scalpComponentId": "head"}
+        with tempfile.TemporaryDirectory() as td:
+            report = self._run_hair_compile(Path(td), profile)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("componentId" in error for error in report["errors"]))
 
     def test_scalp_exposure_distinguishes_proud_hair_from_sunk_hair(self) -> None:
         rings = [[0.0, 1.0, 1.0], [1.0, 1.0, 1.0]]

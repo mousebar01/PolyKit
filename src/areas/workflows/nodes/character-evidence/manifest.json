@@ -39,6 +39,18 @@
       "params_schema": []
     },
     {
+      "id": "hair-profile-compile",
+      "name": "Compile Hair Profile",
+      "input": "text",
+      "output": "text",
+      "description": "Converts a validated hairProfile into an explicit scalp-attached componentTree without inventing missing dimensions.",
+      "i18n": {
+        "zh-CN": { "name": "编译发型组件树" },
+        "en-US": { "name": "Compile Hair Profile" }
+      },
+      "params_schema": []
+    },
+    {
       "id": "scalp-exposure",
       "name": "Scalp Exposure Gate",
       "input": "text",

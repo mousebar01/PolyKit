@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -259,6 +260,120 @@ def _hair_profile_report(profile: Any) -> dict[str, Any]:
     }
 
 
+def _component_slug(value: Any, fallback: str) -> str:
+    """Make a stable component-id fragment without changing authored semantics."""
+    raw = str(value or "").strip()
+    slug = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff\u3400-\u4dbf]+", "-", raw).strip("-").lower()
+    return slug or fallback
+
+
+def _compile_hair_profile(profile: Any) -> dict[str, Any]:
+    """Compile the profile schema into a declarative, scalp-attached component tree."""
+    errors, warnings = _validate_hair_profile(profile)
+    if not isinstance(profile, dict):
+        errors = errors or ["hairProfile must be an object"]
+        return {
+            "schemaVersion": 1,
+            "kind": "polykit.hair-profile-compile",
+            "status": "fail",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "passed": False,
+            "componentTree": [],
+            "errors": errors,
+            "warnings": warnings,
+            "unresolved": [],
+            "limitations": ["The compiler emits a declarative componentTree; a geometry node must construct the actual mesh primitives."],
+        }
+
+    tier = str(profile.get("representationTier") or "shell")
+    scalp_id = str(profile.get("scalpComponentId") or "").strip()
+    profile_id = _component_slug(profile.get("componentId"), "hair")
+    if scalp_id and profile_id == scalp_id:
+        errors.append("hairProfile.componentId must differ from scalpComponentId")
+    masses = profile.get("masses") if isinstance(profile.get("masses"), list) else []
+    unresolved: list[str] = []
+    component_tree: list[dict[str, Any]] = []
+    root_component: dict[str, Any] = {
+        "id": profile_id,
+        "role": "hair",
+        "category": "hair",
+        "kind": "group",
+        "parent": scalp_id or None,
+        "attachment": {"anchor": scalp_id} if scalp_id else None,
+        "representationTier": tier,
+        "generatedFrom": "hairProfile",
+    }
+    if isinstance(profile.get("hairline"), dict):
+        root_component["hairline"] = profile["hairline"]
+    if isinstance(profile.get("flowField"), dict):
+        root_component["flowField"] = profile["flowField"]
+    component_tree.append(root_component)
+
+    used_ids = {profile_id}
+    for index, mass in enumerate(masses):
+        if not isinstance(mass, dict):
+            continue
+        authored_id = _component_slug(mass.get("id"), f"mass-{index + 1}")
+        component_id = f"{profile_id}-{authored_id}"
+        suffix = 2
+        while component_id in used_ids:
+            component_id = f"{profile_id}-{authored_id}-{suffix}"
+            suffix += 1
+        used_ids.add(component_id)
+        primitive = mass.get("primitive")
+        root = mass.get("root") if isinstance(mass.get("root"), dict) else {}
+        component: dict[str, Any] = {
+            "id": component_id,
+            "role": "hair",
+            "category": str(mass.get("region") or "hair"),
+            "kind": "geometry",
+            "parent": profile_id,
+            "sourceMassId": str(mass.get("id") or f"mass-{index + 1}"),
+            "primitive": primitive,
+            "surfaceUv": {"u": root.get("u"), "v": root.get("v")},
+            "generatedFrom": "hairProfile.masses",
+        }
+        parameters: dict[str, Any] = {}
+        for field in ("length", "width", "thickness", "taper", "crossSection", "direction"):
+            if field in mass:
+                parameters[field] = mass[field]
+        if parameters:
+            component["parameters"] = parameters
+        if isinstance(profile.get("flowField"), dict):
+            component["flowField"] = profile["flowField"]
+        if isinstance(mass.get("standProud"), dict):
+            component["standProud"] = mass["standProud"]
+        component_tree.append(component)
+        if not primitive:
+            unresolved.append(f"{component_id}.primitive")
+        if not any(field in mass for field in ("length", "width", "thickness")):
+            unresolved.append(f"{component_id}.parameters")
+
+    if errors:
+        status = "fail"
+        component_tree = []
+    else:
+        status = "needs_review" if unresolved else "pass"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.hair-profile-compile",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "passed": status == "pass",
+        "scalpComponentId": scalp_id,
+        "representationTier": tier,
+        "componentTree": component_tree,
+        "massCount": len(masses),
+        "unresolved": unresolved,
+        "errors": errors,
+        "warnings": warnings,
+        "limitations": [
+            "The compiler emits a declarative componentTree; a geometry node must construct the actual mesh primitives.",
+            "Roots remain scalp UV coordinates and no world-space root is invented.",
+        ],
+    }
+
+
 def _run_scalp_exposure(descriptor: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     try:
         from scalp_exposure import measure_exposure
@@ -289,18 +404,22 @@ def main() -> None:
         input_data = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "humanoid-proportions")
-        if node_id not in {"humanoid-proportions", "hair-profile", "scalp-exposure"}:
+        if node_id not in {"humanoid-proportions", "hair-profile", "hair-profile-compile", "scalp-exposure"}:
             error(f"character-evidence: unsupported node {node_id!r}")
             return
         text = input_data.get("text")
-        if node_id == "hair-profile":
+        if node_id in {"hair-profile", "hair-profile-compile"}:
             if not isinstance(text, str) or not text.strip():
-                error("character-evidence: hair-profile requires a JSON text profile")
+                error("character-evidence: hair profile nodes require a JSON text profile")
                 return
             parsed = json.loads(text)
             progress(10, "Validating hair profile…")
-            report = _hair_profile_report(parsed)
-            metadata = {"evidence_kind": "hair-profile", "schema_version": 1, "status": report["status"], "mass_count": report["massCount"]}
+            if node_id == "hair-profile-compile":
+                report = _compile_hair_profile(parsed)
+                metadata = {"evidence_kind": "hair-profile-compile", "schema_version": 1, "status": report["status"], "mass_count": report["massCount"]}
+            else:
+                report = _hair_profile_report(parsed)
+                metadata = {"evidence_kind": "hair-profile", "schema_version": 1, "status": report["status"], "mass_count": report["massCount"]}
         elif node_id == "scalp-exposure":
             if not isinstance(text, str) or not text.strip():
                 error("character-evidence: scalp-exposure requires a JSON text descriptor")
