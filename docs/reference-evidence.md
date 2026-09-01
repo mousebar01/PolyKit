@@ -85,6 +85,12 @@ area collapse explicit failures, and flood-fills each mask to detect background
 holes enclosed by the silhouette. Legitimate openings can be allowed explicitly
 while the raw hole measurements remain in the report.
 
+`reference-evidence/pose-sweep-gate` consumes an ordered neutral/pose capture
+set and checks frame count, foreground-area collapse, adjacent silhouette
+change, and optional labels. It emits a contact sheet and JSON metrics. This is
+an image evidence gate only: it cannot prove joint placement, volume
+preservation, or skin-weight correctness.
+
 `reference-evidence/detail-inventory` accepts an image and produces:
 
 - a normal PNG image artifact with a 2×2 through 5×5 review grid;

@@ -62,6 +62,73 @@
         { "id": "resolution", "label": "Voxel Resolution", "type": "int", "default": 24, "min": 8, "max": 96, "tooltip": "Largest axis voxel resolution used for the solid distance field." },
         { "id": "falloff_power", "label": "Falloff Power", "type": "float", "default": 3.0, "min": 0.5, "max": 8.0, "tooltip": "Higher values keep influence tighter around each bone." }
       ]
+    },
+    {
+      "id": "facial-rig-audit",
+      "name": "Facial Rig Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Checks blendshape names, normalized ranges, and optional ARKit-lite channels before facial animation export.",
+      "i18n": {
+        "zh-CN": { "name": "面部绑定审计" },
+        "en-US": { "name": "Facial Rig Audit" }
+      },
+      "params_schema": [
+        {
+          "id": "profile",
+          "label": "Shape Profile",
+          "type": "select",
+          "default": "custom",
+          "options": [
+            { "value": "custom", "label": "Custom" },
+            { "value": "minimal", "label": "Minimal Face" },
+            { "value": "arkit-lite", "label": "ARKit Lite" }
+          ],
+          "tooltip": "Required shape profile; custom uses payload.requiredShapes when supplied."
+        },
+        { "id": "require_visemes", "label": "Require Visemes", "type": "boolean", "default": false, "tooltip": "Also require a complete portable lip-sync viseme map." }
+      ]
+    },
+    {
+      "id": "lip-sync-audit",
+      "name": "Lip-sync Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Validates a portable viseme map and optional time-sampled mouth curves without claiming speech recognition quality.",
+      "i18n": {
+        "zh-CN": { "name": "口型同步审计" },
+        "en-US": { "name": "Lip-sync Audit" }
+      },
+      "params_schema": []
+    },
+    {
+      "id": "ik-solve",
+      "name": "FABRIK IK Solve",
+      "input": "text",
+      "output": "text",
+      "description": "Solves an explicitly ordered joint chain toward a target with CPU FABRIK and reports convergence or reach limits.",
+      "i18n": {
+        "zh-CN": { "name": "FABRIK 逆向运动学" },
+        "en-US": { "name": "FABRIK IK Solve" }
+      },
+      "params_schema": [
+        { "id": "iterations", "label": "Iterations", "type": "int", "default": 32, "min": 1, "max": 256, "tooltip": "Maximum forward/backward FABRIK iterations." },
+        { "id": "tolerance", "label": "Tolerance", "type": "float", "default": 0.001, "min": 0.000001, "max": 1.0, "tooltip": "Target distance at which the chain is considered converged." }
+      ]
+    },
+    {
+      "id": "mixamo-audit",
+      "name": "Mixamo Compatibility Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Checks canonical Mixamo body names, aliases, parent chains, and cycles before retargeting an animation clip.",
+      "i18n": {
+        "zh-CN": { "name": "Mixamo 兼容性审计" },
+        "en-US": { "name": "Mixamo Compatibility Audit" }
+      },
+      "params_schema": [
+        { "id": "require_fingers", "label": "Require Fingers", "type": "boolean", "default": false, "tooltip": "Require the first phalanx of each hand for finger animation retargeting." }
+      ]
     }
   ]
 }

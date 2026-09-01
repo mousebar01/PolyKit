@@ -527,6 +527,24 @@
         { "id": "hole_fraction", "label": "Hole Fraction", "type": "float", "default": 0.01, "min": 0.0, "max": 1.0, "tooltip": "Minimum enclosed-background fraction for a hole failure." },
         { "id": "allow_holes", "label": "Allow Legitimate Holes", "type": "boolean", "default": false, "tooltip": "Keep raw hole measurements but do not fail on intentional rings/openings." }
       ]
+    },
+    {
+      "id": "pose-sweep-gate",
+      "name": "Pose Sweep Gate",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Checks an ordered deformation capture set for frame count, silhouette collapse, and visible pose change; it cannot prove joint correctness from images alone.",
+      "i18n": {
+        "zh-CN": { "name": "姿态变形审计" },
+        "en-US": { "name": "Pose Sweep Gate" }
+      },
+      "params_schema": [
+        { "id": "required_frames", "label": "Required Frames", "type": "int", "default": 4, "min": 2, "max": 32, "tooltip": "Expected number of ordered neutral/pose captures." },
+        { "id": "collapse_ratio", "label": "Collapse Ratio", "type": "float", "default": 0.2, "min": 0.0, "max": 1.0, "tooltip": "Minimum foreground area relative to the first frame." },
+        { "id": "min_pose_delta", "label": "Minimum Pose Delta", "type": "float", "default": 0.03, "min": 0.0, "max": 1.0, "tooltip": "Minimum adjacent silhouette change expected somewhere in the sweep." },
+        { "id": "pose_labels", "label": "Pose Labels", "type": "string", "default": "", "tooltip": "Optional comma-separated labels in the same order as the input captures." }
+      ]
     }
   ]
 }

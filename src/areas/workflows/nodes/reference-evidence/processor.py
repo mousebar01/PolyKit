@@ -1433,6 +1433,121 @@ def _run_interior_difference(reference_path: Path, candidate_path: Path, workspa
     return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "interior-difference", "schema_version": 1, "status": status, "interior_difference": report["interiorDifference"], "cells_compared": len(shared), "report": report_path.name}}
 
 
+def _run_pose_sweep_gate(input_paths: list[Path], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Check an ordered pose-capture set without claiming rig correctness."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for pose sweep gating: {exc}") from exc
+
+    required_frames = _bounded_int(params.get("required_frames", 4), 4, 2, 32)
+    try:
+        collapse_ratio = max(0.0, min(1.0, float(params.get("collapse_ratio", 0.2) or 0.2)))
+    except (TypeError, ValueError):
+        collapse_ratio = 0.2
+    try:
+        min_pose_delta = max(0.0, min(1.0, float(params.get("min_pose_delta", 0.03) or 0.03)))
+    except (TypeError, ValueError):
+        min_pose_delta = 0.03
+    labels_raw = str(params.get("pose_labels") or "")
+    labels = [item.strip() for item in labels_raw.split(",") if item.strip()]
+    records: list[dict[str, Any]] = []
+    masks: list[list[bool]] = []
+    images: list[Any] = []
+    for index, input_path in enumerate(input_paths):
+        if not input_path.is_file():
+            raise ValueError(f"pose sweep frame not found: {input_path}")
+        with Image.open(input_path) as source:
+            image = source.convert("RGBA")
+            mask, mask_source = _review_foreground(image, 96)
+            bbox = _review_bbox(mask, 96)
+            images.append(image.copy())
+        masks.append(mask)
+        area = sum(mask) / float(len(mask))
+        if bbox is None:
+            bbox_norm = None
+            centroid = None
+        else:
+            x0, y0, x1, y1 = bbox
+            bbox_norm = [round(x0 / 96.0, 6), round(y0 / 96.0, 6), round(x1 / 96.0, 6), round(y1 / 96.0, 6)]
+            active = [(cell % 96, cell // 96) for cell, enabled in enumerate(mask) if enabled]
+            centroid = [round(sum(point[0] for point in active) / max(1, len(active)) / 96.0, 6), round(sum(point[1] for point in active) / max(1, len(active)) / 96.0, 6)]
+        records.append({
+            "index": index,
+            "label": labels[index] if index < len(labels) else input_path.stem,
+            "name": input_path.name,
+            "maskSource": mask_source,
+            "areaFraction": round(area, 6),
+            "bbox": bbox_norm,
+            "centroid": centroid,
+        })
+
+    baseline = records[0]["areaFraction"] if records else 0.0
+    collapsed: list[int] = []
+    for record in records:
+        relative = None if baseline <= 1e-9 else record["areaFraction"] / baseline
+        record["relativeArea"] = None if relative is None else round(relative, 6)
+        if relative is not None and relative < collapse_ratio:
+            collapsed.append(int(record["index"]))
+    adjacent: list[dict[str, Any]] = []
+    for index in range(1, len(masks)):
+        iou = _review_iou(masks[index - 1], masks[index])
+        adjacent.append({"from": index - 1, "to": index, "silhouetteIoU": round(iou, 6), "poseDelta": round(1.0 - iou, 6)})
+    max_pose_delta = max((item["poseDelta"] for item in adjacent), default=0.0)
+    errors: list[str] = []
+    warnings: list[str] = []
+    if len(input_paths) != required_frames:
+        errors.append(f"expected {required_frames} ordered frames, received {len(input_paths)}")
+    if collapsed:
+        errors.append(f"foreground silhouette collapsed below {collapse_ratio:.3f} of frame 0 at frame(s) {collapsed}")
+    if len(labels) not in (0, len(input_paths)):
+        warnings.append("pose_labels count does not match the frame count; file stems were used where labels were missing")
+    if adjacent and max_pose_delta < min_pose_delta:
+        warnings.append("no adjacent silhouette change exceeded min_pose_delta; this is a capture/evidence warning, not proof that the rig is static")
+    status = "fail" if errors else "needs_review" if not adjacent or max_pose_delta < min_pose_delta else "pass"
+
+    cell_width, cell_height = 256, 256
+    columns = min(4, max(1, len(images)))
+    rows = max(1, (len(images) + columns - 1) // columns)
+    canvas = Image.new("RGBA", (columns * cell_width, rows * (cell_height + 24)), (15, 23, 42, 255))
+    draw = ImageDraw.Draw(canvas, "RGBA")
+    for index, image in enumerate(images):
+        thumb = image.copy()
+        thumb.thumbnail((cell_width - 8, cell_height - 8), Image.Resampling.LANCZOS)
+        left = (index % columns) * cell_width + (cell_width - thumb.width) // 2
+        top = (index // columns) * (cell_height + 24) + (cell_height - thumb.height) // 2
+        canvas.alpha_composite(thumb, (left, top))
+        color = (248, 113, 113, 255) if index in collapsed else (74, 222, 128, 255)
+        cell_left = index % columns * cell_width
+        cell_top = index // columns * (cell_height + 24)
+        draw.rectangle((cell_left, cell_top, cell_left + cell_width - 1, cell_top + cell_height + 23), outline=color, width=2)
+        draw.text((cell_left + 8, cell_top + cell_height + 4), records[index]["label"], fill=(226, 232, 240, 255))
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    stem = _slug(input_paths[0].stem if input_paths else "pose-sweep")
+    token = f"{stem}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_path = workspace_dir / f"{token}_pose-sweep.png"
+    report_path = workspace_dir / f"{token}_pose-sweep.json"
+    canvas.save(output_path, format="PNG")
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.pose-sweep-gate",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "settings": {"requiredFrames": required_frames, "collapseRatio": round(collapse_ratio, 6), "minPoseDelta": round(min_pose_delta, 6)},
+        "frames": records,
+        "adjacent": adjacent,
+        "summary": {"frameCount": len(records), "collapsedFrames": collapsed, "maxPoseDelta": round(max_pose_delta, 6)},
+        "errors": errors,
+        "warnings": warnings,
+        "reviewNotes": [
+            "This gate measures 2D silhouette coverage and visible change across ordered captures; it cannot prove joint placement, volume preservation, or skin-weight correctness.",
+            "Use a neutral frame first and keep camera, crop, and background consistent across the sweep.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"filePath": str(output_path), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "pose-sweep-gate", "schema_version": 1, "status": status, "frame_count": len(records), "max_pose_delta": report["summary"]["maxPoseDelta"], "report": report_path.name}}
+
+
 def _hair_otsu(values: list[float], bins: int = 64) -> tuple[float, float, float]:
     if not values:
         return 0.0, 0.0, 0.0
@@ -2185,6 +2300,18 @@ def main() -> None:
             progress(20, "Checking turntable coverage and holes…")
             try:
                 result = _run_turntable_gate(paths, workspace_dir, params)
+            except ValueError as exc:
+                error(f"reference-evidence: {exc}")
+                return
+        elif node_id == "pose-sweep-gate":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) < 2:
+                error(f"reference-evidence: pose sweep requires at least two image files: {raw_paths}")
+                return
+            progress(20, "Checking ordered pose captures…")
+            try:
+                result = _run_pose_sweep_gate(paths, workspace_dir, params)
             except ValueError as exc:
                 error(f"reference-evidence: {exc}")
                 return

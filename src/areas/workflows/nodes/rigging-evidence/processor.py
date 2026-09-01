@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import heapq
 import math
+import re
 import sys
 from collections import deque
 from datetime import datetime, timezone
@@ -719,17 +720,344 @@ def _analyze_chirality(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+MINIMAL_FACE_SHAPES = frozenset({"jawOpen", "mouthClose", "mouthSmile_L", "mouthSmile_R", "eyeBlink_L", "eyeBlink_R"})
+ARKIT_LITE_SHAPES = frozenset({
+    "jawOpen", "jawForward", "jawLeft", "jawRight", "mouthClose", "mouthFunnel", "mouthPucker",
+    "mouthSmile_L", "mouthSmile_R", "mouthFrown_L", "mouthFrown_R", "eyeBlink_L", "eyeBlink_R",
+    "eyeLookUp_L", "eyeLookUp_R", "eyeLookDown_L", "eyeLookDown_R",
+})
+DEFAULT_VISEMES = ("sil", "PP", "FF", "TH", "DD", "kk", "CH", "SS", "nn", "RR", "aa", "E", "ih", "oh", "ou")
+
+
+def _analyze_facial_rig(payload: dict[str, Any], params: dict[str, Any], *, lip_sync_only: bool = False) -> dict[str, Any]:
+    """Validate a portable facial blendshape and viseme payload."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    raw_shapes = payload.get("blendShapes", payload.get("blendshapes", []))
+    if not isinstance(raw_shapes, list):
+        errors.append("blendShapes must be a list")
+        raw_shapes = []
+    shape_names: list[str] = []
+    shape_records: list[dict[str, Any]] = []
+    for index, raw_shape in enumerate(raw_shapes):
+        if isinstance(raw_shape, str):
+            name = raw_shape.strip()
+            record: dict[str, Any] = {"name": name, "min": 0.0, "max": 1.0}
+        elif isinstance(raw_shape, dict):
+            name = str(raw_shape.get("name") or "").strip()
+            record = {"name": name, "min": raw_shape.get("min", 0.0), "max": raw_shape.get("max", 1.0)}
+        else:
+            errors.append(f"blendShapes[{index}] must be a string or object")
+            continue
+        if not name:
+            errors.append(f"blendShapes[{index}].name must be non-empty")
+            continue
+        if name in shape_names:
+            errors.append(f"duplicate blendshape: {name}")
+            continue
+        shape_names.append(name)
+        try:
+            minimum, maximum = float(record["min"]), float(record["max"])
+        except (TypeError, ValueError):
+            errors.append(f"blendshape {name!r} has non-numeric min/max")
+            minimum, maximum = 0.0, 1.0
+        if not math.isfinite(minimum) or not math.isfinite(maximum) or minimum < 0.0 or maximum > 1.0 or minimum >= maximum:
+            errors.append(f"blendshape {name!r} range must satisfy 0 <= min < max <= 1")
+        record["min"], record["max"] = round(minimum, 6), round(maximum, 6)
+        shape_records.append(record)
+
+    profile = str(params.get("profile") or "custom").strip().lower()
+    required_raw = payload.get("requiredShapes")
+    if isinstance(required_raw, list):
+        required = {str(item).strip() for item in required_raw if str(item).strip()}
+    elif profile == "minimal":
+        required = set(MINIMAL_FACE_SHAPES)
+    elif profile == "arkit-lite":
+        required = set(ARKIT_LITE_SHAPES)
+    else:
+        required = set()
+    missing_shapes = sorted(required.difference(shape_names))
+    if missing_shapes:
+        errors.append(f"missing required blendshapes: {', '.join(missing_shapes)}")
+
+    raw_visemes = payload.get("visemes")
+    visemes = raw_visemes if isinstance(raw_visemes, dict) else {}
+    required_visemes_raw = payload.get("requiredVisemes")
+    if isinstance(required_visemes_raw, list):
+        required_visemes = [str(item).strip() for item in required_visemes_raw if str(item).strip()]
+    else:
+        required_visemes = list(DEFAULT_VISEMES)
+    check_visemes = lip_sync_only or bool(params.get("require_visemes", False)) or bool(visemes)
+    viseme_records: list[dict[str, Any]] = []
+    if check_visemes:
+        for viseme in required_visemes:
+            raw_target = visemes.get(viseme)
+            targets = [raw_target] if isinstance(raw_target, str) else raw_target if isinstance(raw_target, list) else []
+            targets = [str(item).strip() for item in targets if str(item).strip()]
+            valid_targets = [target for target in targets if target in shape_names]
+            viseme_records.append({"viseme": viseme, "targets": targets, "validTargets": valid_targets, "passed": bool(valid_targets)})
+            if not valid_targets:
+                errors.append(f"viseme {viseme!r} has no known blendshape target")
+
+    curves = payload.get("curves")
+    curve_count = 0
+    if curves is not None:
+        if not isinstance(curves, list):
+            errors.append("curves must be a list when supplied")
+        else:
+            previous_time = -float("inf")
+            for index, curve in enumerate(curves):
+                if not isinstance(curve, dict) or not _is_number(curve.get("time")) or not isinstance(curve.get("weights"), dict):
+                    errors.append(f"curves[{index}] must contain numeric time and weights object")
+                    continue
+                time_value = float(curve["time"])
+                if time_value < previous_time:
+                    errors.append("curve timestamps must be monotonically increasing")
+                previous_time = time_value
+                curve_count += 1
+                for name, value in curve["weights"].items():
+                    if name not in shape_names:
+                        warnings.append(f"curve {index} references unknown blendshape {name!r}")
+                    if not _is_number(value) or not 0.0 <= float(value) <= 1.0:
+                        errors.append(f"curve {index} weight for {name!r} must be within [0, 1]")
+
+    if not shape_names and not viseme_records:
+        status = "needs_review"
+    else:
+        status = "fail" if errors else "pass"
+    kind = "lip-sync-audit" if lip_sync_only else "facial-rig-audit"
+    return {
+        "schemaVersion": 1,
+        "kind": f"polykit.{kind}",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "profile": profile,
+        "blendShapes": shape_records,
+        "requiredShapes": sorted(required),
+        "missingShapes": missing_shapes,
+        "visemes": viseme_records,
+        "curveCount": curve_count,
+        "errors": errors,
+        "warnings": warnings,
+        "summary": {"blendShapeCount": len(shape_names), "requiredShapeCount": len(required), "visemeCount": len(viseme_records), "curveCount": curve_count},
+        "reviewNotes": [
+            "This is a portable payload gate; it does not generate facial shapes, recognize speech, or prove expression quality in a render.",
+            "Keep names and ranges stable before exporting to a runtime or retargeting tool.",
+        ],
+    }
+
+
+def _analyze_ik_solve(payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """Solve one explicitly ordered joint chain with the FABRIK algorithm."""
+    raw_chain = payload.get("chain")
+    errors: list[str] = []
+    if not isinstance(raw_chain, list) or len(raw_chain) < 2:
+        raise ValueError("chain must contain at least two ordered joints")
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw_joint in enumerate(raw_chain):
+        if not isinstance(raw_joint, dict) or not isinstance(raw_joint.get("id"), str) or not str(raw_joint["id"]).strip():
+            raise ValueError(f"chain[{index}].id must be a non-empty string")
+        joint_id = str(raw_joint["id"]).strip()
+        if joint_id in seen:
+            raise ValueError(f"duplicate chain joint: {joint_id}")
+        seen.add(joint_id)
+        position = raw_joint.get("position")
+        if not isinstance(position, list) or len(position) != 3 or not all(_is_number(value) for value in position):
+            raise ValueError(f"chain[{index}].position must be a finite length-3 point")
+        chain.append({"id": joint_id, "position": [float(value) for value in position]})
+    target = payload.get("target")
+    if not isinstance(target, list) or len(target) != 3 or not all(_is_number(value) for value in target):
+        raise ValueError("target must be a finite length-3 point")
+    target_point = [float(value) for value in target]
+    try:
+        tolerance = max(1e-6, min(1.0, float(params.get("tolerance", 0.001) or 0.001)))
+    except (TypeError, ValueError):
+        tolerance = 0.001
+    iterations = _bounded_int(params.get("iterations", 32), 32, 1, 256)
+    points = [list(joint["position"]) for joint in chain]
+    lengths = [_distance(points[index], points[index + 1]) for index in range(len(points) - 1)]
+    if any(length <= 1e-9 for length in lengths):
+        raise ValueError("adjacent chain joints must have non-zero distance")
+    root = points[0][:]
+    target_distance = _distance(root, target_point)
+    reach = sum(lengths)
+    unreachable = target_distance > reach + tolerance
+    used = 0
+    if unreachable:
+        direction = [(target_point[axis] - root[axis]) / max(target_distance, 1e-9) for axis in range(3)]
+        for index, length in enumerate(lengths):
+            points[index + 1] = [points[index][axis] + direction[axis] * length for axis in range(3)]
+    else:
+        for used in range(1, iterations + 1):
+            points[-1] = target_point[:]
+            for index in range(len(points) - 2, -1, -1):
+                distance = _distance(points[index], points[index + 1])
+                factor = lengths[index] / max(distance, 1e-9)
+                points[index] = [points[index + 1][axis] + (points[index][axis] - points[index + 1][axis]) * factor for axis in range(3)]
+            points[0] = root[:]
+            for index, length in enumerate(lengths):
+                distance = _distance(points[index], points[index + 1])
+                factor = length / max(distance, 1e-9)
+                points[index + 1] = [points[index][axis] + (points[index + 1][axis] - points[index][axis]) * factor for axis in range(3)]
+            if _distance(points[-1], target_point) <= tolerance:
+                break
+    end_error = _distance(points[-1], target_point)
+    segment_errors = [abs(_distance(points[index], points[index + 1]) - lengths[index]) for index in range(len(lengths))]
+    if not unreachable and end_error > tolerance:
+        errors.append(f"FABRIK did not converge within {iterations} iterations (error {end_error:.6f})")
+    status = "fail" if errors else "needs_review" if unreachable else "pass"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.ik-solve",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "root": chain[0]["id"],
+        "end": chain[-1]["id"],
+        "target": [round(value, 6) for value in target_point],
+        "solvedChain": [{"id": chain[index]["id"], "position": [round(value, 6) for value in points[index]]} for index in range(len(chain))],
+        "summary": {
+            "jointCount": len(chain),
+            "iterations": used,
+            "tolerance": round(tolerance, 9),
+            "targetDistance": round(target_distance, 6),
+            "reach": round(reach, 6),
+            "unreachable": unreachable,
+            "endError": round(end_error, 9),
+            "maxSegmentLengthError": round(max(segment_errors, default=0.0), 9),
+        },
+        "errors": errors,
+        "reviewNotes": [
+            "FABRIK solves joint positions for one ordered chain and preserves the source segment lengths.",
+            "The report does not create a Blender armature, rotations, constraints, or collision-aware pose; inspect the solved pose before applying it to a rig.",
+        ],
+    }
+
+
+MIXAMO_CORE = (
+    "Hips", "Spine", "Spine1", "Spine2", "Neck", "Head",
+    "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
+    "RightShoulder", "RightArm", "RightForeArm", "RightHand",
+    "LeftUpLeg", "LeftLeg", "LeftFoot", "RightUpLeg", "RightLeg", "RightFoot",
+)
+MIXAMO_PARENT_RULES = {
+    "Spine": "Hips", "Spine1": "Spine", "Spine2": "Spine1", "Neck": "Spine2", "Head": "Neck",
+    "LeftShoulder": "Spine2", "LeftArm": "LeftShoulder", "LeftForeArm": "LeftArm", "LeftHand": "LeftForeArm",
+    "RightShoulder": "Spine2", "RightArm": "RightShoulder", "RightForeArm": "RightArm", "RightHand": "RightForeArm",
+    "LeftUpLeg": "Hips", "LeftLeg": "LeftUpLeg", "LeftFoot": "LeftLeg",
+    "RightUpLeg": "Hips", "RightLeg": "RightUpLeg", "RightFoot": "RightLeg",
+}
+MIXAMO_FINGER_ROOTS = ("LeftHandThumb1", "LeftHandIndex1", "LeftHandMiddle1", "LeftHandRing1", "LeftHandPinky1", "RightHandThumb1", "RightHandIndex1", "RightHandMiddle1", "RightHandRing1", "RightHandPinky1")
+
+
+def _mixamo_name(value: Any) -> str:
+    raw = str(value or "").strip()
+    raw = re.sub(r"^(?:mixamorig|armature|rig)[:_\- ]*", "", raw, flags=re.IGNORECASE)
+    compact = re.sub(r"[^A-Za-z0-9]", "", raw).lower()
+    aliases = {
+        "hips": "Hips", "pelvis": "Hips", "spine": "Spine", "spine1": "Spine1", "spine01": "Spine1", "spine2": "Spine2", "spine02": "Spine2",
+        "neck": "Neck", "head": "Head", "leftshoulder": "LeftShoulder", "lshoulder": "LeftShoulder", "leftarm": "LeftArm", "larm": "LeftArm", "leftforearm": "LeftForeArm", "lforearm": "LeftForeArm", "lefthand": "LeftHand", "lhand": "LeftHand",
+        "rightshoulder": "RightShoulder", "rshoulder": "RightShoulder", "rightarm": "RightArm", "rarm": "RightArm", "rightforearm": "RightForeArm", "rforearm": "RightForeArm", "righthand": "RightHand", "rhand": "RightHand",
+        "leftupleg": "LeftUpLeg", "lthigh": "LeftUpLeg", "leftleg": "LeftLeg", "lcalf": "LeftLeg", "leftfoot": "LeftFoot", "lfoot": "LeftFoot",
+        "rightupleg": "RightUpLeg", "rthigh": "RightUpLeg", "rightleg": "RightLeg", "rcalf": "RightLeg", "rightfoot": "RightFoot", "rfoot": "RightFoot",
+    }
+    return aliases.get(compact, raw)
+
+
+def _analyze_mixamo(payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    raw_rig = payload.get("rig") if isinstance(payload.get("rig"), dict) else payload
+    raw_bones = raw_rig.get("bones") if isinstance(raw_rig, dict) else None
+    if not isinstance(raw_bones, list) or not raw_bones:
+        raise ValueError("rig.bones must be a non-empty list")
+    errors: list[str] = []
+    warnings: list[str] = []
+    records: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    by_canonical: dict[str, str] = {}
+    for index, raw_bone in enumerate(raw_bones):
+        if not isinstance(raw_bone, dict):
+            errors.append(f"rig.bones[{index}] must be an object")
+            continue
+        bone_id = str(raw_bone.get("id") or raw_bone.get("name") or "").strip()
+        if not bone_id:
+            errors.append(f"rig.bones[{index}] needs id or name")
+            continue
+        if bone_id in by_id:
+            errors.append(f"duplicate bone id: {bone_id}")
+            continue
+        canonical = _mixamo_name(raw_bone.get("name") or bone_id)
+        parent_raw = raw_bone.get("parent")
+        parent_id = str(parent_raw).strip() if isinstance(parent_raw, str) and parent_raw.strip() else None
+        record = {"id": bone_id, "name": str(raw_bone.get("name") or bone_id), "canonical": canonical, "parent": parent_id}
+        records.append(record)
+        by_id[bone_id] = record
+        if canonical in by_canonical:
+            errors.append(f"multiple bones map to Mixamo name {canonical!r}: {by_canonical[canonical]!r}, {bone_id!r}")
+        else:
+            by_canonical[canonical] = bone_id
+
+    for record in records:
+        parent = record["parent"]
+        if parent and parent not in by_id:
+            errors.append(f"bone {record['id']!r} references unknown parent {parent!r}")
+        canonical = record["canonical"]
+        expected_parent = MIXAMO_PARENT_RULES.get(canonical)
+        if expected_parent:
+            actual_parent = by_id.get(parent, {}).get("canonical") if parent else None
+            if actual_parent != expected_parent:
+                errors.append(f"{canonical} should parent to {expected_parent}, got {actual_parent or 'root'}")
+    for record in records:
+        seen: set[str] = set()
+        current: str | None = record["id"]
+        while current:
+            if current in seen:
+                errors.append(f"bone parent cycle includes {current!r}")
+                break
+            seen.add(current)
+            current = by_id.get(current, {}).get("parent")
+
+    missing = [name for name in MIXAMO_CORE if name not in by_canonical]
+    if missing:
+        errors.append(f"missing Mixamo core bones: {', '.join(missing)}")
+    finger_missing = []
+    if bool(params.get("require_fingers", False)):
+        finger_missing = [name for name in MIXAMO_FINGER_ROOTS if name not in by_canonical]
+        if finger_missing:
+            errors.append(f"missing requested finger roots: {', '.join(finger_missing)}")
+    unknown = sorted({record["canonical"] for record in records if record["canonical"] not in MIXAMO_CORE and record["canonical"] not in MIXAMO_FINGER_ROOTS})
+    if unknown:
+        warnings.append(f"non-core bones are preserved but may need manual retargeting: {', '.join(unknown[:16])}")
+    status = "fail" if errors else "pass"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.mixamo-audit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "mixamoReady": not errors,
+        "bones": records,
+        "missingCore": missing,
+        "missingFingerRoots": finger_missing,
+        "warnings": warnings,
+        "errors": errors,
+        "summary": {"boneCount": len(records), "coreCount": len(MIXAMO_CORE), "unknownCount": len(unknown), "fingerRootsRequired": bool(params.get("require_fingers", False))},
+        "reviewNotes": [
+            "Aliases such as mixamorig:Hips and LArm are normalized for review; the target runtime still needs its own retargeting import step.",
+            "This gate checks hierarchy and names, not bind pose orientation, animation quality, or humanoid proportions.",
+        ],
+    }
+
+
 def main() -> None:
     try:
         payload = json.loads(sys.stdin.readline())
         input_data = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         text = input_data.get("text")
         if not isinstance(text, str) or not text.strip():
-            error("rigging-evidence: attachment anchor audit requires a JSON text descriptor")
+            error("rigging-evidence: a JSON text descriptor is required")
             return
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "attachment-anchor-audit")
-        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit", "geodesic-bind"}:
+        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit", "geodesic-bind", "facial-rig-audit", "lip-sync-audit", "ik-solve", "mixamo-audit"}:
             error(f"rigging-evidence: unsupported node '{node_id}'")
             return
         descriptor = json.loads(text)
@@ -742,6 +1070,14 @@ def main() -> None:
             report = _analyze_rig_payload(descriptor)
         elif node_id == "geodesic-bind":
             report = _analyze_geodesic_bind(descriptor, params)
+        elif node_id == "facial-rig-audit":
+            report = _analyze_facial_rig(descriptor, params)
+        elif node_id == "lip-sync-audit":
+            report = _analyze_facial_rig(descriptor, params, lip_sync_only=True)
+        elif node_id == "ik-solve":
+            report = _analyze_ik_solve(descriptor, params)
+        elif node_id == "mixamo-audit":
+            report = _analyze_mixamo(descriptor, params)
         else:
             report = _analyze_chirality(descriptor)
         progress(90, "Writing rigging evidence…")
@@ -754,6 +1090,15 @@ def main() -> None:
         elif node_id == "geodesic-bind":
             metadata["joint_count"] = report["summary"]["jointCount"]
             metadata["vertex_count"] = report["summary"]["vertexCount"]
+        elif node_id in {"facial-rig-audit", "lip-sync-audit"}:
+            metadata["blendshape_count"] = report["summary"]["blendShapeCount"]
+            metadata["viseme_count"] = report["summary"]["visemeCount"]
+        elif node_id == "ik-solve":
+            metadata["joint_count"] = report["summary"]["jointCount"]
+            metadata["end_error"] = report["summary"]["endError"]
+        elif node_id == "mixamo-audit":
+            metadata["bone_count"] = report["summary"]["boneCount"]
+            metadata["mixamo_ready"] = report["mixamoReady"]
         else:
             metadata["pair_count"] = report["pairCount"]
         emit({"type": "done", "result": {"text": json.dumps(report, ensure_ascii=False, indent=2), "metadata": metadata}})
