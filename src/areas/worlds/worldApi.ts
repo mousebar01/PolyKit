@@ -88,6 +88,7 @@ export async function resolveWorldAssets(
   options: {
     generateMissing?: boolean
     includeContext?: boolean
+    includeScatter?: boolean
     minLibraryScore?: number
     collection?: string
     enableTexture?: boolean
@@ -105,12 +106,29 @@ export async function resolveWorldAssets(
     {
       generate_missing: options.generateMissing ?? true,
       include_context: options.includeContext ?? false,
+      include_scatter: options.includeScatter ?? false,
       min_library_score: options.minLibraryScore ?? 3,
       collection: options.collection ?? 'WorldAssets',
       enable_texture: options.enableTexture ?? true,
       enable_optimize: options.enableOptimize ?? true,
       target_faces: options.targetFaces ?? 100_000,
     },
+  )
+  return data
+}
+
+
+export interface WorldResolutionRunStatus {
+  run_id: string
+  status: string
+  progress: number
+  step?: string
+  error?: string
+}
+
+export async function getWorldResolutionRunStatus(runId: string): Promise<WorldResolutionRunStatus> {
+  const { data } = await client().get<WorldResolutionRunStatus>(
+    `/runs/${encodeURIComponent(runId)}?compact=true`,
   )
   return data
 }
