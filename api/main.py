@@ -14,7 +14,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import agent_skills, export, legacy_generation, model, node_packs, node_types, optimize, production_recipes, settings, status, workflow_runs, workflow_store, workspace_library, workspace_worlds, world_artifacts
+from routers import (
+    agent_skills,
+    execution_runs,
+    export,
+    legacy_generation,
+    model,
+    node_packs,
+    node_types,
+    optimize,
+    production_recipes,
+    settings,
+    status,
+    workflow_runs,
+    workflow_store,
+    workspace_library,
+    workspace_worlds,
+    world_artifacts,
+)
 from services.runtime_paths import runtime_paths
 
 
@@ -36,6 +53,7 @@ class _StatusFilter(logging.Filter):
         message = record.getMessage()
         return (
             "/workflow-runs/" not in message
+            and "/runs/" not in message
             and "/generate/status/" not in message
             and "/system/resources" not in message
         )
@@ -46,7 +64,7 @@ logging.getLogger("uvicorn.access").addFilter(_StatusFilter())
 
 app = FastAPI(
     title="PolyKit API",
-    description="Headless PolyKit control plane for image-to-3D generation and workspace artifacts.",
+    description="Headless PolyKit control plane for generation, execution, Worlds, and workspace artifacts.",
     lifespan=lifespan,
 )
 
@@ -77,6 +95,8 @@ app.include_router(legacy_generation.router, prefix="/generate")
 app.include_router(optimize.router, prefix="/optimize")
 app.include_router(node_packs.router, prefix="/node-packs")
 app.include_router(export.router, prefix="/export")
+app.include_router(execution_runs.router)
+# Compatibility API while Web/CLI/Agent clients migrate to /runs and commands.
 app.include_router(workflow_runs.router, prefix="/workflow-runs")
 app.include_router(workflow_store.router)
 app.include_router(workspace_library.router)
