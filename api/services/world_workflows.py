@@ -1,10 +1,11 @@
-"""Compile world-domain operations into canonical Workflow Engine requests."""
+"""Compile world-domain operations into canonical execution plans."""
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
+from schemas.execution import ExecutionNode, ExecutionPlan, ExecutionSource
+from schemas.workflow import WorkflowExecutionRequest
 from services.world_store import WorldStoreError
 from services.workspace_paths import normalize_collection
 
@@ -66,15 +67,15 @@ def _structure_params(building: Mapping[str, Any], *, render_preview: bool) -> d
     return result
 
 
-def build_structure_workflow(
+def compile_structure_plan(
     world: Mapping[str, Any],
     *,
     world_id: str,
     building_id: str | None = None,
     collection: str = "Scenes",
     render_preview: bool = True,
-) -> WorkflowExecutionRequest:
-    """Compile one BuildSpec building into text → Blender → GLB."""
+) -> ExecutionPlan:
+    """Compile one World BuildSpec building into an executable plan."""
 
     runtime = _runtime(world)
     building = _first_building(runtime, building_id)
@@ -85,20 +86,22 @@ def build_structure_workflow(
     params = _structure_params(building, render_preview=render_preview)
 
     nodes = {
-        "brief": WorkflowExecutionNode(
+        "brief": ExecutionNode(
             class_type="polykit.text",
             inputs={"text": brief},
         ),
-        "build": WorkflowExecutionNode(
+        "build": ExecutionNode(
             class_type="blender-scene/build",
             inputs={"text": ["brief", "text"], "params": params},
         ),
-        "output": WorkflowExecutionNode(
+        "output": ExecutionNode(
             class_type="polykit.output",
             inputs={"mesh": ["build", "mesh"]},
         ),
     }
-    return WorkflowExecutionRequest(
+    return ExecutionPlan(
+        source=ExecutionSource(kind="world", id=world_id),
+        # Retained until legacy WorkflowExecutionRequest callers are migrated.
         workflow_id="building-construction",
         prompt=nodes,
         output_node_id="output",
@@ -112,4 +115,24 @@ def build_structure_workflow(
     )
 
 
-__all__ = ["build_structure_workflow"]
+def build_structure_workflow(
+    world: Mapping[str, Any],
+    *,
+    world_id: str,
+    building_id: str | None = None,
+    collection: str = "Scenes",
+    render_preview: bool = True,
+) -> WorkflowExecutionRequest:
+    """Compatibility wrapper for callers that still expect a workflow request."""
+
+    plan = compile_structure_plan(
+        world,
+        world_id=world_id,
+        building_id=building_id,
+        collection=collection,
+        render_preview=render_preview,
+    )
+    return WorkflowExecutionRequest.model_validate(plan.model_dump(mode="python"))
+
+
+__all__ = ["build_structure_workflow", "compile_structure_plan"]
