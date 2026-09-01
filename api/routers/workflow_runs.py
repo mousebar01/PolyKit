@@ -1,57 +1,47 @@
 import asyncio
 import json
 import traceback
-import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from schemas.generation import JobStatus
-from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
+from application.execution import prepare_execution_run
+from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
+from schemas.execution import ExecutionInitiator, ExecutionPlan, ExecutionSource
+from schemas.workflow import WorkflowExecutionRequest
+from services.execution_engine import ExecutionEngine, ExecutionWait
 from services.image_generation import enqueue_generation_job, texture_refiner_id, workspace_url
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
 from services.run_observability import (
     finalize_workflow_run,
-    init_workflow_observability,
     inspect_workflow_run,
     mark_workflow_run_started,
     observe_workflow_checkpoint,
 )
-from services.node_catalog import is_known
 from services.process_runner import ProcessExecutionError
-from services.workflow_engine import WorkflowEngine, WorkflowWait
 from services.workflow_execution import (
     current_waiting,
     execution_summary,
-    initialize_workflow_execution,
     load_workflow_execution_request,
     mark_current_step_failed,
     prepare_execution_resume,
     submit_signal,
 )
-from services.workflow_executor import (
-    SINK_NODES,
-    WorkflowError,
-    select_execution_prompt,
-    topological_order,
-    validate_prompt_links,
-)
+from services.workflow_executor import WorkflowError
 from services.runtime_paths import runtime_paths
 from services.workspace_paths import normalize_collection
 
 router = APIRouter(tags=["workflow-runs"])
 
 
-def _require_known_class_type(class_type: str) -> None:
-    """Reject unknown nodes at submit time so users get a 400, not a failed run."""
-    if not is_known(class_type):
-        raise ValueError(f"Unknown executable node '{class_type}'")
-
-
 async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> None:
-    """Execute or resume a workflow DAG in the shared single-GPU server job slot."""
+    """Execute or resume a canonical plan in the shared single-GPU server slot.
+
+    The function name remains for compatibility with startup recovery and older
+    imports. New scheduling code should think in terms of ExecutionPlan/Run.
+    """
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, run_coordinator.generation_lock.acquire)
     run_coordinator.set_active(job_id)
@@ -73,7 +63,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
             observe_workflow_checkpoint(job)
             run_coordinator.persist(job)
 
-        engine = WorkflowEngine()
+        engine = ExecutionEngine()
         result = await engine.run(
             job_id=job_id,
             request=request,
@@ -85,7 +75,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
 
         if run_coordinator.is_cancelled(job_id):
             return
-        if isinstance(result, WorkflowWait):
+        if isinstance(result, ExecutionWait):
             job.status = "waiting"
             job.step = f"Waiting for signal '{result.signal_name}'"
             job.error = None
@@ -94,11 +84,11 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
 
         final_artifact = result
         if final_artifact is None or not final_artifact.exists():
-            raise WorkflowError("Workflow completed without an output artifact")
+            raise WorkflowError("Execution completed without an output artifact")
 
         job.status = "done"
         job.progress = 100
-        job.step = "Workflow complete"
+        job.step = "Execution complete"
         job.output_url = workspace_url(final_artifact, collection)
         finalize_workflow_run(job, status="done", output_url=job.output_url)
         run_coordinator.mark_completed(job)
@@ -122,7 +112,7 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
         if run_coordinator.is_cancelled(job_id):
             return
         tb = traceback.format_exc()
-        msg = f"[Workflow ERROR] {exc}\n{tb}"
+        msg = f"[Execution ERROR] {exc}\n{tb}"
         try:
             print(msg)
         except UnicodeEncodeError:
@@ -142,10 +132,12 @@ async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> N
                 from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
                 prewarm_thumbnail(thumbnail_workspace_path, thumbnail_target, _LIBRARY_SIZE)
             except Exception as exc:
-                print(f"[Thumbnails] workflow prewarm could not be queued: {exc}")
+                print(f"[Thumbnails] execution prewarm could not be queued: {exc}")
 
 
 class WorkflowRunStatus(BaseModel):
+    """Compatibility response name for the canonical Run status."""
+
     run_id: str
     status: str
     progress: int = 0
@@ -161,95 +153,16 @@ class WorkflowSignalRequest(BaseModel):
     payload: Any = None
 
 
-class TextToAssetRequest(BaseModel):
-    """Convenience compiler for the reference project's text-to-asset chain."""
-
-    prompt: str = Field(min_length=1, max_length=20_000)
-    image_model_id: str = "anima/generate"
-    mesh_model_id: str = "trellis2/generate"
-    enable_texture: bool = True
-    enable_optimize: bool = True
-    target_faces: int = Field(default=100_000, ge=100, le=1_000_000)
-    collection: str = "Workflows"
-    workflow_id: Optional[str] = None
-    world_id: Optional[str] = None
-    proto_id: Optional[str] = None
-    image_params: dict = Field(default_factory=dict)
-    mesh_params: dict = Field(default_factory=dict)
-    texture_params: dict = Field(default_factory=dict)
+class TextToAssetRequest(GenerateAssetCommand):
+    """Compatibility request name for the shared GenerateAsset command."""
 
 
 def build_text_to_asset_workflow(request: TextToAssetRequest) -> WorkflowExecutionRequest:
-    """Build a typed DAG without executing or hiding any model decisions."""
+    """Compatibility compiler backed by the canonical GenerateAsset command."""
 
-    image_params = dict(request.image_params)
-    image_params.setdefault("filename_stem", "scene-asset")
-    mesh_params = dict(request.mesh_params)
-    mesh_params.setdefault("remesh", "none")
-    mesh_params.setdefault("enable_texture", False)
-    nodes = {
-        "text": WorkflowExecutionNode(
-            class_type="polykit.text",
-            inputs={"text": request.prompt},
-        ),
-        "image": WorkflowExecutionNode(
-            class_type=request.image_model_id,
-            inputs={"text": ["text", "text"], "params": image_params},
-        ),
-        "cutout": WorkflowExecutionNode(
-            class_type="image-background-remover/remove-background",
-            inputs={
-                "image": ["image", "image"],
-                "params": {"model": "isnet-anime"},
-            },
-        ),
-        "mesh": WorkflowExecutionNode(
-            class_type=request.mesh_model_id,
-            inputs={"image": ["cutout", "image"], "params": mesh_params},
-        ),
-    }
-    final_node_id = "mesh"
-    if request.enable_texture:
-        texture_params = dict(request.texture_params)
-        texture_params.setdefault("texture_resolution", 1024)
-        texture_params.setdefault("texture_size", 2048)
-        texture_params.setdefault("texture_steps", 12)
-        nodes["texture"] = WorkflowExecutionNode(
-            class_type="trellis2/refine",
-            inputs={
-                "image": ["cutout", "image"],
-                "mesh": ["mesh", "mesh"],
-                "params": texture_params,
-            },
-        )
-        final_node_id = "texture"
-    if request.enable_optimize:
-        nodes["optimize"] = WorkflowExecutionNode(
-            class_type="mesh-optimizer/optimize",
-            inputs={
-                "mesh": [final_node_id, "mesh"],
-                "params": {"target_faces": request.target_faces},
-            },
-        )
-        final_node_id = "optimize"
-    nodes["output"] = WorkflowExecutionNode(
-        class_type="polykit.output",
-        inputs={"mesh": [final_node_id, "mesh"]},
-    )
-    return WorkflowExecutionRequest(
-        workflow_id=request.workflow_id,
-        prompt=nodes,
-        output_node_id="output",
-        collection=request.collection,
-        metadata={
-            key: value
-            for key, value in {
-                "world_id": request.world_id,
-                "proto_id": request.proto_id,
-            }.items()
-            if isinstance(value, str) and value.strip()
-        },
-    )
+    command = GenerateAssetCommand.model_validate(request.model_dump(mode="python"))
+    plan = compile_generate_asset_plan(command)
+    return WorkflowExecutionRequest.model_validate(plan.model_dump(mode="python"))
 
 
 @router.post("/from-image")
@@ -267,7 +180,12 @@ async def create_run_from_image(
     world_id: str = Form(""),
     proto_id: str = Form(""),
 ):
-    """Canonical single-image generation entry point."""
+    """Compatibility multipart entry point for manual single-image generation.
+
+    Multipart upload transport still uses the proven direct image runner. New
+    JSON/manual/Agent generation should use /commands/generate-asset; a later
+    migration can materialize multipart uploads into ExecutionPlan inputs.
+    """
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
     if remesh not in ("quad", "triangle", "none"):
@@ -308,6 +226,8 @@ async def create_run_from_image(
         }.items()
         if value
     }
+    metadata["initiator"] = {"type": "user", "surface": "assets.generate.image"}
+    metadata["execution_source"] = {"kind": "direct", "id": "assets.generate.image"}
 
     image_bytes = await image.read()
     job_id = enqueue_generation_job(
@@ -326,51 +246,29 @@ async def execute_workflow(
     request: WorkflowExecutionRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Accept compiled workflow JSON and enqueue its generic DAG execution."""
+    """Compatibility submit endpoint backed by the generic Application layer."""
+
+    plan = ExecutionPlan.model_validate(request.model_dump(mode="python"))
+    if plan.source is None:
+        plan = plan.model_copy(
+            update={
+                "source": ExecutionSource(kind="workflow", id=request.workflow_id),
+            }
+        )
     try:
-        if request.schema_version != 1:
-            raise ValueError(f"Unsupported workflow execution schema: {request.schema_version}")
-        collection = normalize_collection(request.collection or "Workflows")
-        execution_prompt = select_execution_prompt(request)
-        order = topological_order(execution_prompt)
-        for node in execution_prompt.values():
-            _require_known_class_type(node.class_type)
-        if request.output_node_id is not None:
-            output_node = request.prompt.get(request.output_node_id)
-            if output_node is None or output_node.class_type not in SINK_NODES:
-                raise ValueError("output_node_id must point to an output or preview sink")
-        if not any(execution_prompt[node_id].class_type in SINK_NODES for node_id in order):
-            raise ValueError("Workflow must include an output or preview sink")
-        validate_prompt_links(request, execution_prompt)
+        prepared = prepare_execution_run(
+            plan,
+            initiator=ExecutionInitiator(type="system", surface="workflow-runs.execute"),
+        )
     except (KeyError, ValueError, OSError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    run_coordinator.purge_old_jobs()
-    job_id = str(uuid.uuid4())
-    job = JobStatus(
-        job_id=job_id,
-        status="pending",
-        progress=0,
-        meta={
-            "workflow_id": request.workflow_id,
-            "collection": collection,
-            **(
-                {"workflow_metadata": dict(request.metadata)}
-                if request.metadata
-                else {}
-            ),
-        },
-    )
-    initialize_workflow_execution(job, request, order, workspace_root=runtime_paths.workspace)
-    init_workflow_observability(job, request, execution_prompt, order)
-    run_coordinator.register(job)
-    model_runtime_registry.begin_generation(job_id)
-    background_tasks.add_task(_run_workflow_dag, job_id, request)
+    background_tasks.add_task(_run_workflow_dag, prepared.run_id, prepared.request)
     return {
-        "run_id": job_id,
+        "run_id": prepared.run_id,
         "status": "pending",
-        "workflow_id": request.workflow_id,
-        "queued_nodes": len(execution_prompt),
+        "workflow_id": prepared.request.workflow_id,
+        "queued_nodes": prepared.queued_nodes,
     }
 
 
@@ -390,12 +288,12 @@ def _queue_existing_run(job_id: str, request: WorkflowExecutionRequest, backgrou
 
 @router.post("/{run_id}/signals")
 async def signal_run(run_id: str, signal: WorkflowSignalRequest, background_tasks: BackgroundTasks):
-    """Deliver the expected signal and resume the same durable WorkflowRun."""
+    """Deliver the expected signal and resume the same durable Run."""
     job = run_coordinator.jobs.get(run_id)
     if job is None:
         raise HTTPException(404, f"Run {run_id} not found")
     if job.status != "waiting":
-        raise HTTPException(409, "WorkflowRun is not waiting for a signal")
+        raise HTTPException(409, "Run is not waiting for a signal")
     try:
         accepted = submit_signal(job, name=signal.name, payload=signal.payload)
         request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
@@ -413,7 +311,7 @@ async def retry_run(run_id: str, background_tasks: BackgroundTasks):
     if job is None:
         raise HTTPException(404, f"Run {run_id} not found")
     if job.status not in {"error", "interrupted"}:
-        raise HTTPException(409, "Only failed or interrupted WorkflowRuns can be retried")
+        raise HTTPException(409, "Only failed or interrupted Runs can be retried")
     try:
         request = load_workflow_execution_request(job, workspace_root=runtime_paths.workspace)
     except ValueError as exc:
@@ -422,10 +320,10 @@ async def retry_run(run_id: str, background_tasks: BackgroundTasks):
 
 
 async def recover_interrupted_workflow_runs() -> None:
-    """Requeue interrupted canonical workflows after FastAPI startup.
+    """Requeue interrupted durable executions after FastAPI startup.
 
-    Legacy image-generation jobs have no durable workflow execution snapshot and
-    remain interrupted instead of being guessed/replayed.
+    Legacy multipart image-generation jobs have no durable execution snapshot
+    and remain interrupted instead of being guessed or replayed.
     """
     for job in list(run_coordinator.jobs.values()):
         if job.status != "interrupted":
@@ -440,7 +338,7 @@ async def recover_interrupted_workflow_runs() -> None:
         run_coordinator.ensure_cancel_event(job.job_id)
         job.status = "pending"
         job.error = None
-        job.step = "Recovering interrupted workflow"
+        job.step = "Recovering interrupted execution"
         run_coordinator.persist(job)
         model_runtime_registry.begin_generation(job.job_id)
         asyncio.create_task(_run_workflow_dag(job.job_id, request))
@@ -451,7 +349,7 @@ async def create_text_to_asset_run(
     request: TextToAssetRequest,
     background_tasks: BackgroundTasks,
 ):
-    """Submit text → illustration → cutout → mesh → texture as one DAG."""
+    """Compatibility alias for the shared GenerateAsset command."""
 
     workflow = build_text_to_asset_workflow(request)
     return await execute_workflow(workflow, background_tasks)
