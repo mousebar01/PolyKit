@@ -19,3 +19,12 @@ Y-up/right-handed coordinates, one rooted parent array, unique joint names,
 affine local matrices, and four-slot finite non-negative skin weights that sum
 to one. It reports unweighted joints as warnings so attachment-only bones are
 not mistaken for failures.
+
+`rigging-evidence/geodesic-bind` generates four-slot normalized skin weights
+from a JSON mesh plus bone segments. It voxelizes the closed mesh, propagates
+distance through the solid with 26-neighbour Dijkstra, and reports unreachable
+vertices/bones instead of silently hiding broken connectivity. Optional
+`components` and per-vertex `vertexComponents` pin rigid roles such as hair,
+decals, and panels to an ancestor joint. Resolution and falloff power are
+explicit parameters, and the output remains reviewable JSON rather than an
+opaque black-box bind.

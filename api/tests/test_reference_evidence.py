@@ -386,6 +386,57 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(report["layout"]["columns"], 2)
             self.assertEqual(result["metadata"]["evidence_kind"], "multi-view-evidence")
 
+    def test_turntable_gate_requires_ordered_views_and_detects_enclosed_hole(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            views = []
+            for index in range(4):
+                path = root / f"view-{index}.png"
+                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+                for x in range(12, 52):
+                    for y in range(10, 54):
+                        image.putpixel((x, y), (210, 100, 70, 255))
+                image.save(path)
+                views.append(path)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            passed = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(path) for path in views]},
+                {"_node_id": "turntable-gate", "required_azimuths": "0,90,180,270"},
+                str(workspace),
+                str(temp),
+            )
+            pass_report = json.loads(str(passed["text"]))
+            self.assertEqual(pass_report["kind"], "polykit.turntable-gate")
+            self.assertEqual(pass_report["status"], "pass")
+            self.assertEqual(pass_report["requiredAzimuths"], [0.0, 90.0, 180.0, 270.0])
+            self.assertEqual(len(pass_report["captures"]), 4)
+
+            hole = root / "hole.png"
+            hole_image = Image.open(views[0]).convert("RGBA")
+            for x in range(27, 38):
+                for y in range(26, 38):
+                    hole_image.putpixel((x, y), (0, 0, 0, 0))
+            hole_image.save(hole)
+            failed = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(views[0]), str(hole), str(views[2]), str(views[3])]},
+                {"_node_id": "turntable-gate"},
+                str(workspace),
+                str(temp),
+            )
+            fail_report = json.loads(str(failed["text"]))
+            self.assertEqual(fail_report["status"], "fail")
+            self.assertTrue(any("hole" in failure for failure in fail_report["failures"]))
+            hole_capture = fail_report["captures"][1]
+            self.assertGreater(hole_capture["holes"]["interiorHolePixelCount"], 4)
+
     def test_material_region_emits_localized_palette_and_pbr_gates(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

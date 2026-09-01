@@ -7,8 +7,10 @@ parent, bone, or transform relationship.
 from __future__ import annotations
 
 import json
+import heapq
 import math
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +21,15 @@ DEFAULT_MAX_OFFSET = 0.3
 ANCHOR_SIZE_FRACTION = 0.25
 RIG_WEIGHT_TOLERANCE = 1e-4
 RIG_MAX_INFLUENCES = 4
+GEODESIC_MAX_RESOLUTION = 96
+GEODESIC_RIGID_ROLES = frozenset({"hair", "detail", "decal", "panel"})
+GEODESIC_NEIGHBOURS = [
+    (dx, dy, dz, math.sqrt(dx * dx + dy * dy + dz * dz))
+    for dx in (-1, 0, 1)
+    for dy in (-1, 0, 1)
+    for dz in (-1, 0, 1)
+    if (dx, dy, dz) != (0, 0, 0)
+]
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -35,6 +46,14 @@ def error(message: str) -> None:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
 
 
 def _xyz(value: Any) -> bool:
@@ -329,6 +348,278 @@ def _analyze_rig_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _geodesic_triangles(indices: Any) -> list[tuple[int, int, int]]:
+    if not isinstance(indices, list):
+        raise ValueError("mesh.indices must be a list")
+    if indices and isinstance(indices[0], (list, tuple)):
+        triangles = []
+        for index, triangle in enumerate(indices):
+            if len(triangle) != 3:
+                raise ValueError(f"mesh.indices[{index}] must contain three vertex indices")
+            triangles.append((int(triangle[0]), int(triangle[1]), int(triangle[2])))
+        return triangles
+    if len(indices) < 3 or len(indices) % 3:
+        raise ValueError("mesh.indices must contain complete triangles")
+    return [(int(indices[index]), int(indices[index + 1]), int(indices[index + 2])) for index in range(0, len(indices), 3)]
+
+
+class _GeodesicVoxelGrid:
+    """A padded voxel solid used to route distance through the mesh volume."""
+
+    def __init__(self, vertices: list[list[float]], faces: list[tuple[int, int, int]], resolution: int):
+        low = [min(vertex[axis] for vertex in vertices) for axis in range(3)]
+        high = [max(vertex[axis] for vertex in vertices) for axis in range(3)]
+        extent = max(high[axis] - low[axis] for axis in range(3)) or 1.0
+        self.step = extent / resolution
+        self.low = [low[axis] - self.step for axis in range(3)]
+        self.dims = [int(math.ceil((high[axis] - low[axis]) / self.step)) + 3 for axis in range(3)]
+        self.surface: set[tuple[int, int, int]] = set()
+        for face in faces:
+            self._rasterize(vertices, face)
+        self.solid = self._fill_interior()
+
+    def index_of(self, point: list[float] | tuple[float, float, float]) -> tuple[int, int, int]:
+        return tuple(  # type: ignore[return-value]
+            min(self.dims[axis] - 1, max(0, int((float(point[axis]) - self.low[axis]) / self.step)))
+            for axis in range(3)
+        )
+
+    def _rasterize(self, vertices: list[list[float]], face: tuple[int, int, int]) -> None:
+        try:
+            p0, p1, p2 = (vertices[index] for index in face)
+        except (IndexError, TypeError) as exc:
+            raise ValueError(f"mesh face references an invalid vertex: {face}") from exc
+        longest = max(math.dist(p0, p1), math.dist(p1, p2), math.dist(p2, p0))
+        steps = max(1, int(math.ceil(longest / (self.step * 0.5))))
+        for first in range(steps + 1):
+            for second in range(steps + 1 - first):
+                a = first / steps
+                b = second / steps
+                c = 1.0 - a - b
+                point = [p0[axis] * c + p1[axis] * a + p2[axis] * b for axis in range(3)]
+                self.surface.add(self.index_of(point))
+
+    def _fill_interior(self) -> set[tuple[int, int, int]]:
+        outside: set[tuple[int, int, int]] = set()
+        start = (0, 0, 0)
+        queue = deque([start])
+        outside.add(start)
+        while queue:
+            x, y, z = queue.popleft()
+            for dx, dy, dz, _cost in GEODESIC_NEIGHBOURS:
+                cell = (x + dx, y + dy, z + dz)
+                if not all(0 <= cell[axis] < self.dims[axis] for axis in range(3)):
+                    continue
+                if cell in outside or cell in self.surface:
+                    continue
+                outside.add(cell)
+                queue.append(cell)
+        solid = set(self.surface)
+        for x in range(self.dims[0]):
+            for y in range(self.dims[1]):
+                for z in range(self.dims[2]):
+                    cell = (x, y, z)
+                    if cell not in outside:
+                        solid.add(cell)
+        return solid
+
+
+def _geodesic_segment_voxels(grid: _GeodesicVoxelGrid, start: list[float], end: list[float]) -> set[tuple[int, int, int]]:
+    length = math.dist(start, end)
+    steps = max(1, int(math.ceil(length / (grid.step * 0.5))))
+    return {
+        grid.index_of([start[axis] + (end[axis] - start[axis]) * index / steps for axis in range(3)])
+        for index in range(steps + 1)
+    }
+
+
+def _geodesic_field(grid: _GeodesicVoxelGrid, sources: set[tuple[int, int, int]]) -> dict[tuple[int, int, int], float]:
+    distances: dict[tuple[int, int, int], float] = {}
+    heap: list[tuple[float, tuple[int, int, int]]] = []
+    for cell in sources:
+        if cell in grid.solid:
+            distances[cell] = 0.0
+            heap.append((0.0, cell))
+    heapq.heapify(heap)
+    while heap:
+        current, cell = heapq.heappop(heap)
+        if current > distances.get(cell, float("inf")):
+            continue
+        x, y, z = cell
+        for dx, dy, dz, cost in GEODESIC_NEIGHBOURS:
+            neighbour = (x + dx, y + dy, z + dz)
+            if neighbour not in grid.solid:
+                continue
+            candidate = current + cost
+            if candidate < distances.get(neighbour, float("inf")):
+                distances[neighbour] = candidate
+                heapq.heappush(heap, (candidate, neighbour))
+    return distances
+
+
+def _geodesic_euclidean_distance(point: list[float], start: list[float], end: list[float]) -> float:
+    direction = [end[axis] - start[axis] for axis in range(3)]
+    offset = [point[axis] - start[axis] for axis in range(3)]
+    denominator = sum(value * value for value in direction)
+    factor = 0.0 if denominator <= 1e-12 else max(0.0, min(1.0, sum(offset[axis] * direction[axis] for axis in range(3)) / denominator))
+    closest = [start[axis] + direction[axis] * factor for axis in range(3)]
+    return math.dist(point, closest)
+
+
+def _geodesic_partition(components: Any) -> tuple[dict[str, str], list[str]]:
+    if not isinstance(components, list):
+        return {}, []
+    by_id = {str(item.get("id")): item for item in components if isinstance(item, dict) and item.get("id")}
+    warnings: list[str] = []
+    rigid: dict[str, str] = {}
+    for component in by_id.values():
+        component_id = str(component["id"])
+        if str(component.get("role") or "").lower() not in GEODESIC_RIGID_ROLES:
+            continue
+        parent = component.get("parent")
+        seen: set[str] = set()
+        joint = None
+        while isinstance(parent, str) and parent in by_id and parent not in seen:
+            seen.add(parent)
+            ancestor = by_id[parent]
+            if str(ancestor.get("role") or "").lower() not in GEODESIC_RIGID_ROLES:
+                joint = parent
+                break
+            parent = ancestor.get("parent")
+        if joint is None:
+            warnings.append(f"component {component_id!r} has a rigid role but no skinned ancestor")
+        else:
+            rigid[component_id] = joint
+    return rigid, warnings
+
+
+def _analyze_geodesic_bind(payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    mesh = payload.get("mesh") if isinstance(payload.get("mesh"), dict) else payload
+    raw_vertices = mesh.get("vertices") if isinstance(mesh, dict) else None
+    raw_indices = mesh.get("indices") if isinstance(mesh, dict) else None
+    if not isinstance(raw_vertices, list) or not raw_vertices:
+        raise ValueError("mesh.vertices must be a non-empty list")
+    vertices: list[list[float]] = []
+    for index, raw_vertex in enumerate(raw_vertices):
+        if not isinstance(raw_vertex, list) or len(raw_vertex) != 3 or not all(_is_number(value) for value in raw_vertex):
+            raise ValueError(f"mesh.vertices[{index}] must be a finite length-3 point")
+        vertices.append([float(value) for value in raw_vertex])
+    faces = _geodesic_triangles(raw_indices)
+    if not faces:
+        raise ValueError("mesh.indices must describe at least one triangle")
+    bones_raw = payload.get("bones")
+    if not isinstance(bones_raw, list) or not bones_raw:
+        raise ValueError("bones must be a non-empty list")
+    bones: list[dict[str, Any]] = []
+    seen_bones: set[str] = set()
+    for index, raw_bone in enumerate(bones_raw):
+        if not isinstance(raw_bone, dict) or not isinstance(raw_bone.get("id"), str) or not str(raw_bone["id"]).strip():
+            raise ValueError(f"bones[{index}].id must be a non-empty string")
+        bone_id = str(raw_bone["id"])
+        if bone_id in seen_bones:
+            raise ValueError(f"duplicate bone id: {bone_id}")
+        seen_bones.add(bone_id)
+        joint = raw_bone.get("jointPos")
+        tip = raw_bone.get("tipPos")
+        if not isinstance(joint, list) or len(joint) != 3 or not all(_is_number(value) for value in joint):
+            raise ValueError(f"bones[{index}].jointPos must be a finite length-3 point")
+        if not isinstance(tip, list) or len(tip) != 3 or not all(_is_number(value) for value in tip):
+            raise ValueError(f"bones[{index}].tipPos must be a finite length-3 point")
+        bones.append({"id": bone_id, "jointPos": [float(value) for value in joint], "tipPos": [float(value) for value in tip]})
+    resolution = _bounded_int(params.get("resolution", payload.get("resolution", 24)), 24, 8, GEODESIC_MAX_RESOLUTION)
+    try:
+        falloff = float(params.get("falloff_power", payload.get("falloffPower", 3.0)) or 3.0)
+    except (TypeError, ValueError):
+        falloff = 3.0
+    falloff = max(0.5, min(8.0, falloff))
+    grid = _GeodesicVoxelGrid(vertices, faces, resolution)
+    fields: list[dict[tuple[int, int, int], float]] = []
+    unreachable_bones: list[str] = []
+    for bone in bones:
+        field = _geodesic_field(grid, _geodesic_segment_voxels(grid, bone["jointPos"], bone["tipPos"]))
+        if not field:
+            unreachable_bones.append(str(bone["id"]))
+        fields.append(field)
+    skin_indices: list[list[int]] = []
+    skin_weights: list[list[float]] = []
+    unreachable_vertices = 0
+    for vertex in vertices:
+        cell = grid.index_of(vertex)
+        scored: list[tuple[float, int]] = []
+        for bone_index, field in enumerate(fields):
+            distance = field.get(cell)
+            if distance is not None:
+                scored.append((1.0 / max(distance, 0.5) ** falloff, bone_index))
+        if not scored:
+            unreachable_vertices += 1
+            skin_indices.append([0, 0, 0, 0])
+            skin_weights.append([1.0, 0.0, 0.0, 0.0])
+            continue
+        scored.sort(reverse=True)
+        kept = scored[:RIG_MAX_INFLUENCES]
+        total = sum(weight for weight, _bone_index in kept) or 1.0
+        row_indices = [0, 0, 0, 0]
+        row_weights = [0.0, 0.0, 0.0, 0.0]
+        for slot, (weight, bone_index) in enumerate(kept):
+            row_indices[slot] = bone_index
+            row_weights[slot] = weight / total
+        skin_indices.append(row_indices)
+        skin_weights.append(row_weights)
+
+    rigid_targets, partition_warnings = _geodesic_partition(payload.get("components"))
+    owners = mesh.get("vertexComponents") if isinstance(mesh, dict) else None
+    rigid_pinned = 0
+    bone_slots = {bone["id"]: index for index, bone in enumerate(bones)}
+    if rigid_targets and not isinstance(owners, list):
+        partition_warnings.append("rigid components were detected but mesh.vertexComponents is missing; no vertices were repinned")
+    elif rigid_targets and isinstance(owners, list) and len(owners) != len(vertices):
+        partition_warnings.append("mesh.vertexComponents must contain one component id per vertex; no vertices were repinned")
+    elif rigid_targets and isinstance(owners, list):
+        for index, owner in enumerate(owners):
+            target = rigid_targets.get(str(owner))
+            slot = bone_slots.get(target) if target else None
+            if slot is None:
+                continue
+            skin_indices[index] = [slot, 0, 0, 0]
+            skin_weights[index] = [1.0, 0.0, 0.0, 0.0]
+            rigid_pinned += 1
+    max_weight_error = max((abs(sum(row) - 1.0) for row in skin_weights), default=0.0)
+    warnings = list(partition_warnings)
+    if unreachable_bones:
+        warnings.append("one or more bones did not reach the voxel solid")
+    if unreachable_vertices:
+        warnings.append("unreachable vertices were pinned to bone 0 for deterministic output; inspect mesh connectivity")
+    status = "pass" if not unreachable_bones and not unreachable_vertices else "needs_review"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.geodesic-bind",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "passed": status == "pass",
+        "boneOrder": [bone["id"] for bone in bones],
+        "skinIndices": skin_indices,
+        "skinWeights": [[round(weight, 9) for weight in row] for row in skin_weights],
+        "summary": {
+            "vertexCount": len(vertices),
+            "triangleCount": len(faces),
+            "jointCount": len(bones),
+            "resolution": resolution,
+            "falloffPower": round(falloff, 6),
+            "solidVoxelCount": len(grid.solid),
+            "surfaceVoxelCount": len(grid.surface),
+            "unreachableVertexCount": unreachable_vertices,
+            "unreachableBones": unreachable_bones,
+            "rigidPinnedVertexCount": rigid_pinned,
+            "maxWeightError": round(max_weight_error, 12),
+        },
+        "warnings": warnings,
+        "reviewNotes": [
+            "Distances are propagated through the voxelized solid, so nearby limbs separated by air do not exchange weights through the gap.",
+            "Hair, decals, panels, and other rigid-role components should be supplied with vertexComponents so they can be pinned to an ancestor joint instead of smooth-skinned.",
+        ],
+    }
+
+
 def _chirality_point(value: Any, label: str, errors: list[str]) -> tuple[float, float, float] | None:
     if not isinstance(value, list) or len(value) != 3 or not all(_is_number(item) for item in value):
         errors.append(f"{label} must be a finite length-3 point")
@@ -438,7 +729,7 @@ def main() -> None:
             return
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "attachment-anchor-audit")
-        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit"}:
+        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit", "geodesic-bind"}:
             error(f"rigging-evidence: unsupported node '{node_id}'")
             return
         descriptor = json.loads(text)
@@ -449,6 +740,8 @@ def main() -> None:
             report = _analyze(descriptor)
         elif node_id == "rig-payload-audit":
             report = _analyze_rig_payload(descriptor)
+        elif node_id == "geodesic-bind":
+            report = _analyze_geodesic_bind(descriptor, params)
         else:
             report = _analyze_chirality(descriptor)
         progress(90, "Writing rigging evidence…")
@@ -458,6 +751,9 @@ def main() -> None:
             metadata["attachment_count"] = report["attachmentCount"]
         elif node_id == "rig-payload-audit":
             metadata["joint_count"] = report["summary"]["jointCount"]
+        elif node_id == "geodesic-bind":
+            metadata["joint_count"] = report["summary"]["jointCount"]
+            metadata["vertex_count"] = report["summary"]["vertexCount"]
         else:
             metadata["pair_count"] = report["pairCount"]
         emit({"type": "done", "result": {"text": json.dumps(report, ensure_ascii=False, indent=2), "metadata": metadata}})

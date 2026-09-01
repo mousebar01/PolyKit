@@ -79,6 +79,12 @@ the hairline against a candidate render. The gate deliberately remains a soft
 so a geometric scalp-exposure report is still required for a hard bald-patch
 check.
 
+`reference-evidence/turntable-gate` consumes ordered orbit captures (front,
+right, back, left by default). It makes missing/degenerate views and silhouette
+area collapse explicit failures, and flood-fills each mask to detect background
+holes enclosed by the silhouette. Legitimate openings can be allowed explicitly
+while the raw hole measurements remain in the report.
+
 `reference-evidence/detail-inventory` accepts an image and produces:
 
 - a normal PNG image artifact with a 2×2 through 5×5 review grid;

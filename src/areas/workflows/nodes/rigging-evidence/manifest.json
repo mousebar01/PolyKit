@@ -47,6 +47,21 @@
         "en-US": { "name": "Chirality Audit" }
       },
       "params_schema": []
+    },
+    {
+      "id": "geodesic-bind",
+      "name": "Geodesic Skin Bind",
+      "input": "text",
+      "output": "text",
+      "description": "Generates normalized four-slot skin weights by propagating bone distance through the mesh solid instead of across air gaps.",
+      "i18n": {
+        "zh-CN": { "name": "测地线蒙皮绑定" },
+        "en-US": { "name": "Geodesic Skin Bind" }
+      },
+      "params_schema": [
+        { "id": "resolution", "label": "Voxel Resolution", "type": "int", "default": 24, "min": 8, "max": 96, "tooltip": "Largest axis voxel resolution used for the solid distance field." },
+        { "id": "falloff_power", "label": "Falloff Power", "type": "float", "default": 3.0, "min": 0.5, "max": 8.0, "tooltip": "Higher values keep influence tighter around each bone." }
+      ]
     }
   ]
 }

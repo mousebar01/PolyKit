@@ -1869,6 +1869,123 @@ def _run_multi_view_evidence(input_paths: list[Path], workspace_dir: Path, param
     }
 
 
+def _turntable_holes(mask: list[bool], size: int = 96) -> dict[str, Any]:
+    """Find background components enclosed by a foreground silhouette."""
+    total = size * size
+    reached = [False] * total
+    stack: list[int] = []
+    for x in range(size):
+        for y in (0, size - 1):
+            index = y * size + x
+            if not mask[index] and not reached[index]:
+                reached[index] = True
+                stack.append(index)
+    for y in range(size):
+        for x in (0, size - 1):
+            index = y * size + x
+            if not mask[index] and not reached[index]:
+                reached[index] = True
+                stack.append(index)
+    while stack:
+        index = stack.pop()
+        x, y = index % size, index // size
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if 0 <= nx < size and 0 <= ny < size:
+                neighbour = ny * size + nx
+                if not mask[neighbour] and not reached[neighbour]:
+                    reached[neighbour] = True
+                    stack.append(neighbour)
+    visited = [False] * total
+    holes = 0
+    largest = 0
+    for start in range(total):
+        if mask[start] or reached[start] or visited[start]:
+            continue
+        component = [start]
+        visited[start] = True
+        size_of_component = 0
+        while component:
+            index = component.pop()
+            size_of_component += 1
+            x, y = index % size, index // size
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= nx < size and 0 <= ny < size:
+                    neighbour = ny * size + nx
+                    if not mask[neighbour] and not reached[neighbour] and not visited[neighbour]:
+                        visited[neighbour] = True
+                        component.append(neighbour)
+        holes += size_of_component
+        largest = max(largest, size_of_component)
+    foreground = sum(1 for active in mask if active)
+    return {"interiorHolePixelCount": holes, "interiorHoleFraction": holes / foreground if foreground else 0.0, "largestHolePixelCount": largest}
+
+
+def _run_turntable_gate(input_paths: list[Path], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Require a minimum orbit and reject silhouette-enclosed background holes."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for turntable gate: {exc}") from exc
+    raw_angles = params.get("required_azimuths", "0,90,180,270")
+    if isinstance(raw_angles, list):
+        angles = [float(value) for value in raw_angles]
+    else:
+        angles = [float(value.strip()) for value in str(raw_angles).split(",") if value.strip()]
+    if len(angles) < 1:
+        raise ValueError("turntable gate requires at least one required azimuth")
+    if len(input_paths) < len(angles) or any(not path.is_file() for path in input_paths[: len(angles)]):
+        raise ValueError(f"turntable gate requires {len(angles)} image files in required-angle order")
+    try:
+        collapse_ratio = float(params.get("collapse_ratio", 0.15) or 0.15)
+        hole_fraction = float(params.get("hole_fraction", 0.01) or 0.01)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"turntable gate numeric parameters are invalid: {exc}") from exc
+    allow_holes = params.get("allow_holes", False)
+    if isinstance(allow_holes, str):
+        allow_holes = allow_holes.strip().lower() in {"1", "true", "yes", "on"}
+    size = 96
+    measurements: list[dict[str, Any]] = []
+    for angle, path in zip(angles, input_paths):
+        with Image.open(path) as source:
+            mask, mask_source = _review_foreground(source.convert("RGBA"), size)
+        area = sum(1 for active in mask if active) / (size * size)
+        holes = _turntable_holes(mask, size)
+        measurements.append({"azimuth": round(angle, 4), "name": path.name, "areaFraction": round(area, 6), "maskSource": mask_source, "holes": {**holes, "interiorHoleFraction": round(holes["interiorHoleFraction"], 6)}})
+    reference_area = measurements[0]["areaFraction"]
+    failures: list[str] = []
+    for measurement in measurements:
+        ratio = measurement["areaFraction"] / reference_area if reference_area > 1e-9 else 0.0
+        measurement["areaRatioToReference"] = round(ratio, 6)
+        measurement["degenerateMask"] = measurement["areaFraction"] < 0.001 or measurement["areaFraction"] > 0.98
+        if measurement["degenerateMask"]:
+            failures.append(f"{measurement['azimuth']:g}° has a degenerate foreground mask")
+        elif ratio < collapse_ratio:
+            failures.append(f"{measurement['azimuth']:g}° silhouette area collapsed to {ratio:.4f} of the reference")
+        if measurement["holes"]["interiorHolePixelCount"] >= 4 and measurement["holes"]["interiorHoleFraction"] >= hole_fraction and not allow_holes:
+            failures.append(f"{measurement['azimuth']:g}° encloses a background hole inside the silhouette")
+    status = "fail" if failures else "pass"
+    token = f"{_slug(input_paths[0].stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{token}_turntable-gate.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.turntable-gate",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "requiredAzimuths": [round(angle, 4) for angle in angles],
+        "captures": measurements,
+        "thresholds": {"collapseRatio": collapse_ratio, "holeFraction": hole_fraction, "allowHoles": bool(allow_holes)},
+        "failures": failures,
+        "passed": not failures,
+        "reviewNotes": [
+            "The input order maps to requiredAzimuths; missing angles are a hard input error rather than a silent warning.",
+            "An enclosed background region is treated as a hole unless allow_holes is explicitly enabled for a legitimate ring/opening.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"text": json.dumps(report, ensure_ascii=False, indent=2), "sidecars": [str(report_path)], "metadata": {"evidence_kind": "turntable-gate", "schema_version": 1, "status": status, "capture_count": len(measurements), "report": report_path.name}}
+
+
 def _run_delight_albedo(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageEnhance, ImageFilter, ImageMath
@@ -2062,6 +2179,15 @@ def main() -> None:
                 return
             progress(20, "Normalizing reference views…")
             result = _run_multi_view_evidence(paths, workspace_dir, params)
+        elif node_id == "turntable-gate":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            progress(20, "Checking turntable coverage and holes…")
+            try:
+                result = _run_turntable_gate(paths, workspace_dir, params)
+            except ValueError as exc:
+                error(f"reference-evidence: {exc}")
+                return
         elif input_path is None or not input_path.is_file():
             error(f"reference-evidence: input image not found: {input_raw}")
             return

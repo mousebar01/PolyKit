@@ -509,6 +509,24 @@
         { "id": "columns", "label": "Columns", "type": "int", "default": 3, "min": 1, "max": 6, "tooltip": "Contact-sheet columns." },
         { "id": "cell_height", "label": "Cell Height", "type": "int", "default": 256, "min": 64, "max": 2048, "tooltip": "Normalized pixel height for each reference view." }
       ]
+    },
+    {
+      "id": "turntable-gate",
+      "name": "Turntable Gate",
+      "input": "image",
+      "batch_input": "image",
+      "output": "text",
+      "description": "Requires ordered orbit captures and checks silhouette-area collapse plus enclosed background holes.",
+      "i18n": {
+        "zh-CN": { "name": "转台硬审计" },
+        "en-US": { "name": "Turntable Gate" }
+      },
+      "params_schema": [
+        { "id": "required_azimuths", "label": "Required Azimuths", "type": "string", "default": "0,90,180,270", "tooltip": "Comma-separated angles; input images must follow this order." },
+        { "id": "collapse_ratio", "label": "Collapse Ratio", "type": "float", "default": 0.15, "min": 0.0, "max": 1.0, "tooltip": "Minimum silhouette area relative to the first capture." },
+        { "id": "hole_fraction", "label": "Hole Fraction", "type": "float", "default": 0.01, "min": 0.0, "max": 1.0, "tooltip": "Minimum enclosed-background fraction for a hole failure." },
+        { "id": "allow_holes", "label": "Allow Legitimate Holes", "type": "boolean", "default": false, "tooltip": "Keep raw hole measurements but do not fail on intentional rings/openings." }
+      ]
     }
   ]
 }

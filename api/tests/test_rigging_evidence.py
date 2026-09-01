@@ -117,6 +117,57 @@ class RiggingEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(rotated_report["pairs"][0]["relation"], "rotation")
             self.assertIn("negate lateral X only", rotated_report["errors"][0])
 
+    def test_geodesic_bind_routes_weights_through_solid_and_normalizes_four_slots(self) -> None:
+        def box(x0: float, x1: float, y0: float, y1: float, z0: float, z1: float) -> tuple[list[list[float]], list[int]]:
+            vertices = [
+                [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+                [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+            ]
+            quads = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3)]
+            indices: list[int] = []
+            for first, second, third, fourth in quads:
+                indices.extend([first, second, third, first, third, fourth])
+            return vertices, indices
+
+        def merge(*meshes: tuple[list[list[float]], list[int]]) -> tuple[list[list[float]], list[int]]:
+            vertices: list[list[float]] = []
+            indices: list[int] = []
+            for mesh_vertices, mesh_indices in meshes:
+                offset = len(vertices)
+                vertices.extend(mesh_vertices)
+                indices.extend(index + offset for index in mesh_indices)
+            return vertices, indices
+
+        torso = box(0.0, 2.0, 0.0, 4.0, 0.0, 1.0)
+        arm = box(2.4, 3.4, 0.0, 3.4, 0.0, 1.0)
+        shoulder = box(1.8, 2.6, 3.4, 4.0, 0.0, 1.0)
+        vertices, indices = merge(torso, arm, shoulder)
+        descriptor = {
+            "mesh": {"vertices": vertices, "indices": indices},
+            "bones": [
+                {"id": "spine", "jointPos": [1.0, 0.5, 0.5], "tipPos": [1.0, 3.5, 0.5]},
+                {"id": "arm", "jointPos": [2.9, 3.2, 0.5], "tipPos": [2.9, 0.4, 0.5]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            report = self._run(descriptor, Path(td), "geodesic-bind")
+        self.assertEqual(report["kind"], "polykit.geodesic-bind")
+        self.assertEqual(report["status"], "pass")
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["summary"]["vertexCount"], len(vertices))
+        self.assertEqual(report["summary"]["jointCount"], 2)
+        self.assertEqual(report["summary"]["unreachableVertexCount"], 0)
+        self.assertLess(report["summary"]["maxWeightError"], 1e-9)
+        self.assertTrue(all(len(row) == 4 for row in report["skinIndices"]))
+        self.assertTrue(all(len(row) == 4 for row in report["skinWeights"]))
+        chest_index = 1
+        arm_slot = report["boneOrder"].index("arm")
+        chest_arm_weight = sum(weight for slot, weight in zip(report["skinIndices"][chest_index], report["skinWeights"][chest_index]) if slot == arm_slot)
+        arm_corner_index = 8 + 1
+        arm_arm_weight = sum(weight for slot, weight in zip(report["skinIndices"][arm_corner_index], report["skinWeights"][arm_corner_index]) if slot == arm_slot)
+        self.assertLess(chest_arm_weight, 0.2)
+        self.assertGreater(arm_arm_weight, 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()
