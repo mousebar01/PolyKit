@@ -1353,6 +1353,132 @@ def _morph_target_bake(input_path: Path, target_text: str, workspace_dir: Path, 
     }
 
 
+def _joint_loop_audit(input_path: Path, bone_text: str, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Measure independent vertex bands around declared joints."""
+    import numpy as np
+
+    try:
+        document = json.loads(bone_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"joint descriptor is not valid JSON: {exc.msg}") from exc
+    if isinstance(document, dict):
+        bones = document.get("bones")
+    else:
+        bones = document
+    if not isinstance(bones, list) or not bones:
+        raise ValueError("joint descriptor must contain a non-empty bones array")
+    try:
+        min_loops = int(params.get("min_loops", 3) or 3)
+    except (TypeError, ValueError):
+        min_loops = 3
+    min_loops = max(1, min(64, min_loops))
+    try:
+        radius_scale = float(params.get("radius_scale", 0.35) or 0.35)
+    except (TypeError, ValueError):
+        radius_scale = 0.35
+    radius_scale = max(0.01, min(4.0, radius_scale))
+    try:
+        band_tolerance = float(params.get("band_tolerance", 0.5) or 0.5)
+    except (TypeError, ValueError):
+        band_tolerance = 0.5
+    band_tolerance = max(0.01, min(4.0, band_tolerance))
+
+    mesh = _world_mesh(_load_scene(input_path))
+    vertices = np.asarray(mesh.vertices, dtype=float)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or not np.isfinite(vertices).all():
+        raise ValueError("mesh vertices are not finite 3D positions")
+    records: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for index, bone in enumerate(bones):
+        if not isinstance(bone, dict):
+            continue
+        joint = bone.get("jointPos")
+        tip = bone.get("tipPos")
+        if not isinstance(joint, list) or not isinstance(tip, list) or len(joint) != 3 or len(tip) != 3:
+            continue
+        try:
+            joint_vec = np.asarray([float(value) for value in joint], dtype=float)
+            tip_vec = np.asarray([float(value) for value in tip], dtype=float)
+        except (TypeError, ValueError):
+            continue
+        direction = tip_vec - joint_vec
+        length = float(np.linalg.norm(direction))
+        bone_id = str(bone.get("id") or bone.get("name") or f"bone-{index + 1}")
+        if not math.isfinite(length) or length <= 1e-12:
+            record = {"bone": bone_id, "loops": 0, "vertexCount": 0, "radius": 0.0, "minLoops": min_loops, "passes": False, "reason": "bone has zero length"}
+            records.append(record)
+            failures.append(f"{bone_id}: bone has zero length")
+            continue
+        axis = direction / length
+        radius = length * radius_scale
+        offsets = vertices - joint_vec
+        along = offsets @ axis
+        radial_squared = np.maximum(0.0, np.sum(offsets * offsets, axis=1) - along * along)
+        selected = np.abs(along) <= radius
+        selected &= np.sqrt(radial_squared) <= radius * 2.0
+        projections = np.sort(along[selected])
+        if len(projections) == 0:
+            loops = 0
+            axial_span = 0.0
+        elif len(projections) == 1:
+            loops = 1
+            axial_span = 0.0
+        else:
+            axial_span = float(projections[-1] - projections[0])
+            if axial_span <= 1e-12:
+                loops = 1
+            else:
+                mean_gap = axial_span / max(1, len(projections) - 1)
+                threshold = mean_gap * band_tolerance
+                loops = 1 + int(np.count_nonzero(np.diff(projections) > threshold))
+        passes = loops >= min_loops
+        record = {
+            "bone": bone_id,
+            "loops": int(loops),
+            "vertexCount": int(len(projections)),
+            "radius": _round(radius),
+            "axialSpan": _round(axial_span),
+            "minLoops": min_loops,
+            "passes": passes,
+        }
+        records.append(record)
+        if not passes:
+            failures.append(f"{bone_id}: {loops} loop(s) near joint, needs {min_loops}")
+    if not records:
+        raise ValueError("joint descriptor contains no usable bones with jointPos and tipPos")
+
+    status = "pass" if not failures else "fail"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'joint-loops')}.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.joint-loop-audit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {"name": input_path.name, "format": input_path.suffix.lower().lstrip(".") or "unknown", "vertices": int(len(vertices))},
+        "settings": {"minLoops": min_loops, "radiusScale": _round(radius_scale), "bandTolerance": _round(band_tolerance)},
+        "joints": records,
+        "checks": {"jointCount": len(records), "failingJointCount": len(failures), "failures": failures},
+        "reviewNotes": [
+            "Loops are measured as distinct vertex bands along each bone axis, not guessed quad topology.",
+            "This is a topology readiness gate, not a deformation preview; run a pose smoke test after weights are bound.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "joint-loop-audit",
+            "schema_version": 1,
+            "status": status,
+            "joint_count": len(records),
+            "failing_joint_count": len(failures),
+            "report": report_path.name,
+        },
+    }
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
@@ -1395,6 +1521,9 @@ def main() -> None:
     if node_id == "morph-target-bake" and (not isinstance(target_text, str) or not target_text.strip()):
         error("mesh-production: morph target requires a JSON descriptor on the text input")
         return
+    if node_id == "joint-loop-audit" and (not isinstance(target_text, str) or not target_text.strip()):
+        error("mesh-production: joint loop audit requires a JSON bone descriptor on the text input")
+        return
     try:
         progress(5, "Loading mesh…")
         if node_id == "collision-mesh":
@@ -1427,6 +1556,9 @@ def main() -> None:
         elif node_id == "morph-target-bake":
             progress(25, "Building relative morph deltas…")
             result = _morph_target_bake(input_path, target_text, workspace_dir, params)
+        elif node_id == "joint-loop-audit":
+            progress(25, "Auditing joint loop density…")
+            result = _joint_loop_audit(input_path, target_text, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported mesh production node '{node_id}'")
         progress(90, "Writing mesh derivatives…")

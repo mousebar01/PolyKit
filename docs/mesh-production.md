@@ -16,6 +16,7 @@ without leaving the server-owned workflow runtime.
 | `mesh-production/self-intersection-audit` | Original mesh + JSON | Detects triangle-triangle self-intersections in world space and reports a bounded list of participating face indices. |
 | `mesh-production/animation-audit` | Original mesh + animation JSON | Checks glTF/GLB skin bindings, joint declarations, animation channels, and morph targets without modifying the asset. |
 | `mesh-production/morph-target-bake` | Original mesh + morph JSON | Computes relative vertex deltas from a base mesh and target vertex arrays for blend-shape preparation. |
+| `mesh-production/joint-loop-audit` | Original mesh + joint JSON | Counts independent vertex bands around declared bones to catch topology that will crease under deformation. |
 
 Collision output preserves the source world-space frame, but it is an
 interaction proxy rather than a render asset. LOD output keeps LOD0 as the
@@ -67,6 +68,10 @@ Morph-target-bake requires target vertices to preserve the base mesh's
 world-space vertex order. It emits relative deltas and flags no-op targets, but
 does not rewrite GLB buffers or claim a runtime morph channel until a downstream
 exporter binds the sidecar.
+
+Joint-loop-audit takes a text JSON bone list with `jointPos` and `tipPos`
+coordinates. It measures bands along each bone axis and reports failing joints;
+it does not infer true quad loops or replace a pose/deformation smoke test.
 
 All nodes write into the run-private process workspace. The normal workflow
 sink publishes the primary output and sidecars into the selected collection.

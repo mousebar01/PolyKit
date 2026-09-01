@@ -1,5 +1,6 @@
-import json
 import asyncio
+import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -405,6 +406,57 @@ class MeshProductionProcessorTests(unittest.TestCase):
             noop_report = json.loads(Path(str(noop_result["sidecars"][0])).read_text(encoding="utf-8"))
             self.assertEqual(noop_report["status"], "needs_review")
             self.assertEqual(noop_report["noOpTargets"], ["morph-1"])
+
+    def test_joint_loop_audit_counts_axial_vertex_bands(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+            rings = [-0.4, -0.2, 0.0, 0.2, 0.4]
+            vertices = []
+            for z in rings:
+                for index in range(8):
+                    angle = (2.0 * 3.141592653589793 * index) / 8.0
+                    vertices.append([0.1 * math.cos(angle), 0.1 * math.sin(angle), z])
+            faces = []
+            for ring in range(len(rings) - 1):
+                for index in range(8):
+                    a = ring * 8 + index
+                    b = ring * 8 + (index + 1) % 8
+                    c = (ring + 1) * 8 + (index + 1) % 8
+                    d = (ring + 1) * 8 + index
+                    faces.extend([[a, b, c], [a, c, d]])
+            tube = root / "tube.glb"
+            trimesh.Trimesh(vertices=vertices, faces=faces, process=False).export(tube)
+            descriptor = {"bones": [{"id": "elbow", "jointPos": [0, 0, 0], "tipPos": [0, 0, 1]}]}
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(tube), "text": json.dumps(descriptor)},
+                {"_node_id": "joint-loop-audit", "min_loops": 3, "radius_scale": 0.35},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["joints"][0]["loops"], 3)
+            self.assertEqual(result["metadata"]["evidence_kind"], "joint-loop-audit")
+
+            sparse = root / "sparse.glb"
+            trimesh.creation.box(extents=(0.2, 0.2, 0.2)).export(sparse)
+            sparse_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(sparse), "text": json.dumps(descriptor)},
+                {"_node_id": "joint-loop-audit", "min_loops": 3, "radius_scale": 0.35},
+                str(workspace),
+                str(temp),
+            )
+            sparse_report = json.loads(Path(str(sparse_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(sparse_report["status"], "fail")
+            self.assertEqual(sparse_report["checks"]["failingJointCount"], 1)
 
     def test_animation_audit_checks_skin_clips_and_morph_targets(self) -> None:
         with tempfile.TemporaryDirectory() as td:
