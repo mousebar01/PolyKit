@@ -264,6 +264,26 @@
       ]
     },
     {
+      "id": "visual-hull",
+      "name": "Visual Hull",
+      "input": "text",
+      "output": "mesh",
+      "description": "Carves a voxel visual hull from two or three orthographic binary silhouette masks supplied as a JSON descriptor.",
+      "i18n": {
+        "zh-CN": { "name": "视觉外壳" },
+        "en-US": { "name": "Visual Hull" }
+      },
+      "params_schema": [
+        {
+          "id": "name",
+          "label": "Asset Name",
+          "type": "string",
+          "default": "visual-hull",
+          "tooltip": "Base name used for the generated mesh and report files."
+        }
+      ]
+    },
+    {
       "id": "bvh-build",
       "name": "BVH Build",
       "input": "mesh",
@@ -304,6 +324,28 @@
       ]
     },
     {
+      "id": "self-intersection-audit",
+      "name": "Self-Intersection Audit",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Detects triangle self-intersections in the world-space mesh and returns the source unchanged with a bounded face report.",
+      "i18n": {
+        "zh-CN": { "name": "自交审计" },
+        "en-US": { "name": "Self-Intersection Audit" }
+      },
+      "params_schema": [
+        {
+          "id": "max_reported_faces",
+          "label": "Max Reported Faces",
+          "type": "int",
+          "default": 64,
+          "min": 1,
+          "max": 10000,
+          "tooltip": "Limits the face-index list while preserving the total intersection count."
+        }
+      ]
+    },
+    {
       "id": "animation-audit",
       "name": "Animation Audit",
       "input": "mesh",
@@ -320,6 +362,30 @@
           "type": "boolean",
           "default": false,
           "tooltip": "Marks a rigged mesh for review when it has no animation channels."
+        }
+      ]
+    },
+    {
+      "id": "morph-target-bake",
+      "name": "Morph Target Prep",
+      "inputs": ["mesh", "text"],
+      "input_labels": ["Base Mesh", "Target Vertices JSON"],
+      "output": "mesh",
+      "description": "Builds relative morph deltas from a base mesh and one or more world-space target vertex arrays.",
+      "i18n": {
+        "zh-CN": { "name": "形变目标准备" },
+        "en-US": { "name": "Morph Target Prep" }
+      },
+      "params_schema": [
+        {
+          "id": "epsilon",
+          "label": "Movement Epsilon",
+          "type": "float",
+          "default": 0.000001,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.000001,
+          "tooltip": "Displacements at or below this value are stored as zero and counted as unmoved."
         }
       ]
     }

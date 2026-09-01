@@ -767,6 +767,280 @@ def _geometry_integrity(input_path: Path, workspace_dir: Path, params: dict[str,
     }
 
 
+def _self_intersection_audit(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Detect triangle self-intersections in the world-space scene mesh."""
+    import numpy as np
+
+    scene = _load_scene(input_path)
+    mesh = _world_mesh(scene)
+    face_count = int(len(mesh.faces))
+    if face_count == 0:
+        raise ValueError("mesh contains no triangles for self-intersection audit")
+    try:
+        max_reported_faces = int(params.get("max_reported_faces", 64) or 64)
+    except (TypeError, ValueError):
+        max_reported_faces = 64
+    max_reported_faces = max(1, min(10000, max_reported_faces))
+
+    selection = np.zeros(face_count, dtype=bool)
+    method_available = True
+    method_error: str | None = None
+    temp_dir = Path(tempfile.mkdtemp(prefix="polykit-self-intersection-"))
+    try:
+        # PyMeshLab's intersection selector is more reliable on a normalized
+        # single mesh than on a scene container. Exporting the world-space
+        # concatenation also makes component transforms part of the check.
+        source_path = temp_dir / "world-mesh.ply"
+        mesh.export(source_path)
+        import pymeshlab
+
+        mesh_set = pymeshlab.MeshSet()
+        mesh_set.load_new_mesh(str(source_path))
+        mesh_set.compute_selection_by_self_intersections_per_face()
+        values = np.asarray(mesh_set.current_mesh().face_selection_array(), dtype=bool)
+        if values.shape == selection.shape:
+            selection = values
+        else:
+            method_available = False
+            method_error = f"selector returned {values.size} faces; expected {face_count}"
+    except Exception as exc:
+        method_available = False
+        method_error = f"{type(exc).__name__}: {exc}"
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    intersecting_faces = int(np.count_nonzero(selection))
+    reported_indices = np.flatnonzero(selection)[:max_reported_faces].astype(int).tolist()
+    status = "pass" if method_available and intersecting_faces == 0 else "fail" if method_available else "needs_review"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.self-intersection-audit",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(scene)),
+            "vertices": int(len(mesh.vertices)),
+            "faces": face_count,
+            "bounds": [_vector(mesh.bounds[0]), _vector(mesh.bounds[1])],
+        },
+        "check": {
+            "method": "pymeshlab.compute_selection_by_self_intersections_per_face",
+            "available": method_available,
+            "intersectingFaceCount": intersecting_faces,
+            "intersectingFaceFraction": _round(intersecting_faces / face_count),
+            "reportedFaceIndices": reported_indices,
+            "reportedFaceLimit": max_reported_faces,
+            "truncated": intersecting_faces > len(reported_indices),
+        },
+        "error": method_error,
+        "reviewNotes": [
+            "The selector reports faces participating in triangle-triangle self-intersections; both sides of a crossing are normally selected.",
+            "Coplanar overlaps and near-contact within numerical tolerance still deserve a visual or distance-based review.",
+            "This node returns the source mesh unchanged; repair or component separation belongs in a subsequent modeling step.",
+        ],
+    }
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'self-intersection')}.json"
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "self-intersection-audit",
+            "schema_version": 1,
+            "status": status,
+            "intersecting_faces": intersecting_faces,
+            "report": report_path.name,
+        },
+    }
+
+
+def _visual_hull(text: str, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Carve an orthographic visual hull from a compact JSON silhouette descriptor."""
+    import numpy as np
+    import trimesh
+
+    try:
+        descriptor = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"visual hull descriptor is not valid JSON: {exc.msg}") from exc
+    if not isinstance(descriptor, dict):
+        raise ValueError("visual hull descriptor must be a JSON object")
+
+    bounds = descriptor.get("bounds")
+    if not isinstance(bounds, dict):
+        raise ValueError("visual hull descriptor.bounds must be an object")
+    low = bounds.get("min")
+    high = bounds.get("max")
+    if not isinstance(low, list) or not isinstance(high, list) or len(low) != 3 or len(high) != 3:
+        raise ValueError("visual hull bounds must provide min/max vectors of length three")
+    try:
+        low = [float(value) for value in low]
+        high = [float(value) for value in high]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("visual hull bounds must be numeric") from exc
+    if not all(math.isfinite(value) for value in (*low, *high)) or any(a >= b for a, b in zip(low, high)):
+        raise ValueError("visual hull bounds must be finite with min below max on every axis")
+    try:
+        resolution = int(descriptor.get("resolution", 16))
+    except (TypeError, ValueError):
+        resolution = 16
+    if resolution < 4 or resolution > 32:
+        raise ValueError("visual hull resolution must be between 4 and 32")
+    try:
+        triangle_budget = int(descriptor.get("triangleBudget", resolution**3 * 12))
+    except (TypeError, ValueError):
+        triangle_budget = resolution**3 * 12
+    if triangle_budget < 1 or triangle_budget > 400000:
+        raise ValueError("visual hull triangleBudget must be between 1 and 400000")
+
+    views = descriptor.get("views")
+    if not isinstance(views, list) or not 2 <= len(views) <= 3:
+        raise ValueError("visual hull views must contain two or three silhouette views")
+    view_axes = {"front": (0, False, 1, True, 2), "side": (2, False, 1, True, 0), "top": (0, False, 2, False, 1)}
+    seen_axes: set[str] = set()
+    normalized_views: list[dict[str, Any]] = []
+    for index, view in enumerate(views):
+        if not isinstance(view, dict):
+            raise ValueError(f"visual hull view {index} must be an object")
+        axis = str(view.get("axis") or "")
+        if axis not in view_axes or axis in seen_axes:
+            raise ValueError("visual hull views must use distinct front, side, or top axes")
+        mask = view.get("mask")
+        if not isinstance(mask, list) or not mask or not all(isinstance(row, str) and row for row in mask):
+            raise ValueError(f"visual hull {axis} mask must be a non-empty array of binary strings")
+        width = len(mask[0])
+        if width < 4 or width > 256 or len(mask) < 4 or len(mask) > 256:
+            raise ValueError(f"visual hull {axis} mask dimensions must be between 4 and 256")
+        if any(len(row) != width or any(bit not in "01" for bit in row) for row in mask):
+            raise ValueError(f"visual hull {axis} mask rows must have equal binary contents")
+        if not any("1" in row for row in mask):
+            raise ValueError(f"visual hull {axis} mask must contain foreground")
+        seen_axes.add(axis)
+        normalized_views.append({"axis": axis, "mask": mask, "confidence": float(view.get("confidence", 1.0))})
+
+    spans = [high[axis] - low[axis] for axis in range(3)]
+
+    def sample_mask(mask: list[str], u: float, v: float) -> bool:
+        if u < 0.0 or u > 1.0 or v < 0.0 or v > 1.0:
+            return False
+        x = min(len(mask[0]) - 1, max(0, int(u * len(mask[0]))))
+        y = min(len(mask) - 1, max(0, int(v * len(mask))))
+        return mask[y][x] == "1"
+
+    occupied: set[tuple[int, int, int]] = set()
+    for ix in range(resolution):
+        point_x = low[0] + (ix + 0.5) * spans[0] / resolution
+        for iy in range(resolution):
+            point_y = low[1] + (iy + 0.5) * spans[1] / resolution
+            for iz in range(resolution):
+                point = (point_x, point_y, low[2] + (iz + 0.5) * spans[2] / resolution)
+                inside = True
+                for view in normalized_views:
+                    column_axis, column_flip, row_axis, row_flip, _free_axis = view_axes[view["axis"]]
+                    u = (point[column_axis] - low[column_axis]) / spans[column_axis]
+                    v = (point[row_axis] - low[row_axis]) / spans[row_axis]
+                    if column_flip:
+                        u = 1.0 - u
+                    if row_flip:
+                        v = 1.0 - v
+                    if not sample_mask(view["mask"], u, v):
+                        inside = False
+                        break
+                if inside:
+                    occupied.add((ix, iy, iz))
+    if not occupied:
+        raise ValueError("visual hull masks have no overlapping occupied volume")
+
+    # Emit only occupied/empty cell boundaries, welding shared grid corners so
+    # the result is a closed surface rather than six independent shells.
+    corner_ids: dict[tuple[int, int, int], int] = {}
+    vertices: list[list[float]] = []
+
+    def corner(gx: int, gy: int, gz: int) -> int:
+        key = (gx, gy, gz)
+        if key not in corner_ids:
+            corner_ids[key] = len(vertices)
+            vertices.append([
+                low[0] + gx * spans[0] / resolution,
+                low[1] + gy * spans[1] / resolution,
+                low[2] + gz * spans[2] / resolution,
+            ])
+        return corner_ids[key]
+
+    face_offsets = {
+        (0, 1): ((1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)),
+        (0, -1): ((0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0)),
+        (1, 1): ((0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0)),
+        (1, -1): ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)),
+        (2, 1): ((0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)),
+        (2, -1): ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0)),
+    }
+    faces: list[list[int]] = []
+    for cell in sorted(occupied):
+        for (axis, direction), offsets in face_offsets.items():
+            neighbour = list(cell)
+            neighbour[axis] += direction
+            if tuple(neighbour) in occupied:
+                continue
+            points = [tuple(cell[axis] + offset[axis] for axis in range(3)) for offset in offsets]
+            quad = [corner(*point) for point in points]
+            faces.extend([[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]])
+
+    triangle_count = len(faces)
+    status = "pass" if triangle_count <= triangle_budget else "needs_review"
+    unconstrained = [name for axis, name in enumerate(("x", "y", "z")) if axis not in {view_axes[item["axis"]][4] for item in normalized_views}]
+    limitations = [
+        "A visual hull is an intersection of silhouette cones and therefore an upper bound; concavities hidden in every supplied silhouette are not reconstructed.",
+    ]
+    if len(normalized_views) < 3:
+        limitations.append(f"Only {len(normalized_views)} views supplied; the hull remains loose along {', '.join(unconstrained) or 'no'}.")
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    source_name = str(params.get("name") or descriptor.get("name") or "visual-hull")
+    token = _slug(source_name)
+    output_path = workspace_dir / f"{token}_{uuid.uuid4().hex[:8]}_visual-hull.glb"
+    report_path = workspace_dir / f"{token}_{uuid.uuid4().hex[:8]}_visual-hull.json"
+    trimesh.Trimesh(vertices=np.asarray(vertices, dtype=float), faces=np.asarray(faces, dtype=np.int64), process=False).export(output_path)
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.visual-hull",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "projection": "orthographic",
+        "boundsSpace": "component-local",
+        "bounds": {"min": _vector(low), "max": _vector(high)},
+        "resolution": resolution,
+        "triangleBudget": triangle_budget,
+        "views": [{"axis": item["axis"], "width": len(item["mask"][0]), "height": len(item["mask"]), "confidence": _round(item["confidence"])} for item in normalized_views],
+        "occupiedVoxelCount": len(occupied),
+        "totalVoxelCount": resolution**3,
+        "occupiedFraction": _round(len(occupied) / max(1, resolution**3)),
+        "unconstrainedAxes": unconstrained,
+        "mesh": {"vertices": len(vertices), "triangles": triangle_count, "watertight": True},
+        "limitations": limitations,
+        "reviewNotes": [
+            "Silhouette masks are treated as hard evidence; a bad mask can carve away the entire hull.",
+            "Inspect the generated surface and run geometry-integrity before using it as a production mesh.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "visual-hull",
+            "schema_version": 1,
+            "status": status,
+            "triangle_count": triangle_count,
+            "occupied_voxels": len(occupied),
+            "report": report_path.name,
+        },
+    }
+
+
 def _bvh_build(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Build a deterministic triangle AABB hierarchy as a JSON sidecar."""
     import numpy as np
@@ -984,11 +1258,122 @@ def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
     }
 
 
+def _morph_target_bake(input_path: Path, target_text: str, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build relative morph deltas from world-space target vertices."""
+    import numpy as np
+
+    try:
+        document = json.loads(target_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"morph target descriptor is not valid JSON: {exc.msg}") from exc
+    if isinstance(document, dict) and isinstance(document.get("targets"), list):
+        raw_targets = document["targets"]
+        epsilon_value = document.get("epsilon", params.get("epsilon", 1e-6))
+    elif isinstance(document, dict) and isinstance(document.get("vertices"), list):
+        raw_targets = [document]
+        epsilon_value = params.get("epsilon", 1e-6)
+    elif isinstance(document, list):
+        raw_targets = document
+        epsilon_value = params.get("epsilon", 1e-6)
+    else:
+        raise ValueError("morph target descriptor must contain vertices or a targets array")
+    if not raw_targets:
+        raise ValueError("morph target descriptor contains no targets")
+    try:
+        epsilon = float(epsilon_value)
+    except (TypeError, ValueError):
+        epsilon = 1e-6
+    epsilon = max(0.0, min(1.0, epsilon))
+
+    mesh = _world_mesh(_load_scene(input_path))
+    base = np.asarray(mesh.vertices, dtype=float)
+    targets: list[dict[str, Any]] = []
+    for index, raw_target in enumerate(raw_targets):
+        if not isinstance(raw_target, dict) or not isinstance(raw_target.get("vertices"), list):
+            raise ValueError(f"morph target {index} must contain a vertices array")
+        vertices = np.asarray(raw_target["vertices"], dtype=float)
+        if vertices.shape != base.shape:
+            raise ValueError(
+                f"morph target {raw_target.get('name', index)!r} has shape {list(vertices.shape)}; "
+                f"base mesh has shape {list(base.shape)}"
+            )
+        if not np.isfinite(vertices).all():
+            raise ValueError(f"morph target {raw_target.get('name', index)!r} contains non-finite vertices")
+        delta = vertices - base
+        magnitudes = np.linalg.norm(delta, axis=1)
+        moved = magnitudes > epsilon
+        rounded = np.where(moved[:, None], np.round(delta, 6), 0.0)
+        targets.append({
+            "name": str(raw_target.get("name") or f"morph-{index + 1}"),
+            "deltas": rounded.tolist(),
+            "movedVertexCount": int(np.count_nonzero(moved)),
+            "vertexCount": int(len(base)),
+            "maxDisplacement": _round(float(magnitudes.max(initial=0.0))),
+            "isNoOp": not bool(np.any(moved)),
+        })
+
+    no_op = [target["name"] for target in targets if target["isNoOp"]]
+    status = "needs_review" if no_op else "pass"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    report_path = workspace_dir / f"{_token(input_path, 'morph')}.json"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.morph-target-bake",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {
+            "name": input_path.name,
+            "componentCount": len(_components(_load_scene(input_path))),
+            "vertices": int(len(base)),
+            "faces": int(len(mesh.faces)),
+            "vertexOrder": "world-space concatenation in source scene traversal order",
+        },
+        "morphTargetsRelative": True,
+        "epsilon": _round(epsilon),
+        "targets": targets,
+        "noOpTargets": no_op,
+        "totalMovedVertices": sum(target["movedVertexCount"] for target in targets),
+        "reviewNotes": [
+            "Deltas are relative to the unchanged source mesh; consumers must enable morphTargetsRelative when applying them.",
+            "Target vertices must preserve the source mesh's world-space vertex order. This node emits JSON evidence and does not mutate the GLB buffers.",
+        ],
+    }
+    _write_report(report_path, report)
+    return {
+        "filePath": str(input_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "morph-target-bake",
+            "schema_version": 1,
+            "status": status,
+            "target_count": len(targets),
+            "total_moved_vertices": report["totalMovedVertices"],
+            "report": report_path.name,
+        },
+    }
+
+
 def main() -> None:
     raw = sys.stdin.readline()
     data = json.loads(raw)
     input_data = data.get("input") or {}
     params = data.get("params") or {}
+    node_id = str(params.get("_node_id") or "collision-mesh")
+    workspace_dir = Path(str(data.get("workspaceDir") or ""))
+    if node_id == "visual-hull":
+        descriptor_text = input_data.get("text")
+        if not isinstance(descriptor_text, str) or not descriptor_text.strip():
+            error("mesh-production: visual hull requires a JSON descriptor on the text input")
+            return
+        try:
+            progress(5, "Reading silhouette descriptor…")
+            result = _visual_hull(descriptor_text, workspace_dir, params)
+            progress(90, "Writing visual hull mesh…")
+            progress(100, "Visual hull ready")
+            emit({"type": "done", "result": result})
+        except Exception as exc:
+            error(f"mesh-production: {exc}")
+        return
     # Multi-input process nodes receive named paths from the workflow executor
     # (for example ``meshPath`` for the target mesh). Keep ``filePath`` as the
     # compatibility shape used by the single-input collision/LOD nodes.
@@ -996,7 +1381,6 @@ def main() -> None:
     input_path = Path(str(input_raw)) if input_raw else None
     image_raw = input_data.get("imagePath")
     image_path = Path(str(image_raw)) if image_raw else None
-    node_id = str(params.get("_node_id") or "collision-mesh")
     if input_path is None or not input_path.is_file():
         error(f"mesh-production: input mesh not found: {input_raw}")
         return
@@ -1007,7 +1391,10 @@ def main() -> None:
         if input_path is None or not input_path.is_file():
             error(f"mesh-production: projection mesh not found: {input_raw}")
             return
-    workspace_dir = Path(str(data.get("workspaceDir") or ""))
+    target_text = input_data.get("text")
+    if node_id == "morph-target-bake" and (not isinstance(target_text, str) or not target_text.strip()):
+        error("mesh-production: morph target requires a JSON descriptor on the text input")
+        return
     try:
         progress(5, "Loading mesh…")
         if node_id == "collision-mesh":
@@ -1028,12 +1415,18 @@ def main() -> None:
         elif node_id == "geometry-integrity":
             progress(25, "Auditing mesh integrity…")
             result = _geometry_integrity(input_path, workspace_dir, params)
+        elif node_id == "self-intersection-audit":
+            progress(25, "Checking triangle intersections…")
+            result = _self_intersection_audit(input_path, workspace_dir, params)
         elif node_id == "bvh-build":
             progress(25, "Building triangle BVH…")
             result = _bvh_build(input_path, workspace_dir, params)
         elif node_id == "animation-audit":
             progress(25, "Auditing rig and animation metadata…")
             result = _animation_audit(input_path, workspace_dir, params)
+        elif node_id == "morph-target-bake":
+            progress(25, "Building relative morph deltas…")
+            result = _morph_target_bake(input_path, target_text, workspace_dir, params)
         else:
             raise RuntimeError(f"unsupported mesh production node '{node_id}'")
         progress(90, "Writing mesh derivatives…")

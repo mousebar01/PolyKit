@@ -694,6 +694,173 @@ def _component_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
     return _write_mesh_result(input_path, workspace_dir, "component-audit", report)
 
 
+_PENETRATION_DIRECTIONS = (
+    (0.5773502691896258, 0.5773502691896258, 0.5773502691896258),
+    (-0.8017837257372732, 0.5345224838248488, 0.2672612419124244),
+    (0.2672612419124244, -0.8017837257372732, 0.5345224838248488),
+)
+
+
+def _penetration_bounds_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    return all(
+        first["bounds"][0][axis] <= second["bounds"][1][axis]
+        and second["bounds"][0][axis] <= first["bounds"][1][axis]
+        for axis in range(3)
+    )
+
+
+def _penetration_samples(vertices: list[tuple[float, float, float]], faces: list[tuple[int, int, int]], limit: int) -> list[tuple[float, float, float]]:
+    points = list(vertices)
+    seen_edges: set[tuple[int, int]] = set()
+    for a, b, c in faces:
+        for first, second in ((a, b), (b, c), (c, a)):
+            key = (first, second) if first < second else (second, first)
+            if key in seen_edges:
+                continue
+            seen_edges.add(key)
+            points.append(tuple((vertices[first][axis] + vertices[second][axis]) * 0.5 for axis in range(3)))
+        points.append(tuple((vertices[a][axis] + vertices[b][axis] + vertices[c][axis]) / 3.0 for axis in range(3)))
+    if len(points) <= limit:
+        return points
+    stride = max(1, math.ceil(len(points) / limit))
+    return points[::stride][:limit]
+
+
+def _penetration_ray_crossings(point: tuple[float, float, float], direction: tuple[float, float, float], vertices: list[tuple[float, float, float]], faces: list[tuple[int, int, int]]) -> int:
+    """Count strict ray/triangle crossings using the Möller–Trumbore test."""
+    epsilon = 1e-9
+    crossings = 0
+    dx, dy, dz = direction
+    for first, second, third in faces:
+        p0, p1, p2 = vertices[first], vertices[second], vertices[third]
+        e1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+        e2 = (p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])
+        h = (dy * e2[2] - dz * e2[1], dz * e2[0] - dx * e2[2], dx * e2[1] - dy * e2[0])
+        determinant = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]
+        if abs(determinant) <= epsilon:
+            continue
+        inverse = 1.0 / determinant
+        offset = (point[0] - p0[0], point[1] - p0[1], point[2] - p0[2])
+        u = (offset[0] * h[0] + offset[1] * h[1] + offset[2] * h[2]) * inverse
+        if u < -epsilon or u > 1.0 + epsilon:
+            continue
+        q = (offset[1] * e1[2] - offset[2] * e1[1], offset[2] * e1[0] - offset[0] * e1[2], offset[0] * e1[1] - offset[1] * e1[0])
+        v = (dx * q[0] + dy * q[1] + dz * q[2]) * inverse
+        if v < -epsilon or u + v > 1.0 + epsilon:
+            continue
+        distance = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inverse
+        if distance > epsilon:
+            crossings += 1
+    return crossings
+
+
+def _penetration_inside(point: tuple[float, float, float], component: dict[str, Any]) -> bool:
+    bounds_min, bounds_max = component["bounds"]
+    scale = max(max(bounds_max[axis] - bounds_min[axis] for axis in range(3)) * 1e-8, 1e-9)
+    if not all(bounds_min[axis] + scale < point[axis] < bounds_max[axis] - scale for axis in range(3)):
+        return False
+    votes = [
+        _penetration_ray_crossings(point, direction, component["vertices"], component["faces"]) % 2 == 1
+        for direction in _PENETRATION_DIRECTIONS
+    ]
+    return sum(votes) >= 2
+
+
+def _allowed_penetration_pairs(value: Any) -> set[tuple[str, str]]:
+    if value is None or value == "":
+        return set()
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"allowed_pairs is not valid JSON: {exc.msg}") from exc
+    if not isinstance(value, list):
+        raise ValueError("allowed_pairs must be a JSON array of [componentA, componentB] pairs")
+    pairs: set[tuple[str, str]] = set()
+    for pair in value:
+        if isinstance(pair, str):
+            values = [part.strip() for part in pair.split(",", 1)]
+        else:
+            values = pair if isinstance(pair, list) else []
+        if len(values) != 2 or not all(str(item).strip() for item in values):
+            raise ValueError("each allowed_pairs entry must contain exactly two component ids")
+        first, second = sorted((str(values[0]), str(values[1])))
+        pairs.add((first, second))
+    return pairs
+
+
+def _penetration_audit(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Check whether sampled surfaces of one scene component lie inside another."""
+    import numpy as np
+
+    scene = _load_scene(input_path)
+    max_samples = _bounded_int(params.get("max_samples", 2000), 2000, 32, 10000)
+    allowed_pairs = _allowed_penetration_pairs(params.get("allowed_pairs"))
+    components: list[dict[str, Any]] = []
+    for node_name in sorted(scene.graph.nodes_geometry, key=str):
+        try:
+            transform, geometry_name = scene.graph.get(node_name)
+            geometry = scene.geometry[geometry_name]
+            if not hasattr(geometry, "vertices") or not hasattr(geometry, "faces"):
+                continue
+            matrix = np.asarray(transform, dtype=float)
+            raw_vertices = np.asarray(geometry.vertices, dtype=float)
+            world = (raw_vertices @ matrix[:3, :3].T) + matrix[:3, 3]
+            components.append({
+                "id": str(node_name),
+                "vertices": [tuple(float(value) for value in vertex) for vertex in world],
+                "faces": [tuple(int(value) for value in face) for face in np.asarray(geometry.faces, dtype=np.int64)],
+                "bounds": (world.min(axis=0), world.max(axis=0)),
+            })
+        except (KeyError, TypeError, ValueError, np.linalg.LinAlgError):
+            continue
+    if len(components) < 2:
+        raise ValueError("penetration audit requires at least two mesh components")
+
+    relations: list[dict[str, Any]] = []
+    for index, first in enumerate(components):
+        for second in components[index + 1:]:
+            pair_key = tuple(sorted((first["id"], second["id"])))
+            if not _penetration_bounds_overlap(first, second):
+                relations.append({
+                    "a": first["id"], "b": second["id"], "boundsOverlap": False,
+                    "penetrating": False, "allowed": pair_key in allowed_pairs,
+                    "aInsideB": 0, "bInsideA": 0, "sampledA": 0, "sampledB": 0,
+                    "samplingLimit": max_samples,
+                })
+                continue
+            first_points = _penetration_samples(first["vertices"], first["faces"], max_samples)
+            second_points = _penetration_samples(second["vertices"], second["faces"], max_samples)
+            a_inside = sum(1 for point in first_points if _penetration_inside(point, second))
+            b_inside = sum(1 for point in second_points if _penetration_inside(point, first))
+            relations.append({
+                "a": first["id"], "b": second["id"], "boundsOverlap": True,
+                "penetrating": bool(a_inside or b_inside), "allowed": pair_key in allowed_pairs,
+                "aInsideB": a_inside, "bInsideA": b_inside,
+                "sampledA": len(first_points), "sampledB": len(second_points),
+                "samplingLimit": max_samples,
+                "samplingLimitation": "Vertices, unique edge midpoints, and face centroids are sampled; very thin intersections can remain undetected.",
+            })
+    penetrating = [relation for relation in relations if relation["penetrating"] and not relation["allowed"]]
+    status = "fail" if penetrating else "pass"
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.pairwise-penetration",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceMesh": {"name": input_path.name, "format": input_path.suffix.lower().lstrip(".") or "unknown"},
+        "settings": {"maxSamplesPerComponent": max_samples, "allowedPairs": [list(pair) for pair in sorted(allowed_pairs)]},
+        "components": [{"id": item["id"], "vertices": len(item["vertices"]), "faces": len(item["faces"]), "bounds": [_vector(item["bounds"][0]), _vector(item["bounds"][1])]} for item in components],
+        "relations": relations,
+        "checks": {"relationCount": len(relations), "penetratingCount": len([item for item in relations if item["penetrating"]]), "unallowedPenetratingCount": len(penetrating)},
+        "reviewNotes": [
+            "Penetration is tested with deterministic point-in-solid sampling in both directions; it is distinct from AABB overlap and self-intersection.",
+            "Touching or intentional interlocks should be listed in allowed_pairs. Thin features can require a higher sample budget or a renderer/physics check.",
+        ],
+    }
+    return _write_mesh_result(input_path, workspace_dir, "pairwise-penetration", report)
+
+
 def _write_mesh_result(input_path: Path, workspace_dir: Path, tag: str, report: dict[str, Any]) -> dict[str, Any]:
     workspace_dir.mkdir(parents=True, exist_ok=True)
     token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -701,6 +868,9 @@ def _write_mesh_result(input_path: Path, workspace_dir: Path, tag: str, report: 
     report_path = workspace_dir / f"{token}_{tag}.json"
     shutil.copy2(input_path, output_path)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    component_count = report.get("scene", {}).get("componentCount", 0)
+    if not component_count and isinstance(report.get("components"), list):
+        component_count = len(report["components"])
     return {
         "filePath": str(output_path),
         "sidecars": [str(report_path)],
@@ -708,7 +878,7 @@ def _write_mesh_result(input_path: Path, workspace_dir: Path, tag: str, report: 
             "evidence_kind": report["kind"].removeprefix("polykit."),
             "schema_version": report["schemaVersion"],
             "status": report["status"],
-            "component_count": report.get("scene", {}).get("componentCount", 0),
+            "component_count": component_count,
             "report": report_path.name,
         },
     }
@@ -731,6 +901,9 @@ def main() -> None:
         if node_id == "component-audit":
             progress(25, "Measuring component footprints…")
             result = _component_audit(input_path, workspace_dir, params)
+        elif node_id == "pairwise-penetration":
+            progress(25, "Checking component penetration…")
+            result = _penetration_audit(input_path, workspace_dir, params)
         elif node_id == "material-audit":
             progress(25, "Reading material channels…")
             result = _material_audit(input_path, workspace_dir, params)

@@ -247,6 +247,48 @@ class AssetEvidenceProcessorTests(unittest.TestCase):
             self.assertAlmostEqual(report["relations"][0]["gap"], 0.01, places=5)
             self.assertEqual(result["metadata"]["component_count"], 2)
 
+    def test_pairwise_penetration_flags_buried_component_and_honors_allow_list(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "penetration.glb"
+            scene = trimesh.Scene()
+            scene.add_geometry(trimesh.creation.box(extents=(2, 2, 2)), geom_name="body", node_name="body")
+            scene.add_geometry(trimesh.creation.box(extents=(0.5, 0.5, 0.5)), geom_name="insert", node_name="insert")
+            scene.export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "pairwise-penetration", "max_samples": 128},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["kind"], "polykit.pairwise-penetration")
+            self.assertEqual(report["status"], "fail")
+            self.assertEqual(report["checks"]["unallowedPenetratingCount"], 1)
+            relation = report["relations"][0]
+            self.assertTrue(relation["penetrating"])
+            self.assertGreater(relation["aInsideB"] + relation["bInsideA"], 0)
+            self.assertEqual(result["metadata"]["component_count"], 2)
+
+            allowed_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "pairwise-penetration", "allowed_pairs": '[["body", "insert"]]', "max_samples": 128},
+                str(workspace),
+                str(temp),
+            )
+            allowed_report = json.loads(Path(str(allowed_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(allowed_report["status"], "pass")
+            self.assertTrue(allowed_report["relations"][0]["allowed"])
+
     def test_component_audit_marks_zero_extent_mesh_for_review(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

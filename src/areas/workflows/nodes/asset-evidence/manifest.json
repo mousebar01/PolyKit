@@ -41,6 +41,35 @@
       ]
     },
     {
+      "id": "pairwise-penetration",
+      "name": "Pairwise Penetration",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Checks whether sampled surfaces of one scene component lie inside another and supports explicit allowed contact pairs.",
+      "i18n": {
+        "zh-CN": { "name": "组件穿透审计" },
+        "en-US": { "name": "Pairwise Penetration" }
+      },
+      "params_schema": [
+        {
+          "id": "max_samples",
+          "label": "Samples / Component",
+          "type": "int",
+          "default": 2000,
+          "min": 32,
+          "max": 10000,
+          "tooltip": "Maximum deterministic vertices, edge midpoints, and face centroids sampled per component."
+        },
+        {
+          "id": "allowed_pairs",
+          "label": "Allowed Pairs (JSON)",
+          "type": "string",
+          "default": "",
+          "tooltip": "Optional JSON array such as [[\"hand\",\"staff\"]] for intentional contacts."
+        }
+      ]
+    },
+    {
       "id": "material-audit",
       "name": "Material Audit",
       "input": "mesh",

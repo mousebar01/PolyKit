@@ -8,6 +8,7 @@ the measured facts are published as a JSON sidecar.
 | Node | Behavior | Mesh mutation |
 | --- | --- | --- |
 | `asset-evidence/component-audit` | Lists scene components, world bounds, XY/XZ/YZ footprints, and overlap/near/separate relationships | None; input mesh is copied unchanged |
+| `asset-evidence/pairwise-penetration` | Samples component surfaces with deterministic ray-parity point-in-solid checks and reports unallowed interpenetration | None; input mesh is copied unchanged |
 | `asset-evidence/material-audit` | Records declared PBR channels, source labels, confidence, and missing base-color/roughness gates | None; input mesh is copied unchanged |
 | `asset-evidence/normalize-mesh` | Applies target-size scaling, explicit up-axis grounding, and optional horizontal centering | Yes; exports a new GLB and records the transform |
 | `asset-evidence/turntable-evidence` | Renders a deterministic 4–12 view contact sheet with camera angles for silhouette/assembly review | No; emits an image artifact and JSON sidecar |
@@ -18,6 +19,12 @@ overlap can be intentional in a manufactured assembly, and a declared
 roughness factor does not prove that the material matches a reference. Use the
 reports to decide which components or channels need a later Blender render,
 reference comparison, or localized correction.
+
+Pairwise penetration is a geometry-level follow-up to the cheaper AABB
+relations: vertices, unique edge midpoints, and face centroids are tested in
+both directions with three fixed ray directions. Intentional contacts must be
+listed in `allowed_pairs`; the report keeps the sampling limit and limitation
+visible, so a clean sampled result is not mistaken for an exact collision proof.
 
 ## Example mesh chain
 

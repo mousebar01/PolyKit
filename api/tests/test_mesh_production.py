@@ -274,6 +274,138 @@ class MeshProductionProcessorTests(unittest.TestCase):
             self.assertGreater(tree["nodeCount"], 1)
             self.assertEqual(result["metadata"]["evidence_kind"], "bvh")
 
+    def test_self_intersection_audit_flags_crossing_triangles(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            clean = root / "clean.glb"
+            trimesh.creation.box().export(clean)
+            clean_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(clean)},
+                {"_node_id": "self-intersection-audit"},
+                str(workspace),
+                str(temp),
+            )
+            clean_report = json.loads(Path(str(clean_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(clean_report["status"], "pass")
+            self.assertEqual(clean_report["check"]["intersectingFaceCount"], 0)
+
+            crossing = root / "crossing.glb"
+            trimesh.Trimesh(
+                vertices=[
+                    [0.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [0.0, 2.0, 0.0],
+                    [0.5, -0.5, -1.0],
+                    [0.5, 1.5, -1.0],
+                    [0.5, 0.5, 1.0],
+                ],
+                faces=[[0, 1, 2], [3, 4, 5]],
+                process=False,
+            ).export(crossing)
+            crossing_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(crossing)},
+                {"_node_id": "self-intersection-audit", "max_reported_faces": 1},
+                str(workspace),
+                str(temp),
+            )
+            crossing_report = json.loads(Path(str(crossing_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(crossing_report["status"], "fail")
+            self.assertEqual(crossing_report["check"]["intersectingFaceCount"], 2)
+            self.assertEqual(len(crossing_report["check"]["reportedFaceIndices"]), 1)
+            self.assertTrue(crossing_report["check"]["truncated"])
+            self.assertEqual(crossing_result["metadata"]["evidence_kind"], "self-intersection-audit")
+
+    def test_visual_hull_carves_closed_mesh_from_silhouettes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+            mask = ["11111111"] * 8
+            descriptor = {
+                "name": "cube-hull",
+                "bounds": {"min": [-1, -1, -1], "max": [1, 1, 1]},
+                "resolution": 8,
+                "triangleBudget": 10000,
+                "views": [
+                    {"axis": "front", "confidence": 1.0, "mask": mask},
+                    {"axis": "side", "confidence": 1.0, "mask": mask},
+                    {"axis": "top", "confidence": 1.0, "mask": mask},
+                ],
+            }
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"text": json.dumps(descriptor)},
+                {"_node_id": "visual-hull"},
+                str(workspace),
+                str(temp),
+            )
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            hull = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(hull, trimesh.Trimesh)
+            self.assertGreater(len(hull.faces), 0)
+            self.assertTrue(hull.is_watertight)
+            self.assertEqual(report["kind"], "polykit.visual-hull")
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["occupiedVoxelCount"], 8**3)
+            self.assertEqual(result["metadata"]["evidence_kind"], "visual-hull")
+
+    def test_morph_target_bake_emits_relative_deltas_and_flags_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+            source = root / "base.glb"
+            trimesh.creation.box().export(source)
+            base = trimesh.load(source, force="mesh", process=False)
+            target_vertices = base.vertices.tolist()
+            target_vertices[0][1] += 0.25
+            descriptor = {"targets": [{"name": "raise", "vertices": target_vertices}]}
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source), "text": json.dumps(descriptor)},
+                {"_node_id": "morph-target-bake"},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["kind"], "polykit.morph-target-bake")
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue(report["morphTargetsRelative"])
+            self.assertEqual(report["targets"][0]["movedVertexCount"], 1)
+            self.assertEqual(report["targets"][0]["deltas"][0][1], 0.25)
+            self.assertEqual(result["metadata"]["evidence_kind"], "morph-target-bake")
+
+            noop = root / "noop.json"
+            noop.write_text(json.dumps({"vertices": base.vertices.tolist()}), encoding="utf-8")
+            noop_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source), "text": noop.read_text(encoding="utf-8")},
+                {"_node_id": "morph-target-bake"},
+                str(workspace),
+                str(temp),
+            )
+            noop_report = json.loads(Path(str(noop_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(noop_report["status"], "needs_review")
+            self.assertEqual(noop_report["noOpTargets"], ["morph-1"])
+
     def test_animation_audit_checks_skin_clips_and_morph_targets(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
