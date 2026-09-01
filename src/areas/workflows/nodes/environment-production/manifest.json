@@ -1,0 +1,34 @@
+{
+  "id": "environment-production",
+  "name": "Environment Production",
+  "type": "process",
+  "capability_kind": "generator",
+  "generator_kind": "procedural",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Builds deterministic server-owned environment meshes from explicit terrain and river specifications.",
+  "requirements": [],
+  "i18n": {
+    "zh-CN": { "name": "环境制作", "description": "根据明确的地形和河流规范生成确定性的服务端环境网格。" },
+    "en-US": { "name": "Environment Production", "description": "Builds deterministic server-owned environment meshes from explicit terrain and river specifications." }
+  },
+  "nodes": [
+    {
+      "id": "terrain-mesh",
+      "name": "Terrain Mesh",
+      "input": "text",
+      "output": "mesh",
+      "description": "Compiles seeded regions, edge falloff, rivers, and an optional water plane into a GLB terrain mesh.",
+      "i18n": {
+        "zh-CN": { "name": "地形网格生成" },
+        "en-US": { "name": "Terrain Mesh" }
+      },
+      "params_schema": [
+        { "id": "resolution", "label": "Resolution", "type": "int", "default": 64, "min": 8, "max": 256, "tooltip": "Grid resolution per side. Higher values add geometry and build time." },
+        { "id": "include_water", "label": "Include Water", "type": "boolean", "default": true, "tooltip": "Add a separate water plane at the declared seaLevel." },
+        { "id": "water_thickness", "label": "Water Thickness", "type": "float", "default": 0.04, "min": 0.01, "max": 2.0, "tooltip": "Thickness of the exported water slab." }
+      ]
+    }
+  ]
+}
