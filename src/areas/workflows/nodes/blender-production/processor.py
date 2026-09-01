@@ -1283,17 +1283,14 @@ def main() -> None:
     input_data = payload.get('input') if isinstance(payload.get('input'), Mapping) else {}
     workspace_dir = Path(str(payload.get('workspaceDir') or '.')).expanduser().resolve()
     node_id = str(params.get('_node_id') or params.get('operation') or 'surface')
-    aliases = {'opening': 'opening', 'array-stairs': 'array-stairs', 'curve-profile': 'curve-profile', 'geometry-nodes': 'geometry-nodes', 'assembly': 'assembly', 'surface': 'surface', 'lighting': 'lighting', 'deform': 'deform', 'simulation-setup': 'simulation-setup', 'npr': 'npr', 'geometry-report': 'geometry-report'}
+    aliases = {'opening': 'opening', 'array-stairs': 'array-stairs', 'curve-profile': 'curve-profile', 'assembly': 'assembly', 'surface': 'surface', 'lighting': 'lighting', 'deform': 'deform'}
     operation = aliases.get(node_id)
     if operation is None:
         error(f'blender-production: unsupported node operation {node_id!r}')
         return
     input_path = str(input_data.get('filePath') or '') or None
-    if operation in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr', 'geometry-report'} and input_path and not Path(input_path).is_file():
+    if operation in {'surface', 'lighting', 'deform'} and input_path and not Path(input_path).is_file():
         error(f'blender-production: input mesh not found: {input_path}')
-        return
-    if operation == 'geometry-report' and not input_path:
-        error('blender-production: geometry-report requires a connected mesh input')
         return
     input_b64 = None
     if input_path:
@@ -1317,10 +1314,9 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         progress(5, f'Connecting to Blender bridge at {host}:{port}…')
-        code = _report_script(input_path, input_b64, params) if operation == 'geometry-report' else _scene_script(operation, params, input_path, input_b64, scene_name, render_preview)
+        code = _scene_script(operation, params, input_path, input_b64, scene_name, render_preview)
         result = _send_blender_code(host, port, code)
-        if operation == 'geometry-report':
-            glb_b64 = str(result.get('glb_b64') or '')
+        glb_b64 = str(result.get('glb_b64') or '')
             report_b64 = str(result.get('report_b64') or '')
             report_json = str(result.get('report_json') or '')
             if not glb_b64 or not report_b64 or not report_json:
