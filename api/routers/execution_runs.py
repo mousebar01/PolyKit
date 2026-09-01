@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from application.execution import prepare_execution_run
@@ -55,6 +55,10 @@ class RunStatus(BaseModel):
     output_url: Optional[str] = None
     error: Optional[str] = None
     scene_candidate: Optional[dict] = None
+    workflow_id: Optional[str] = None
+    collection: Optional[str] = None
+    artifact_kind: Optional[str] = None
+    waiting: Optional[dict] = None
     meta: Optional[dict] = None
 
 
@@ -105,8 +109,8 @@ async def generate_asset(submission: GenerateAssetSubmission, background_tasks: 
 
 
 @router.get("/runs/{run_id}", response_model=RunStatus)
-async def get_run(run_id: str):
-    """Read one Run regardless of whether it came from UI, Agent, Workflow, or World."""
+async def get_run(run_id: str, compact: bool = Query(False)):
+    """Read one Run; compact mode omits the large durable metadata payload."""
 
     run_coordinator.purge_old_jobs()
     job = run_coordinator.jobs.get(run_id)
@@ -115,6 +119,10 @@ async def get_run(run_id: str):
     scene_candidate = None
     if job.status == "done" and job.output_url:
         scene_candidate = {"workspace_path": job.output_url.removeprefix("/workspace/")}
+
+    meta = job.meta if isinstance(job.meta, dict) else {}
+    execution = meta.get("execution")
+    waiting = execution.get("waiting") if isinstance(execution, dict) else None
     return RunStatus(
         run_id=job.job_id,
         status=job.status,
@@ -123,18 +131,36 @@ async def get_run(run_id: str):
         output_url=job.output_url,
         error=job.error,
         scene_candidate=scene_candidate,
-        meta=job.meta,
+        workflow_id=meta.get("workflow_id") if isinstance(meta.get("workflow_id"), str) else None,
+        collection=meta.get("collection") if isinstance(meta.get("collection"), str) else None,
+        artifact_kind=meta.get("artifact_kind") if isinstance(meta.get("artifact_kind"), str) else None,
+        waiting=dict(waiting) if isinstance(waiting, dict) else None,
+        meta=None if compact else meta,
     )
 
 
 @router.get("/runs/{run_id}/inspect")
-async def inspect_run(run_id: str):
-    """Inspect durable Run telemetry, checkpoints, and waiting state."""
+async def inspect_run(
+    run_id: str,
+    since_seq: int | None = Query(None, ge=0),
+    before_seq: int | None = Query(None, ge=0),
+    events_limit: int | None = Query(None, ge=1, le=200),
+    include_events: bool = Query(True),
+):
+    """Inspect Run telemetry with optional reversible event paging."""
 
     try:
-        return inspect_application_run(run_id)
+        return inspect_application_run(
+            run_id,
+            since_seq=since_seq,
+            before_seq=before_seq,
+            events_limit=events_limit,
+            include_events=include_events,
+        )
     except RunNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except RunStateError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/runs/{run_id}/signals")
