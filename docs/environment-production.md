@@ -28,3 +28,10 @@ terrain is intentionally geometry-first: biome textures, erosion simulation,
 and vegetation placement remain downstream scene work. The browser World
 runtime can still use its own deterministic heightfield for planning, but it no
 longer needs to pretend that preview geometry is production output.
+
+`environment-production/city-blockout` builds a second composable environment
+artifact from `width`, `depth`, `rows`, `columns`, `roadWidth`, `setback`, and a
+building-height range. It emits separate road and building masses with stable
+names and a layout hash. This is a flat camera/layout blockout, not an inferred
+city GIS model: doors, windows, interiors, traffic, zoning, and terrain fitting
+must be authored or validated in later scene passes.

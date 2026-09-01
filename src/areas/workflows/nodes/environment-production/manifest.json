@@ -29,6 +29,23 @@
         { "id": "include_water", "label": "Include Water", "type": "boolean", "default": true, "tooltip": "Add a separate water plane at the declared seaLevel." },
         { "id": "water_thickness", "label": "Water Thickness", "type": "float", "default": 0.04, "min": 0.01, "max": 2.0, "tooltip": "Thickness of the exported water slab." }
       ]
+    },
+    {
+      "id": "city-blockout",
+      "name": "Procedural City Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds a deterministic flat city blockout with roads, setbacks, and varied building masses.",
+      "i18n": {
+        "zh-CN": { "name": "程序化城市块面" },
+        "en-US": { "name": "Procedural City Blockout" }
+      },
+      "params_schema": [
+        { "id": "rows", "label": "Block Rows", "type": "int", "default": 4, "min": 1, "max": 24, "tooltip": "Number of city blocks along the depth axis." },
+        { "id": "columns", "label": "Block Columns", "type": "int", "default": 4, "min": 1, "max": 24, "tooltip": "Number of city blocks along the width axis." },
+        { "id": "building_density", "label": "Building Density", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "tooltip": "Chance that each lot receives a building mass." },
+        { "id": "include_ground", "label": "Include Ground", "type": "boolean", "default": true, "tooltip": "Add a single ground slab beneath the road grid." }
+      ]
     }
   ]
 }
