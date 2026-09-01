@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from schemas.execution import ExecutionInitiator, ExecutionPlan
 from schemas.generation import JobStatus
 from schemas.workflow import WorkflowExecutionRequest
+from services.capability_registry import is_known_capability
 from services.model_runtime_registry import model_runtime_registry
-from services.node_catalog import is_known
 from services.run_coordinator import run_coordinator
 from services.run_observability import init_workflow_observability
 from services.runtime_paths import runtime_paths
@@ -56,7 +56,7 @@ def validate_execution_plan(plan: ExecutionPlan) -> tuple[WorkflowExecutionReque
     order = topological_order(execution_prompt)
 
     for node in execution_prompt.values():
-        if not is_known(node.class_type):
+        if not is_known_capability(node.class_type):
             raise ValueError(f"Unknown executable capability '{node.class_type}'")
 
     if request.output_node_id is not None:
