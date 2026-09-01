@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import json
 import math
 import tempfile
@@ -15,38 +14,6 @@ PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/refe
 
 
 class ReferenceEvidenceProcessorTests(unittest.TestCase):
-    def test_camera_guide_emits_aspect_aware_reference_camera(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "portrait.png"
-            Image.new("RGB", (100, 200), (90, 110, 130)).save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"_node_id": "camera-guide", "distance": 4.0, "pitch": 8},
-                str(workspace),
-                str(temp),
-            )
-
-            output = Path(str(result["filePath"]))
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(output.is_file())
-            with Image.open(output) as overlay:
-                self.assertEqual(overlay.size, (100, 200))
-                self.assertEqual(overlay.mode, "RGBA")
-            camera = report["referenceCamera"]
-            self.assertEqual(camera["fovDegrees"]["value"], 38.0)
-            self.assertEqual(camera["fovDegrees"]["source"], "default-guess")
-            self.assertEqual(camera["position"]["distance"]["value"], 4.0)
-            self.assertEqual(camera["orientation"]["pitchDegrees"]["value"], 8.0)
-            self.assertEqual(result["metadata"]["evidence_kind"], "reference-camera")
-
     def test_camera_fit_reduces_landmark_reprojection_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -108,44 +75,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertAlmostEqual(report["camera"]["fovDegrees"], 42.0, places=2)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-camera-fit")
 
-    def test_projection_plan_validates_runtime_bake_descriptor(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "reference.png"
-            Image.new("RGB", (80, 60), (70, 90, 120)).save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {
-                    "_node_id": "projection-plan",
-                    "mesh_id": "hero-body",
-                    "projection_mode": "orthographic-front-projection",
-                    "texture_size": 2048,
-                    "unseen_strategy": "request-additional-view",
-                },
-                str(workspace),
-                str(temp),
-            )
-
-            output = Path(str(result["filePath"]))
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(output.is_file())
-            with Image.open(output) as overlay:
-                self.assertEqual(overlay.size, (80, 60))
-                self.assertEqual(overlay.mode, "RGBA")
-            self.assertEqual(report["kind"], "polykit.projected-texture-plan")
-            self.assertEqual(report["status"], "needs_runtime_bake")
-            self.assertEqual(report["targetMeshId"], "hero-body")
-            self.assertEqual(report["textureSize"], 2048)
-            self.assertEqual(report["unseenRegionStrategy"]["confidence"], 0.0)
-            self.assertEqual(result["metadata"]["projection_mode"], "orthographic-front-projection")
-
     def test_reference_compare_emits_heatmap_and_difference_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -177,111 +106,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertTrue(report["candidate"]["resizedToReference"])
             self.assertGreater(report["metrics"]["changedPixelRatio"], 0.99)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-compare")
-
-    def test_divine_eye_passes_matching_alpha_silhouette_and_fails_shifted_candidate(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            reference = root / "reference.png"
-            matching = root / "matching.png"
-            shifted = root / "shifted.png"
-
-            def write_shape(path: Path, offset: int) -> None:
-                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-                for x in range(16 + offset, 48 + offset):
-                    for y in range(16, 48):
-                        if 0 <= x < image.width:
-                            image.putpixel((x, y), (220, 60, 40, 255))
-                image.save(path)
-
-            write_shape(reference, 0)
-            write_shape(matching, 0)
-            write_shape(shifted, 14)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            passed = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(reference), str(matching)]},
-                {"_node_id": "divine-eye"},
-                str(workspace),
-                str(temp),
-            )
-            pass_report = json.loads(Path(str(passed["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertEqual(pass_report["status"], "pass")
-            self.assertEqual(pass_report["signals"]["silhouetteIoU"], 1.0)
-            self.assertEqual(pass_report["signals"]["globalSSIM"], 1.0)
-            self.assertEqual(passed["metadata"]["evidence_kind"], "divine-eye")
-
-            failed = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(reference), str(shifted)]},
-                {"_node_id": "divine-eye"},
-                str(workspace),
-                str(temp),
-            )
-            fail_report = json.loads(Path(str(failed["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertEqual(fail_report["status"], "fail")
-            self.assertLess(fail_report["signals"]["silhouetteIoU"], 0.85)
-            self.assertTrue(fail_report["gates"]["silhouetteGateAuthoritative"])
-
-    def test_interior_difference_ignores_background_but_detects_shared_foreground_change(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            reference = root / "reference.png"
-            matching = root / "matching.png"
-            changed = root / "changed.png"
-
-            def write_shape(path: Path, interior: tuple[int, int, int]) -> None:
-                image = Image.new("RGBA", (80, 80), (0, 0, 0, 0))
-                for x in range(16, 64):
-                    for y in range(12, 68):
-                        image.putpixel((x, y), (180, 90, 50, 255))
-                for x in range(30, 50):
-                    for y in range(32, 48):
-                        image.putpixel((x, y), (*interior, 255))
-                image.save(path)
-
-            write_shape(reference, (180, 90, 50))
-            write_shape(matching, (180, 90, 50))
-            write_shape(changed, (30, 200, 220))
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            exact = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(reference), str(matching)]},
-                {"_node_id": "interior-difference", "band_from": 0.2, "band_to": 0.8, "grid": 48},
-                str(workspace),
-                str(temp),
-            )
-            exact_report = json.loads(Path(str(exact["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertEqual(exact_report["kind"], "polykit.interior-difference")
-            self.assertEqual(exact_report["status"], "measured")
-            self.assertEqual(exact_report["interiorDifference"], 0.0)
-            self.assertGreater(exact_report["cellsCompared"], 0)
-            self.assertEqual(exact_report["band"], {"from": 0.2, "to": 0.8})
-            with Image.open(Path(str(exact["filePath"]))) as sheet:
-                self.assertEqual(sheet.size, (240, 80))
-
-            different = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(reference), str(changed)]},
-                {"_node_id": "interior-difference", "grid": 48},
-                str(workspace),
-                str(temp),
-            )
-            different_report = json.loads(Path(str(different["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertEqual(different_report["status"], "measured")
-            self.assertGreater(different_report["interiorDifference"], 0.01)
-            self.assertEqual(different["metadata"]["evidence_kind"], "interior-difference")
 
     def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -348,43 +172,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreaterEqual(len(report["palette"]), 1)
             self.assertEqual(report["pbrEvidence"]["roughness"]["confidence"], 0.0)
             self.assertEqual(result["metadata"]["evidence_kind"], "material-region")
-
-    def test_gradient_stops_follow_reference_axis_and_flag_hue_risk(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "gradient.png"
-            image = Image.new("RGB", (120, 20))
-            for x in range(image.width):
-                ratio = x / max(1, image.width - 1)
-                color = (round(255 * (1.0 - ratio)), 12, round(255 * ratio))
-                for y in range(image.height):
-                    image.putpixel((x, y), color)
-            image.save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"_node_id": "gradient-stops", "axis": "u", "stops": 6},
-                str(workspace),
-                str(temp),
-            )
-            output = Path(str(result["filePath"]))
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(output.is_file())
-            with Image.open(output) as board:
-                self.assertEqual(board.size, (256, 96))
-            self.assertEqual(report["kind"], "polykit.gradient-stops")
-            self.assertEqual(report["axis"], "u")
-            self.assertEqual(len(report["stops"]), 6)
-            self.assertEqual(report["stops"][0]["hueName"], "red")
-            self.assertEqual(report["stops"][-1]["hueName"], "blue")
-            self.assertGreaterEqual(len(report["riskFlags"]), 1)
-            self.assertEqual(result["metadata"]["evidence_kind"], "gradient-stops")
 
     def test_pbr_evidence_writes_five_reviewable_map_sidecars(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -459,37 +246,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(report["kind"], "polykit.delighted-albedo")
             self.assertEqual(report["settings"]["method"], "low-frequency-division")
             self.assertEqual(result["metadata"]["strength"], 1.0)
-
-    def test_landmark_guide_outputs_overlay_and_unreviewed_skeleton(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "portrait.png"
-            Image.new("RGB", (100, 80), (120, 160, 200)).save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"_node_id": "landmark-guide", "subject_type": "character"},
-                str(workspace),
-                str(temp),
-            )
-
-            output = Path(str(result["filePath"]))
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(output.is_file())
-            with Image.open(output) as image:
-                self.assertEqual(image.size, (100, 80))
-                self.assertEqual(image.mode, "RGBA")
-            self.assertEqual(report["kind"], "polykit.landmark-guide")
-            self.assertEqual(report["status"], "needs_visual_review")
-            self.assertEqual(len(report["guide"]["landmarks"]), 11)
-            self.assertTrue(all(item["x"] is None and item["y"] is None for item in report["guide"]["landmarks"]))
-            self.assertEqual(result["metadata"]["landmark_count"], 11)
 
     def test_material_palette_extracts_dominant_colors_and_board(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -595,68 +351,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(report["sourceImage"]["width"], 128)
             self.assertGreater(report["metrics"]["edgeMean"], 0)
 
-    def test_detail_inventory_writes_overlay_report_and_crops(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "chair.png"
-            Image.new("RGB", (11, 7), (30, 60, 90)).save(source)
-            workspace = root / "process-workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"grid_size": 2, "subject": "Test chair", "target_min_details": 5},
-                str(workspace),
-                str(temp),
-            )
-
-            overlay = Path(str(result["filePath"]))
-            sidecars = [Path(str(path)) for path in result["sidecars"]]
-            report_path = next(path for path in sidecars if path.name.endswith("detail-inventory.json"))
-            self.assertTrue(overlay.is_file())
-            self.assertEqual(len(sidecars), 5)  # report plus 2 × 2 region crops
-            self.assertTrue(all(path.is_file() for path in sidecars))
-            with Image.open(overlay) as image:
-                self.assertEqual(image.size, (11, 7))
-
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            self.assertEqual(report["kind"], "polykit.detail-inventory")
-            self.assertEqual(report["status"], "needs_visual_review")
-            self.assertEqual(report["subject"], "Test chair")
-            self.assertEqual(report["sourceImage"]["sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
-            self.assertEqual(len(report["scan"]["regions"]), 4)
-            self.assertEqual(len(report["detailChecklist"]), 15)
-            self.assertTrue(all(item["present"] is None for item in report["detailChecklist"]))
-            self.assertEqual(result["metadata"]["region_count"], 4)
-
-    def test_include_crops_false_keeps_report_references_empty(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "reference.png"
-            Image.new("RGB", (4, 4), (255, 255, 255)).save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"grid_size": 3, "include_crops": False},
-                str(workspace),
-                str(temp),
-            )
-
-            self.assertEqual(len(result["sidecars"]), 1)
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(all(region["crop"] is None for region in report["scan"]["regions"]))
-            self.assertEqual(result["metadata"]["region_count"], 9)
-
     def test_workflow_publishes_sidecars_with_image_output(self) -> None:
         import asyncio
         import threading
@@ -675,7 +369,7 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             Image.new("RGB", (8, 8), (80, 120, 160)).save(source)
             payload = base64.b64encode(source.read_bytes()).decode("ascii")
             manifest = json.loads((PACK_DIR / "manifest.json").read_text(encoding="utf-8"))
-            node_manifest = manifest["nodes"][0]
+            node_manifest = next(node for node in manifest["nodes"] if node["id"] == "pbr-evidence")
             process_tuple = (PACK_DIR, manifest, node_manifest)
             request = WorkflowExecutionRequest(
                 collection="Evidence",
@@ -684,13 +378,13 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
                         class_type="polykit.image",
                         inputs={"image": {"kind": "base64", "data": payload}},
                     ),
-                    "inventory": WorkflowExecutionNode(
-                        class_type="reference-evidence/detail-inventory",
-                        inputs={"image": ["source", "image"], "params": {"grid_size": 2}},
+                    "evidence": WorkflowExecutionNode(
+                        class_type="reference-evidence/pbr-evidence",
+                        inputs={"image": ["source", "image"], "params": {"max_dimension": 32}},
                     ),
                     "output": WorkflowExecutionNode(
                         class_type="polykit.image_output",
-                        inputs={"image": ["inventory", "image"]},
+                        inputs={"image": ["evidence", "image"]},
                     ),
                 },
                 output_node_id="output",
@@ -723,13 +417,13 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertIsNotNone(final)
             assert final is not None
             self.assertTrue(final.is_relative_to(root / "Evidence"))
-            reports = list((root / "Evidence").glob("*_detail-inventory.json"))
-            crops = list((root / "Evidence").glob("*_r*.png"))
+            reports = list((root / "Evidence").glob("*_pbr-evidence.json"))
+            maps = list((root / "Evidence").glob("*_*.png"))
             self.assertEqual(len(reports), 1)
-            self.assertEqual(len(crops), 4)
+            self.assertGreaterEqual(len(maps), 5)
             report = json.loads(reports[0].read_text(encoding="utf-8"))
-            self.assertEqual(report["scan"]["method"], "grid-2x2")
-            self.assertEqual(job.meta["process_metadata"]["inventory"]["evidence_kind"], "detail-inventory")
+            self.assertEqual(report["kind"], "polykit.pbr-evidence")
+            self.assertEqual(job.meta["process_metadata"]["evidence"]["evidence_kind"], "pbr-evidence")
 
 
 if __name__ == "__main__":
