@@ -32,8 +32,8 @@ class GenerateAssetFromImageCommand(BaseModel):
 
     ``image`` uses the canonical execution input shape, normally
     ``{"kind": "workspace_path", "path": ...}`` or a bounded base64 payload.
-    The Web upload adapter can keep multipart transport while compiling the same
-    command after it materializes the upload.
+    Multipart adapters should prefer a run-owned workspace path so binary image
+    data is not duplicated inside the durable execution snapshot.
     """
 
     image: dict[str, Any]
@@ -41,8 +41,10 @@ class GenerateAssetFromImageCommand(BaseModel):
     enable_texture: bool = False
     collection: str = "Workflows"
     workflow_id: Optional[str] = None
+    node_id: Optional[str] = None
     world_id: Optional[str] = None
     proto_id: Optional[str] = None
+    image_name: Optional[str] = None
     mesh_params: dict[str, Any] = Field(default_factory=dict)
     texture_params: dict[str, Any] = Field(default_factory=dict)
 
@@ -62,6 +64,8 @@ def _provenance_metadata(
     proto_id: str | None,
     generation_mode: str,
     generator_id: str,
+    node_id: str | None = None,
+    image_name: str | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "generation_kind": "ai",
@@ -69,10 +73,14 @@ def _provenance_metadata(
         "generator_id": generator_id,
         "artifact_kind": "mesh",
     }
-    if isinstance(world_id, str) and world_id.strip():
-        metadata["world_id"] = world_id.strip()
-    if isinstance(proto_id, str) and proto_id.strip():
-        metadata["proto_id"] = proto_id.strip()
+    for key, value in {
+        "world_id": world_id,
+        "proto_id": proto_id,
+        "node_id": node_id,
+        "image_name": image_name,
+    }.items():
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value.strip()
     return metadata
 
 
@@ -181,6 +189,7 @@ def compile_generate_asset_from_image_plan(
 
     if command.enable_texture:
         texture_params = dict(command.texture_params)
+        texture_params.setdefault("texture_resolution", 1024)
         nodes["texture"] = ExecutionNode(
             class_type=_refiner_id(command.mesh_model_id),
             inputs={
@@ -205,6 +214,8 @@ def compile_generate_asset_from_image_plan(
         metadata=_provenance_metadata(
             world_id=command.world_id,
             proto_id=command.proto_id,
+            node_id=command.node_id,
+            image_name=command.image_name,
             generation_mode="image",
             generator_id=command.mesh_model_id,
         ),
