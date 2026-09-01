@@ -23,8 +23,9 @@ function loadUseApi() {
     }
     export default {
       create: (cfg) => ({
-        get:  (url) => record(cfg?.baseURL, 'get', url),
-        post: (url, body) => record(cfg?.baseURL, 'post', url, body),
+        get:    (url) => record(cfg?.baseURL, 'get', url),
+        post:   (url, body) => record(cfg?.baseURL, 'post', url, body),
+        delete: (url) => record(cfg?.baseURL, 'delete', url),
       }),
     }
   `, 'utf8')
@@ -71,16 +72,16 @@ test('exposes the browser-safe methods consumed by the app', () => {
   }
 })
 
-test('pollJobStatus uses canonical workflow-runs status and maps output_url → outputUrl', async () => {
+test('pollJobStatus uses canonical Run status and maps output_url → outputUrl', async () => {
   reset()
-  globalThis.__responses['http://test.local/workflow-runs/job1'] = {
+  globalThis.__responses['http://test.local/runs/job1'] = {
     status: 'done', progress: 100, output_url: '/workspace/out.glb',
   }
   const api = loadUseApi()()
 
   const result = await api.pollJobStatus('job1')
 
-  assert.equal(globalThis.__calls[0].url, 'http://test.local/workflow-runs/job1')
+  assert.equal(globalThis.__calls[0].url, 'http://test.local/runs/job1')
   assert.equal(result.status, 'done')
   assert.equal(result.outputUrl, '/workspace/out.glb')
 })
@@ -98,11 +99,12 @@ test('optimizeMesh maps face_count → faceCount and posts target_faces', async 
   assert.deepEqual(result, { url: '/o.glb', faceCount: 5000 })
 })
 
-test('cancelJob posts to canonical workflow-runs cancel endpoint', async () => {
+test('cancelJob deletes the canonical Run endpoint', async () => {
   reset()
   const api = loadUseApi()()
   await api.cancelJob('job9')
-  assert.equal(globalThis.__calls[0].url, 'http://test.local/workflow-runs/job9/cancel')
+  assert.equal(globalThis.__calls[0].method, 'delete')
+  assert.equal(globalThis.__calls[0].url, 'http://test.local/runs/job9')
 })
 
 test('generateFromImage posts multipart to workflow-runs and maps run_id → jobId', async () => {
