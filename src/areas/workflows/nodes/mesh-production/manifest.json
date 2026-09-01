@@ -350,7 +350,7 @@
       "name": "Animation Audit",
       "input": "mesh",
       "output": "mesh",
-      "description": "Inspects glTF/GLB skin bindings, joint counts, animation clips, channels, and morph targets without modifying the asset.",
+      "description": "Inspects glTF/GLB skin bindings, numeric JOINTS/WEIGHTS buffers, animation clips, channels, and morph targets without modifying the asset.",
       "i18n": {
         "zh-CN": { "name": "动画资产审计" },
         "en-US": { "name": "Animation Audit" }

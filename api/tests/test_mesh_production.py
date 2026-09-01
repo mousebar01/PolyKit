@@ -1,6 +1,8 @@
 import asyncio
+import base64
 import json
 import math
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -514,6 +516,77 @@ class MeshProductionProcessorTests(unittest.TestCase):
             plain_report = json.loads(Path(str(plain_result["sidecars"][0])).read_text(encoding="utf-8"))
             self.assertEqual(plain_report["status"], "needs_review")
             self.assertFalse(plain_report["rig"]["bound"])
+
+    def test_animation_audit_validates_binary_skin_weights(self) -> None:
+        def write_skinned_gltf(path: Path, weight_row: tuple[float, float, float, float]) -> None:
+            positions = struct.pack(
+                "<9f",
+                -0.5, 0.0, 0.0,
+                0.5, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+            )
+            joints = bytes([0, 0, 0, 0] * 3)
+            weights = struct.pack("<12f", *(weight_row * 3))
+            payload = positions + joints + weights
+            document = {
+                "asset": {"version": "2.0"},
+                "buffers": [{
+                    "byteLength": len(payload),
+                    "uri": "data:application/octet-stream;base64," + base64.b64encode(payload).decode("ascii"),
+                }],
+                "bufferViews": [
+                    {"buffer": 0, "byteOffset": 0, "byteLength": len(positions)},
+                    {"buffer": 0, "byteOffset": len(positions), "byteLength": len(joints)},
+                    {"buffer": 0, "byteOffset": len(positions) + len(joints), "byteLength": len(weights)},
+                ],
+                "accessors": [
+                    {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                    {"bufferView": 1, "componentType": 5121, "count": 3, "type": "VEC4"},
+                    {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4"},
+                ],
+                "nodes": [{"mesh": 0, "skin": 0, "children": [1]}, {"name": "joint"}],
+                "skins": [{"joints": [1], "skeleton": 0}],
+                "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2}}]}],
+            }
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            valid = root / "valid.gltf"
+            write_skinned_gltf(valid, (1.0, 0.0, 0.0, 0.0))
+            valid_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(valid)},
+                {"_node_id": "animation-audit"},
+                str(workspace),
+                str(temp),
+            )
+            valid_report = json.loads(Path(str(valid_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(valid_report["status"], "pass")
+            self.assertEqual(valid_report["rig"]["weights"]["checkedPrimitiveCount"], 1)
+            self.assertEqual(valid_report["rig"]["weights"]["validPrimitiveCount"], 1)
+            self.assertEqual(valid_report["rig"]["weights"]["invalidPrimitiveCount"], 0)
+
+            invalid = root / "invalid.gltf"
+            write_skinned_gltf(invalid, (0.5, 0.0, 0.0, 0.0))
+            invalid_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(invalid)},
+                {"_node_id": "animation-audit"},
+                str(workspace),
+                str(temp),
+            )
+            invalid_report = json.loads(Path(str(invalid_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(invalid_report["status"], "fail")
+            self.assertEqual(invalid_report["rig"]["weights"]["invalidPrimitiveCount"], 1)
+            self.assertIn("sum to", invalid_report["rig"]["weights"]["errors"][0])
 
     def test_collision_mesh_builds_convex_proxy_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:

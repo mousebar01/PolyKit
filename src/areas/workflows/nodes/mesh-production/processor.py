@@ -7,6 +7,7 @@ the selected sink.
 """
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
@@ -1145,12 +1146,35 @@ def _bvh_build(input_path: Path, workspace_dir: Path, params: dict[str, Any]) ->
     }
 
 
-def _read_gltf_document(input_path: Path) -> dict[str, Any]:
+def _read_gltf_payload(input_path: Path) -> tuple[dict[str, Any], list[bytes]]:
+    """Read a glTF document and its local buffer payloads.
+
+    The animation gate is intentionally able to inspect real binary attributes,
+    not just the JSON declarations.  External .bin files and data URIs are
+    accepted for .gltf; GLB's BIN chunks are associated with buffers that omit a
+    URI, as required by the container format.
+    """
     if input_path.suffix.lower() == ".gltf":
-        value = json.loads(input_path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict):
+        document = json.loads(input_path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
             raise ValueError("glTF document must be an object")
-        return value
+        buffers: list[bytes] = []
+        for index, descriptor in enumerate(document.get("buffers", [])):
+            if not isinstance(descriptor, dict):
+                raise ValueError(f"glTF buffer {index} must be an object")
+            uri = descriptor.get("uri")
+            if not isinstance(uri, str) or not uri:
+                raise ValueError(f"glTF buffer {index} has no local URI")
+            if uri.startswith("data:"):
+                try:
+                    encoded = uri.split(",", 1)[1]
+                    buffers.append(base64.b64decode(encoded, validate=True))
+                except (IndexError, ValueError) as exc:
+                    raise ValueError(f"glTF buffer {index} data URI is invalid") from exc
+            else:
+                buffers.append((input_path.parent / uri).read_bytes())
+        return document, buffers
+
     with input_path.open("rb") as stream:
         header = stream.read(12)
         if len(header) != 12:
@@ -1158,6 +1182,8 @@ def _read_gltf_document(input_path: Path) -> dict[str, Any]:
         magic, version, total_length = struct.unpack("<4sII", header)
         if magic != b"glTF" or version != 2:
             raise ValueError("unsupported GLB header")
+        json_chunk: bytes | None = None
+        binary_chunks: list[bytes] = []
         consumed = 12
         while consumed + 8 <= total_length:
             chunk_header = stream.read(8)
@@ -1168,18 +1194,203 @@ def _read_gltf_document(input_path: Path) -> dict[str, Any]:
             if chunk_length > total_length - consumed:
                 raise ValueError("GLB chunk exceeds declared file length")
             chunk = stream.read(chunk_length)
+            if len(chunk) != chunk_length:
+                raise ValueError("GLB chunk is truncated")
             consumed += chunk_length
             if chunk_type == 0x4E4F534A:
-                value = json.loads(chunk.rstrip(b" \t\r\n").decode("utf-8"))
-                if not isinstance(value, dict):
-                    raise ValueError("GLB JSON chunk must be an object")
-                return value
-    raise ValueError("GLB has no JSON chunk")
+                json_chunk = chunk
+            elif chunk_type == 0x004E4942:
+                binary_chunks.append(chunk)
+        if json_chunk is None:
+            raise ValueError("GLB has no JSON chunk")
+        document = json.loads(json_chunk.rstrip(b" \t\r\n").decode("utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("GLB JSON chunk must be an object")
+        buffers: list[bytes] = []
+        binary_index = 0
+        for index, descriptor in enumerate(document.get("buffers", [])):
+            if not isinstance(descriptor, dict):
+                raise ValueError(f"GLB buffer {index} must be an object")
+            uri = descriptor.get("uri")
+            if isinstance(uri, str) and uri:
+                if uri.startswith("data:"):
+                    try:
+                        buffers.append(base64.b64decode(uri.split(",", 1)[1], validate=True))
+                    except (IndexError, ValueError) as exc:
+                        raise ValueError(f"GLB buffer {index} data URI is invalid") from exc
+                else:
+                    buffers.append((input_path.parent / uri).read_bytes())
+            else:
+                if binary_index >= len(binary_chunks):
+                    raise ValueError(f"GLB buffer {index} has no BIN chunk")
+                buffers.append(binary_chunks[binary_index])
+                binary_index += 1
+        return document, buffers
+
+
+def _read_gltf_document(input_path: Path) -> dict[str, Any]:
+    return _read_gltf_payload(input_path)[0]
+
+
+def _read_gltf_accessor(
+    document: dict[str, Any], buffers: list[bytes], accessor_index: Any
+) -> tuple[list[tuple[float | int, ...]], int, str]:
+    """Decode one glTF accessor without pulling in a second runtime dependency."""
+    accessors = document.get("accessors") if isinstance(document.get("accessors"), list) else []
+    views = document.get("bufferViews") if isinstance(document.get("bufferViews"), list) else []
+    if not isinstance(accessor_index, int) or not 0 <= accessor_index < len(accessors):
+        raise ValueError("accessor index is out of range")
+    accessor = accessors[accessor_index]
+    if not isinstance(accessor, dict):
+        raise ValueError("accessor must be an object")
+    view_index = accessor.get("bufferView")
+    if not isinstance(view_index, int) or not 0 <= view_index < len(views):
+        raise ValueError("accessor has no valid bufferView")
+    view = views[view_index]
+    if not isinstance(view, dict):
+        raise ValueError("bufferView must be an object")
+    buffer_index = view.get("buffer", 0)
+    if not isinstance(buffer_index, int) or not 0 <= buffer_index < len(buffers):
+        raise ValueError("bufferView references an unavailable buffer")
+    component = {
+        5120: ("b", 1, True),
+        5121: ("B", 1, False),
+        5122: ("h", 2, True),
+        5123: ("H", 2, False),
+        5125: ("I", 4, False),
+        5126: ("f", 4, True),
+    }.get(accessor.get("componentType"))
+    if component is None:
+        raise ValueError("accessor componentType is unsupported")
+    accessor_type = accessor.get("type")
+    arity = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}.get(accessor_type)
+    if arity is None:
+        raise ValueError("accessor type is unsupported for skin data")
+    count = accessor.get("count")
+    if not isinstance(count, int) or count < 0 or count > 2_000_000:
+        raise ValueError("accessor count is invalid or exceeds the audit budget")
+    format_code, component_size, signed = component
+    element_size = component_size * arity
+    stride = view.get("byteStride", element_size)
+    if not isinstance(stride, int) or stride < element_size:
+        raise ValueError("bufferView byteStride is smaller than the accessor element")
+    offset = int(view.get("byteOffset", 0) or 0) + int(accessor.get("byteOffset", 0) or 0)
+    payload = buffers[buffer_index]
+    if offset < 0 or offset + max(0, count - 1) * stride + element_size > len(payload):
+        raise ValueError("accessor exceeds its buffer payload")
+    normalized = bool(accessor.get("normalized", False))
+    values: list[tuple[float | int, ...]] = []
+    unpack_format = "<" + (format_code * arity)
+    for row in range(count):
+        raw = struct.unpack_from(unpack_format, payload, offset + row * stride)
+        if normalized and format_code != "f":
+            if signed:
+                limit = float((1 << (component_size * 8 - 1)) - 1)
+                converted = tuple(max(-1.0, float(value) / limit) for value in raw)
+            else:
+                limit = float((1 << (component_size * 8)) - 1)
+                converted = tuple(float(value) / limit for value in raw)
+            values.append(converted)
+        else:
+            values.append(tuple(raw))
+    return values, count, str(accessor_type)
+
+
+def _audit_skin_buffers(document: dict[str, Any], buffers: list[bytes]) -> dict[str, Any]:
+    """Validate numeric skin attributes when the source carries readable buffers."""
+    nodes = document.get("nodes") if isinstance(document.get("nodes"), list) else []
+    skins = document.get("skins") if isinstance(document.get("skins"), list) else []
+    meshes = document.get("meshes") if isinstance(document.get("meshes"), list) else []
+    skin_limits: dict[int, int] = {}
+    for node in nodes:
+        if not isinstance(node, dict) or not isinstance(node.get("mesh"), int) or not isinstance(node.get("skin"), int):
+            continue
+        skin_index = node["skin"]
+        if 0 <= skin_index < len(skins) and isinstance(skins[skin_index], dict):
+            joints = skins[skin_index].get("joints")
+            if isinstance(joints, list) and joints:
+                skin_limits[node["mesh"]] = max(skin_limits.get(node["mesh"], 0), len(joints))
+
+    checked = 0
+    valid = 0
+    invalid = 0
+    unverified = 0
+    max_sum_error = 0.0
+    errors: list[str] = []
+    for mesh_index, mesh in enumerate(meshes):
+        if not isinstance(mesh, dict):
+            continue
+        primitives = mesh.get("primitives") if isinstance(mesh.get("primitives"), list) else []
+        for primitive_index, primitive in enumerate(primitives):
+            if not isinstance(primitive, dict):
+                continue
+            attributes = primitive.get("attributes") if isinstance(primitive.get("attributes"), dict) else {}
+            if "JOINTS_0" not in attributes or "WEIGHTS_0" not in attributes:
+                continue
+            checked += 1
+            try:
+                accessors = document.get("accessors") if isinstance(document.get("accessors"), list) else []
+                joint_accessor = accessors[attributes["JOINTS_0"]] if isinstance(attributes["JOINTS_0"], int) and 0 <= attributes["JOINTS_0"] < len(accessors) else None
+                weight_accessor = accessors[attributes["WEIGHTS_0"]] if isinstance(attributes["WEIGHTS_0"], int) and 0 <= attributes["WEIGHTS_0"] < len(accessors) else None
+                if not isinstance(joint_accessor, dict) or joint_accessor.get("componentType") not in {5121, 5123, 5125}:
+                    raise ValueError("JOINTS_0 must use an unsigned integer component type")
+                if not isinstance(weight_accessor, dict) or weight_accessor.get("componentType") not in {5121, 5123, 5126}:
+                    raise ValueError("WEIGHTS_0 must use float or normalized unsigned integer components")
+                joints, joint_count, joint_type = _read_gltf_accessor(document, buffers, attributes["JOINTS_0"])
+                weights, weight_count, weight_type = _read_gltf_accessor(document, buffers, attributes["WEIGHTS_0"])
+                position_count = None
+                if "POSITION" in attributes:
+                    _position_values, position_count, _position_type = _read_gltf_accessor(document, buffers, attributes["POSITION"])
+                if joint_count != weight_count or (position_count is not None and position_count != joint_count):
+                    raise ValueError("POSITION, JOINTS_0, and WEIGHTS_0 counts differ")
+                if joint_type != "VEC4" or weight_type != "VEC4":
+                    raise ValueError("JOINTS_0 and WEIGHTS_0 must be VEC4 attributes")
+                joint_limit = skin_limits.get(mesh_index)
+                if not joint_limit:
+                    raise ValueError("mesh is not attached to a skin node with joints")
+                primitive_error: str | None = None
+                primitive_max_error = 0.0
+                for row_index, (joint_row, weight_row) in enumerate(zip(joints, weights)):
+                    if not all(isinstance(value, (int, float)) and math.isfinite(float(value)) for value in (*joint_row, *weight_row)):
+                        primitive_error = f"vertex {row_index} contains a non-finite joint or weight"
+                        break
+                    if any(float(value) < 0.0 or float(value) >= joint_limit for value in joint_row):
+                        primitive_error = f"vertex {row_index} references a joint outside 0..{joint_limit - 1}"
+                        break
+                    weight_sum = sum(float(value) for value in weight_row)
+                    sum_error = abs(weight_sum - 1.0)
+                    primitive_max_error = max(primitive_max_error, sum_error)
+                    if any(float(value) < -1e-6 for value in weight_row):
+                        primitive_error = f"vertex {row_index} contains a negative skin weight"
+                        break
+                    if sum_error > 0.02:
+                        primitive_error = f"vertex {row_index} skin weights sum to {weight_sum:.6f}, expected 1"
+                        break
+                max_sum_error = max(max_sum_error, primitive_max_error)
+                if primitive_error:
+                    invalid += 1
+                    if len(errors) < 12:
+                        errors.append(f"mesh {mesh_index} primitive {primitive_index}: {primitive_error}")
+                else:
+                    valid += 1
+            except (TypeError, ValueError, OSError, struct.error) as exc:
+                unverified += 1
+                if len(errors) < 12:
+                    errors.append(f"mesh {mesh_index} primitive {primitive_index}: {exc}")
+    return {
+        "checkedPrimitiveCount": checked,
+        "validPrimitiveCount": valid,
+        "invalidPrimitiveCount": invalid,
+        "unverifiedPrimitiveCount": unverified,
+        "maxWeightSumError": round(max_sum_error, 6),
+        "errors": errors,
+        "dataAvailable": bool(buffers),
+    }
 
 
 def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Inspect glTF skin, weight, animation, and morph-target declarations."""
-    document = _read_gltf_document(input_path)
+    document, buffers = _read_gltf_payload(input_path)
     nodes = document.get("nodes") if isinstance(document.get("nodes"), list) else []
     skins = document.get("skins") if isinstance(document.get("skins"), list) else []
     animations = document.get("animations") if isinstance(document.get("animations"), list) else []
@@ -1215,7 +1426,10 @@ def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
     require_animation = bool(require_animation)
     has_skin = bool(valid_skins and skinned_primitives > 0)
     has_animation = bool(animations and animation_channels > 0)
+    weight_audit = _audit_skin_buffers(document, buffers)
     status = "pass" if has_skin and (has_animation or not require_animation) else "needs_review"
+    if weight_audit["invalidPrimitiveCount"]:
+        status = "fail"
     workspace_dir.mkdir(parents=True, exist_ok=True)
     report_path = workspace_dir / f"{_token(input_path, 'animation')}.json"
     report = {
@@ -1230,6 +1444,7 @@ def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
             "jointCount": max((len(skin.get("joints", [])) for skin in valid_skins), default=0),
             "skinnedPrimitiveCount": skinned_primitives,
             "bound": has_skin,
+            "weights": weight_audit,
         },
         "animation": {
             "clipCount": len(animations),
@@ -1239,7 +1454,7 @@ def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
         },
         "morphTargets": {"targetCount": morph_targets, "present": morph_targets > 0},
         "reviewNotes": [
-            "Structural declarations are checked here; numeric weights and deformation quality still require a runtime smoke test.",
+            "Numeric JOINTS_0/WEIGHTS_0 buffers are checked when local glTF/GLB payloads are available; deformation quality still requires a runtime smoke test.",
             "A mesh can be rigged without clips. Enable require_animation when the next stage expects an animation-bearing asset.",
         ],
     }
@@ -1252,6 +1467,8 @@ def _animation_audit(input_path: Path, workspace_dir: Path, params: dict[str, An
             "schema_version": 1,
             "status": status,
             "bound": has_skin,
+            "invalid_weight_primitives": weight_audit["invalidPrimitiveCount"],
+            "unverified_weight_primitives": weight_audit["unverifiedPrimitiveCount"],
             "clip_count": len(animations),
             "report": report_path.name,
         },
