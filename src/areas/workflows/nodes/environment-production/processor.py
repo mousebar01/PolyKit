@@ -397,8 +397,8 @@ def _city_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict
     }
 
 
-def _room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
-    """Build a deterministic room shell with explicit door and window openings."""
+def _build_room_blockout(descriptor: dict[str, Any], params: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    """Build room geometry and its report without publishing intermediate artifacts."""
     import numpy as np
     import trimesh
 
@@ -559,11 +559,6 @@ def _room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict
 
     if not scene.geometry:
         raise ValueError("room descriptor produced no geometry")
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    token = f"room_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    output_path = workspace_dir / f"{token}.glb"
-    report_path = workspace_dir / f"{token}.json"
-    scene.export(output_path)
     layout_hash = hashlib.sha256(json.dumps({"dimensions": [width, depth, height, wall_thickness, floor_thickness, ceiling_thickness], "includeFloor": include_floor, "includeCeiling": include_ceiling, "openings": records}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     report = {
         "schemaVersion": 1,
@@ -578,18 +573,35 @@ def _room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict
             "Openings are authored from normalized wall coordinates and do not infer architecture, trim, fixtures, materials, or hidden rooms from an image. Validate clearances and interior semantics downstream.",
         ],
     }
+    return scene, report
+
+
+def _room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build and publish a deterministic room shell with explicit door and window openings."""
+    scene, report = _build_room_blockout(descriptor, params)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = f"room_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_path = workspace_dir / f"{token}.glb"
+    report_path = workspace_dir / f"{token}.json"
+    scene.export(output_path)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {
         "filePath": str(output_path),
         "sidecars": [str(report_path)],
-        "metadata": {"evidence_kind": "room-blockout", "schema_version": 1, "status": "pass", "opening_count": len(records), "geometry_count": len(scene.geometry), "layout_hash": layout_hash, "report": report_path.name},
+        "metadata": {
+            "evidence_kind": "room-blockout",
+            "schema_version": 1,
+            "status": "pass",
+            "opening_count": report["summary"]["openingCount"],
+            "geometry_count": report["summary"]["geometryCount"],
+            "layout_hash": report["summary"]["layoutHash"],
+            "report": report_path.name,
+        },
     }
-
 
 def _multi_room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Compose independently authored room shells into one deterministic scene."""
     import trimesh
-    from tempfile import TemporaryDirectory
 
     raw_rooms = descriptor.get("rooms")
     if not isinstance(raw_rooms, list) or not raw_rooms:
@@ -608,44 +620,36 @@ def _multi_room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params
             raise ValueError(f"{label} must contain [x, z] world coordinates")
         return (_finite(value[0], f"{label}[0]"), _finite(value[1], f"{label}[1]"))
 
-    with TemporaryDirectory(dir=str(workspace_dir)) as part_dir:
-        part_root = Path(part_dir)
-        for index, raw_room in enumerate(raw_rooms):
-            if not isinstance(raw_room, dict):
-                raise ValueError(f"rooms[{index}] must be an object")
-            room_id = str(raw_room.get("id") or f"room-{index + 1}").strip()
-            if not room_id or room_id in room_ids:
-                raise ValueError(f"rooms[{index}] has an empty or duplicate id")
-            room_ids.add(room_id)
-            room_position = position_pair(raw_room.get("position", [0.0, 0.0]), f"room {room_id}.position")
-            room_descriptor = dict(global_defaults)
-            room_descriptor.update(raw_room)
-            room_descriptor.pop("position", None)
-            room_descriptor["id"] = room_id
-            room_params = {
-                "include_floor": params.get("include_floor", room_descriptor.get("includeFloor")),
-                "include_ceiling": params.get("include_ceiling", room_descriptor.get("includeCeiling")),
-            }
-            result = _room_blockout(room_descriptor, part_root, room_params)
-            child_scene = trimesh.load(Path(str(result["filePath"])), force="scene", process=False)
-            if not isinstance(child_scene, trimesh.Scene):
-                raise ValueError(f"room {room_id} did not produce a scene")
-            for name, geometry in child_scene.geometry.items():
-                copied = geometry.copy()
-                copied.apply_translation((room_position[0], 0.0, room_position[1]))
-                combined.add_geometry(copied, geom_name=f"{room_id}-{name}", node_name=f"{room_id}-{name}")
-            child_report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            room_records.append({
-                "id": room_id,
-                "position": [round(room_position[0], 6), round(room_position[1], 6)],
-                "dimensions": child_report["source"],
-                "openingCount": child_report["summary"]["openingCount"],
-                "layoutHash": child_report["summary"]["layoutHash"],
-            })
+    for index, raw_room in enumerate(raw_rooms):
+        if not isinstance(raw_room, dict):
+            raise ValueError(f"rooms[{index}] must be an object")
+        room_id = str(raw_room.get("id") or f"room-{index + 1}").strip()
+        if not room_id or room_id in room_ids:
+            raise ValueError(f"rooms[{index}] has an empty or duplicate id")
+        room_ids.add(room_id)
+        room_position = position_pair(raw_room.get("position", [0.0, 0.0]), f"room {room_id}.position")
+        room_descriptor = dict(global_defaults)
+        room_descriptor.update(raw_room)
+        room_descriptor.pop("position", None)
+        room_params = {
+            "include_floor": params.get("include_floor", room_descriptor.get("includeFloor")),
+            "include_ceiling": params.get("include_ceiling", room_descriptor.get("includeCeiling")),
+        }
+        child_scene, child_report = _build_room_blockout(room_descriptor, room_params)
+        for name, geometry in child_scene.geometry.items():
+            copied = geometry.copy()
+            copied.apply_translation((room_position[0], 0.0, room_position[1]))
+            combined.add_geometry(copied, geom_name=f"{room_id}-{name}", node_name=f"{room_id}-{name}")
+        room_records.append({
+            "id": room_id,
+            "position": [round(room_position[0], 6), round(room_position[1], 6)],
+            "dimensions": child_report["source"],
+            "openingCount": child_report["summary"]["openingCount"],
+            "layoutHash": child_report["summary"]["layoutHash"],
+        })
 
     if not combined.geometry:
         raise ValueError("multi-room descriptor produced no geometry")
-    workspace_dir.mkdir(parents=True, exist_ok=True)
     token = f"multi_room_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
     output_path = workspace_dir / f"{token}.glb"
     report_path = workspace_dir / f"{token}.json"
