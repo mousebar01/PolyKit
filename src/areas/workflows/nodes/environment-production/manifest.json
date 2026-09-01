@@ -77,6 +77,21 @@
         { "id": "include_floor", "label": "Include Floor", "type": "boolean", "default": true, "tooltip": "Add the floor slab at y=0." },
         { "id": "include_ceiling", "label": "Include Ceiling", "type": "boolean", "default": true, "tooltip": "Add the ceiling slab; turn off for an open camera view." }
       ]
+    },
+    {
+      "id": "multi-room-blockout",
+      "name": "Multi-room Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Composes multiple deterministic room shells at explicit world positions while preserving room and opening names.",
+      "i18n": {
+        "zh-CN": { "name": "多房间块面" },
+        "en-US": { "name": "Multi-room Blockout" }
+      },
+      "params_schema": [
+        { "id": "include_floor", "label": "Include Floors", "type": "boolean", "default": true, "tooltip": "Add a floor slab to each room." },
+        { "id": "include_ceiling", "label": "Include Ceilings", "type": "boolean", "default": true, "tooltip": "Add a ceiling slab to each room; turn off for an open camera view." }
+      ]
     }
   ]
 }

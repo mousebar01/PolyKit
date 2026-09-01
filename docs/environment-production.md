@@ -63,3 +63,12 @@ The node writes actual segmented wall geometry and simple trim around each
 opening, plus a report with room bounds and a stable layout hash. It is a
 camera/composition blockout, not an image-inferred architectural model: it does
 not add fixtures, materials, furniture, structural framing, or hidden rooms.
+
+`environment-production/multi-room-blockout` composes the same shell contract
+for a list of rooms. Each entry supplies an `id` and `[x, z]` `position`; room
+dimensions and door/window lists use the `room-blockout` schema. The output
+prefixes every mesh name with its room ID and records per-room hashes, so a
+single room can be regenerated without losing identity in a later composition.
+Adjacent rooms remain separate shells by design; shared-wall booleans,
+corridors, navigation, and inferred floor plans still require a downstream
+scene or Blender pass.

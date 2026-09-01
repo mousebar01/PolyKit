@@ -148,6 +148,41 @@ class TerrainMeshProcessorTests(unittest.TestCase):
             with self.assertRaises(ProcessExecutionError):
                 self._run(Path(td), descriptor, node_id="room-blockout")
 
+    def test_multi_room_blockout_preserves_room_identity_and_layout(self) -> None:
+        descriptor = {
+            "wallThickness": 0.18,
+            "includeCeiling": False,
+            "rooms": [
+                {"id": "living", "width": 5.0, "depth": 4.0, "height": 3.0, "position": [0.0, 0.0], "doors": [{"wall": "right", "offset": 1.2, "width": 0.9, "height": 2.1}]},
+                {"id": "studio", "width": 3.5, "depth": 3.0, "height": 2.8, "position": [4.4, 0.0], "windows": [{"wall": "left", "offset": 0.8, "width": 1.2, "height": 1.0, "sill": 1.0}]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as first_td, tempfile.TemporaryDirectory() as second_td:
+            first = self._run(Path(first_td), descriptor, node_id="multi-room-blockout")
+            second = self._run(Path(second_td), descriptor, node_id="multi-room-blockout")
+            output = Path(str(first["filePath"]))
+            report = json.loads(Path(str(first["sidecars"][0])).read_text(encoding="utf-8"))
+            second_report = json.loads(Path(str(second["sidecars"][0])).read_text(encoding="utf-8"))
+            scene = trimesh.load(output, force="scene", process=False)
+            names = set(scene.geometry)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(scene, trimesh.Scene)
+            self.assertIn("living-floor", names)
+            self.assertIn("studio-floor", names)
+            self.assertTrue(any(name.startswith("living-door-") for name in names))
+            self.assertTrue(any(name.startswith("studio-window-") for name in names))
+            self.assertEqual(report["kind"], "polykit.multi-room-blockout")
+            self.assertEqual(report["summary"]["roomCount"], 2)
+            self.assertEqual(report["summary"]["layoutHash"], second_report["summary"]["layoutHash"])
+            self.assertEqual(first["metadata"]["room_count"], 2)
+            self.assertGreater(float(scene.bounds[1][0]), 5.0)
+
+    def test_multi_room_blockout_rejects_duplicate_room_ids(self) -> None:
+        descriptor = {"rooms": [{"id": "same"}, {"id": "same"}]}
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ProcessExecutionError):
+                self._run(Path(td), descriptor, node_id="multi-room-blockout")
+
     def test_vegetation_scatter_exports_spaced_instances_with_stable_layout(self) -> None:
         descriptor = {"seed": 5, "size": 18, "count": 8, "types": ["tree", "pine", "rock", "grass"], "minDistance": 1.2, "relief": 1.5}
         with tempfile.TemporaryDirectory() as first_td, tempfile.TemporaryDirectory() as second_td:
