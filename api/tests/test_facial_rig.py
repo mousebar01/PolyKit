@@ -61,6 +61,39 @@ class FacialRigAuditTests(unittest.TestCase):
         self.assertTrue(any("monotonically" in error for error in invalid["errors"]))
         self.assertTrue(any("within [0, 1]" in error for error in invalid["errors"]))
 
+    def test_expression_clip_compile_expands_sparse_weights_to_channels(self) -> None:
+        descriptor = {
+            "blendShapes": ["jawOpen", {"name": "mouthSmile_L", "min": 0.0, "max": 1.0}],
+            "clips": [{
+                "name": "smile",
+                "duration": 1.0,
+                "loop": True,
+                "keyframes": [
+                    {"time": 0.0, "weights": {}},
+                    {"time": 0.5, "weights": {"mouthSmile_L": 0.8}},
+                ],
+            }],
+        }
+        report = self._run("expression-clip-compile", descriptor)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["summary"], {"blendShapeCount": 2, "clipCount": 1, "channelCount": 2, "keyframeCount": 2})
+        clip = report["clips"][0]
+        self.assertTrue(clip["loop"])
+        self.assertEqual(clip["keyframes"][0]["weights"], {"jawOpen": 0.0, "mouthSmile_L": 0.0})
+        self.assertEqual(clip["channels"][1]["values"], [0.0, 0.8])
+
+    def test_expression_clip_compile_rejects_unknown_shape_and_bad_timing(self) -> None:
+        report = self._run("expression-clip-compile", {
+            "blendShapes": ["jawOpen"],
+            "clips": [{"name": "bad", "keyframes": [
+                {"time": 0.5, "weights": {"brow": 0.2}},
+                {"time": 0.2, "weights": {"jawOpen": 0.3}},
+            ]}],
+        })
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("unknown blendshape" in error for error in report["errors"]))
+        self.assertTrue(any("monotonically increasing" in error for error in report["errors"]))
+
     def test_fabrik_reaches_target_and_flags_unreachable_target(self) -> None:
         chain = {
             "chain": [

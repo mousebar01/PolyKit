@@ -847,6 +847,135 @@ def _analyze_facial_rig(payload: dict[str, Any], params: dict[str, Any], *, lip_
     }
 
 
+def _compile_expression_clips(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compile sparse expression keyframes into portable morph channels."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    raw_shapes = payload.get("blendShapes", payload.get("blendshapes", []))
+    if not isinstance(raw_shapes, list) or not raw_shapes:
+        raise ValueError("blendShapes must be a non-empty list")
+    shapes: list[dict[str, Any]] = []
+    shape_by_name: dict[str, dict[str, float]] = {}
+    for index, raw_shape in enumerate(raw_shapes):
+        if isinstance(raw_shape, str):
+            name = raw_shape.strip()
+            minimum, maximum = 0.0, 1.0
+        elif isinstance(raw_shape, dict):
+            name = str(raw_shape.get("name") or "").strip()
+            try:
+                minimum, maximum = float(raw_shape.get("min", 0.0)), float(raw_shape.get("max", 1.0))
+            except (TypeError, ValueError):
+                errors.append(f"blendShapes[{index}] has non-numeric min/max")
+                minimum, maximum = 0.0, 1.0
+        else:
+            errors.append(f"blendShapes[{index}] must be a string or object")
+            continue
+        if not name:
+            errors.append(f"blendShapes[{index}].name must be non-empty")
+            continue
+        if name in shape_by_name:
+            errors.append(f"duplicate blendshape: {name}")
+            continue
+        if not math.isfinite(minimum) or not math.isfinite(maximum) or minimum < 0.0 or maximum > 1.0 or minimum >= maximum:
+            errors.append(f"blendshape {name!r} range must satisfy 0 <= min < max <= 1")
+            minimum, maximum = 0.0, 1.0
+        shape_by_name[name] = {"min": minimum, "max": maximum}
+        shapes.append({"name": name, "min": round(minimum, 6), "max": round(maximum, 6)})
+
+    raw_clips = payload.get("clips")
+    if not isinstance(raw_clips, list) or not raw_clips:
+        raise ValueError("clips must be a non-empty list")
+    compiled: list[dict[str, Any]] = []
+    clip_names: set[str] = set()
+    for clip_index, raw_clip in enumerate(raw_clips):
+        if not isinstance(raw_clip, dict):
+            errors.append(f"clips[{clip_index}] must be an object")
+            continue
+        name = str(raw_clip.get("name") or f"clip-{clip_index + 1}").strip()
+        if not name:
+            errors.append(f"clips[{clip_index}].name must be non-empty")
+            continue
+        if name in clip_names:
+            errors.append(f"duplicate expression clip: {name}")
+            continue
+        clip_names.add(name)
+        raw_keyframes = raw_clip.get("keyframes")
+        if not isinstance(raw_keyframes, list) or len(raw_keyframes) < 2:
+            errors.append(f"clip {name!r} needs at least two keyframes")
+            continue
+        keyframes: list[dict[str, Any]] = []
+        previous_time = -float("inf")
+        for frame_index, raw_frame in enumerate(raw_keyframes):
+            if not isinstance(raw_frame, dict) or not _is_number(raw_frame.get("time")) or not isinstance(raw_frame.get("weights"), dict):
+                errors.append(f"clip {name!r} keyframe {frame_index} needs numeric time and weights object")
+                continue
+            time_value = float(raw_frame["time"])
+            if time_value < 0.0 or time_value < previous_time:
+                errors.append(f"clip {name!r} keyframe times must be non-negative and monotonically increasing")
+            previous_time = time_value
+            dense_weights: dict[str, float] = {shape["name"]: float(shape["min"]) for shape in shapes}
+            for raw_name, raw_value in raw_frame["weights"].items():
+                shape_name = str(raw_name).strip()
+                if shape_name not in shape_by_name:
+                    errors.append(f"clip {name!r} references unknown blendshape {shape_name!r}")
+                    continue
+                if not _is_number(raw_value):
+                    errors.append(f"clip {name!r} weight for {shape_name!r} must be finite")
+                    continue
+                value = float(raw_value)
+                bounds = shape_by_name[shape_name]
+                if value < bounds["min"] or value > bounds["max"]:
+                    errors.append(f"clip {name!r} weight for {shape_name!r} must be within [{bounds['min']}, {bounds['max']}]")
+                    continue
+                dense_weights[shape_name] = value
+            keyframes.append({"time": round(time_value, 6), "weights": {key: round(value, 6) for key, value in dense_weights.items()}})
+        if len(keyframes) < 2:
+            continue
+        last_time = keyframes[-1]["time"]
+        try:
+            duration = float(raw_clip.get("duration", last_time))
+        except (TypeError, ValueError):
+            errors.append(f"clip {name!r} duration must be numeric")
+            duration = last_time
+        if not math.isfinite(duration) or duration < last_time or duration <= 0.0:
+            errors.append(f"clip {name!r} duration must be positive and cover its last keyframe")
+            duration = max(last_time, 0.0)
+        if keyframes[0]["time"] > 0.0:
+            warnings.append(f"clip {name!r} starts at {keyframes[0]['time']:.6f}; runtime will hold the default pose before it")
+        channels = [
+            {"name": shape["name"], "times": [frame["time"] for frame in keyframes], "values": [frame["weights"][shape["name"]] for frame in keyframes]}
+            for shape in shapes
+        ]
+        compiled.append({"name": name, "duration": round(duration, 6), "loop": bool(raw_clip.get("loop", False)), "keyframes": keyframes, "channels": channels})
+
+    if errors:
+        status = "fail"
+    elif not compiled:
+        status = "needs_review"
+    else:
+        status = "pass"
+    return {
+        "schemaVersion": 1,
+        "kind": "polykit.expression-clip-compile",
+        "status": status,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "blendShapes": shapes,
+        "clips": compiled,
+        "warnings": warnings,
+        "errors": errors,
+        "summary": {
+            "blendShapeCount": len(shapes),
+            "clipCount": len(compiled),
+            "channelCount": sum(len(clip["channels"]) for clip in compiled),
+            "keyframeCount": sum(len(clip["keyframes"]) for clip in compiled),
+        },
+        "reviewNotes": [
+            "Sparse authoring weights are expanded to one normalized channel value per declared blendshape at every keyframe.",
+            "This compiles a portable animation payload; it does not generate morph geometry or prove expression quality in a render.",
+        ],
+    }
+
+
 def _analyze_ik_solve(payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     """Solve one explicitly ordered joint chain with the FABRIK algorithm."""
     raw_chain = payload.get("chain")
@@ -1057,7 +1186,7 @@ def main() -> None:
             return
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "attachment-anchor-audit")
-        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit", "geodesic-bind", "facial-rig-audit", "lip-sync-audit", "ik-solve", "mixamo-audit"}:
+        if node_id not in {"attachment-anchor-audit", "rig-payload-audit", "chirality-audit", "geodesic-bind", "facial-rig-audit", "lip-sync-audit", "expression-clip-compile", "ik-solve", "mixamo-audit"}:
             error(f"rigging-evidence: unsupported node '{node_id}'")
             return
         descriptor = json.loads(text)
@@ -1074,6 +1203,8 @@ def main() -> None:
             report = _analyze_facial_rig(descriptor, params)
         elif node_id == "lip-sync-audit":
             report = _analyze_facial_rig(descriptor, params, lip_sync_only=True)
+        elif node_id == "expression-clip-compile":
+            report = _compile_expression_clips(descriptor)
         elif node_id == "ik-solve":
             report = _analyze_ik_solve(descriptor, params)
         elif node_id == "mixamo-audit":
@@ -1093,6 +1224,9 @@ def main() -> None:
         elif node_id in {"facial-rig-audit", "lip-sync-audit"}:
             metadata["blendshape_count"] = report["summary"]["blendShapeCount"]
             metadata["viseme_count"] = report["summary"]["visemeCount"]
+        elif node_id == "expression-clip-compile":
+            metadata["blendshape_count"] = report["summary"]["blendShapeCount"]
+            metadata["clip_count"] = report["summary"]["clipCount"]
         elif node_id == "ik-solve":
             metadata["joint_count"] = report["summary"]["jointCount"]
             metadata["end_error"] = report["summary"]["endError"]

@@ -102,6 +102,18 @@
       "params_schema": []
     },
     {
+      "id": "expression-clip-compile",
+      "name": "Expression Clip Compiler",
+      "input": "text",
+      "output": "text",
+      "description": "Compiles named blendshape expression clips into dense, normalized keyframes and per-shape channels.",
+      "i18n": {
+        "zh-CN": { "name": "表情片段编译" },
+        "en-US": { "name": "Expression Clip Compiler" }
+      },
+      "params_schema": []
+    },
+    {
       "id": "ik-solve",
       "name": "FABRIK IK Solve",
       "input": "text",

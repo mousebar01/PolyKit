@@ -35,6 +35,12 @@ normalized ranges, and optional minimal or ARKit-lite required channels.
 time-sampled mouth curves. These are compatibility gates only: they do not
 generate expressions, recognize speech, or prove facial quality in a render.
 
+`rigging-evidence/expression-clip-compile` turns authored blendshape clips into
+portable keyframes and one dense channel per declared shape. Missing weights use
+the shape minimum, unknown names and out-of-range values fail the compile, and
+the output remains JSON for a later runtime importer; it does not generate morph
+geometry.
+
 `rigging-evidence/ik-solve` solves one explicitly ordered joint chain with
 CPU FABRIK. It preserves the source segment lengths and reports target error,
 reach limits, and the solved joint positions. It does not create armature
