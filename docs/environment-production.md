@@ -42,3 +42,24 @@ world-size convention. Its JSON sidecar records every instance origin, scale,
 part name, and layout hash. It is intended to be composed over `terrain-mesh`;
 species identity, collision, seasonal changes, and image-grounded density still
 need an explicit scene review.
+
+`environment-production/room-blockout` emits a room shell with a floor, four
+wall planes, optional ceiling, and explicit door/window voids. Openings are
+specified per wall with a meter offset from the wall's negative edge, width,
+height, and (for windows) sill height:
+
+```json
+{
+  "width": 6,
+  "depth": 5,
+  "height": 3,
+  "wallThickness": 0.2,
+  "doors": [{"id": "entry", "wall": "front", "offset": 2, "width": 1, "height": 2.1}],
+  "windows": [{"id": "view", "wall": "back", "offset": 1.3, "width": 1.6, "height": 1.1, "sill": 1}]
+}
+```
+
+The node writes actual segmented wall geometry and simple trim around each
+opening, plus a report with room bounds and a stable layout hash. It is a
+camera/composition blockout, not an image-inferred architectural model: it does
+not add fixtures, materials, furniture, structural framing, or hidden rooms.

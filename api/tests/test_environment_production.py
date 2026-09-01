@@ -101,6 +101,53 @@ class TerrainMeshProcessorTests(unittest.TestCase):
             with self.assertRaises(ProcessExecutionError):
                 self._run(Path(td), {"width": 8, "depth": 8, "rows": 2, "columns": 2, "roadWidth": 3.0, "setback": 1.0}, node_id="city-blockout")
 
+    def test_room_blockout_exports_shell_openings_and_stable_layout(self) -> None:
+        descriptor = {
+            "width": 6,
+            "depth": 5,
+            "height": 3,
+            "wallThickness": 0.2,
+            "doors": [{"id": "entry", "wall": "front", "offset": 2.0, "width": 1.0, "height": 2.1}],
+            "windows": [{"id": "view", "wall": "back", "offset": 1.3, "width": 1.6, "height": 1.1, "sill": 1.0}],
+        }
+        with tempfile.TemporaryDirectory() as first_td, tempfile.TemporaryDirectory() as second_td:
+            first = self._run(Path(first_td), descriptor, node_id="room-blockout")
+            second = self._run(Path(second_td), descriptor, node_id="room-blockout")
+            output = Path(str(first["filePath"]))
+            report = json.loads(Path(str(first["sidecars"][0])).read_text(encoding="utf-8"))
+            second_report = json.loads(Path(str(second["sidecars"][0])).read_text(encoding="utf-8"))
+            scene = trimesh.load(output, force="scene", process=False)
+            names = set(scene.geometry)
+            self.assertTrue(output.is_file())
+            self.assertIn("floor", names)
+            self.assertIn("ceiling", names)
+            self.assertTrue(any(name.startswith("front-wall-segment-") for name in names))
+            self.assertTrue(any(name.startswith("door-entry-front") for name in names))
+            self.assertTrue(any(name.startswith("window-view-back") for name in names))
+            self.assertEqual(report["kind"], "polykit.room-blockout")
+            self.assertEqual(report["summary"]["openingCount"], 2)
+            self.assertEqual(report["summary"]["layoutHash"], second_report["summary"]["layoutHash"])
+            self.assertEqual(first["metadata"]["opening_count"], 2)
+            self.assertGreater(float(scene.bounds[1][1]), 3.0)
+        with tempfile.TemporaryDirectory() as variant_td:
+            variant = self._run(Path(variant_td), {**descriptor, "includeCeiling": False}, node_id="room-blockout")
+            variant_report = json.loads(Path(str(variant["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertNotEqual(report["summary"]["layoutHash"], variant_report["summary"]["layoutHash"])
+
+    def test_room_blockout_rejects_overlapping_openings(self) -> None:
+        descriptor = {
+            "width": 4,
+            "depth": 4,
+            "height": 3,
+            "doors": [
+                {"wall": "front", "offset": 0.8, "width": 1.5},
+                {"wall": "front", "offset": 1.9, "width": 1.0},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ProcessExecutionError):
+                self._run(Path(td), descriptor, node_id="room-blockout")
+
     def test_vegetation_scatter_exports_spaced_instances_with_stable_layout(self) -> None:
         descriptor = {"seed": 5, "size": 18, "count": 8, "types": ["tree", "pine", "rock", "grass"], "minDistance": 1.2, "relief": 1.5}
         with tempfile.TemporaryDirectory() as first_td, tempfile.TemporaryDirectory() as second_td:

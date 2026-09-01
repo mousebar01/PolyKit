@@ -397,6 +397,195 @@ def _city_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict
     }
 
 
+def _room_blockout(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Build a deterministic room shell with explicit door and window openings."""
+    import numpy as np
+    import trimesh
+
+    width = _finite(descriptor.get("width", 6.0), "width", positive=True)
+    depth = _finite(descriptor.get("depth", 5.0), "depth", positive=True)
+    height = _finite(descriptor.get("height", 3.0), "height", positive=True)
+    wall_thickness = _finite(descriptor.get("wallThickness", descriptor.get("wall_thickness", 0.2)), "wallThickness", positive=True)
+    floor_thickness = _finite(descriptor.get("floorThickness", descriptor.get("floor_thickness", 0.15)), "floorThickness", positive=True)
+    ceiling_thickness = _finite(descriptor.get("ceilingThickness", descriptor.get("ceiling_thickness", 0.15)), "ceilingThickness", positive=True)
+    if wall_thickness >= min(width, depth) * 0.5:
+        raise ValueError("wallThickness must leave a positive room interior")
+
+    def as_bool(value: Any, label: str, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value.strip().lower() not in {"", "0", "false", "no", "off"}
+        if isinstance(value, (bool, int, float)):
+            return bool(value)
+        raise ValueError(f"{label} must be a boolean")
+
+    include_floor = as_bool(params.get("include_floor", descriptor.get("includeFloor")), "includeFloor", True)
+    include_ceiling = as_bool(params.get("include_ceiling", descriptor.get("includeCeiling")), "includeCeiling", True)
+    scene = trimesh.Scene()
+    records: list[dict[str, Any]] = []
+    openings_by_wall: dict[str, list[dict[str, Any]]] = {wall: [] for wall in ("front", "back", "left", "right")}
+    colors = {
+        "floor": (119, 94, 67, 255),
+        "wall": (178, 178, 169, 255),
+        "ceiling": (205, 207, 201, 255),
+        "trim": (105, 72, 45, 255),
+    }
+
+    def add_box(name: str, extents: tuple[float, float, float], position: tuple[float, float, float], color: tuple[int, int, int, int]) -> None:
+        mesh = trimesh.creation.box(extents=extents)
+        mesh.apply_translation(position)
+        mesh.visual = trimesh.visual.ColorVisuals(vertex_colors=np.tile(np.asarray(color, dtype=np.uint8), (len(mesh.vertices), 1)))
+        scene.add_geometry(mesh, geom_name=name, node_name=name)
+
+    wall_spans = {"front": width, "back": width, "left": depth, "right": depth}
+    for kind, key in (("door", "doors"), ("window", "windows")):
+        raw_openings = descriptor.get(key, [])
+        if raw_openings is None:
+            raw_openings = []
+        if not isinstance(raw_openings, list):
+            raise ValueError(f"{key} must be a list")
+        for index, raw_opening in enumerate(raw_openings):
+            if not isinstance(raw_opening, dict):
+                raise ValueError(f"{key}[{index}] must be an object")
+            wall = str(raw_opening.get("wall", "front")).strip().lower()
+            if wall not in wall_spans:
+                raise ValueError(f"{key}[{index}].wall must be front, back, left, or right")
+            span = wall_spans[wall]
+            opening_width = _finite(raw_opening.get("width", 1.0), f"{key}[{index}].width", positive=True)
+            if opening_width >= span:
+                raise ValueError(f"{key}[{index}].width must fit inside the wall")
+            default_offset = (span - opening_width) * 0.5
+            offset = _finite(raw_opening.get("offset", default_offset), f"{key}[{index}].offset", non_negative=True)
+            if offset + opening_width > span + 1e-6:
+                raise ValueError(f"{key}[{index}] extends beyond the wall span")
+            opening_height = _finite(raw_opening.get("height", 2.1 if kind == "door" else min(1.2, height * 0.35)), f"{key}[{index}].height", positive=True)
+            sill = 0.0 if kind == "door" else _finite(raw_opening.get("sill", height * 0.45), f"{key}[{index}].sill", non_negative=True)
+            if sill + opening_height > height + 1e-6:
+                raise ValueError(f"{key}[{index}] extends above the room height")
+            opening = {
+                "id": str(raw_opening.get("id") or f"{kind}-{index + 1}"),
+                "kind": kind,
+                "wall": wall,
+                "offset": round(offset, 6),
+                "width": round(opening_width, 6),
+                "sill": round(sill, 6),
+                "height": round(opening_height, 6),
+                "top": round(sill + opening_height, 6),
+            }
+            openings_by_wall[wall].append(opening)
+            records.append(opening)
+
+    for wall, openings in openings_by_wall.items():
+        openings.sort(key=lambda opening: (opening["offset"], opening["id"]))
+        previous_end = 0.0
+        for opening in openings:
+            start = float(opening["offset"])
+            end = start + float(opening["width"])
+            if start < previous_end - 1e-6:
+                raise ValueError(f"room openings overlap on {wall} wall")
+            previous_end = end
+
+    def add_wall_piece(wall: str, index: int, tangent_start: float, tangent_end: float, y_start: float, y_end: float) -> None:
+        if tangent_end - tangent_start <= 1e-6 or y_end - y_start <= 1e-6:
+            return
+        span = wall_spans[wall]
+        tangent_center = -span * 0.5 + (tangent_start + tangent_end) * 0.5
+        y_center = (y_start + y_end) * 0.5
+        if wall == "front":
+            extents, position = (tangent_end - tangent_start, y_end - y_start, wall_thickness), (tangent_center, y_center, -depth * 0.5 + wall_thickness * 0.5)
+        elif wall == "back":
+            extents, position = (tangent_end - tangent_start, y_end - y_start, wall_thickness), (tangent_center, y_center, depth * 0.5 - wall_thickness * 0.5)
+        elif wall == "left":
+            extents, position = (wall_thickness, y_end - y_start, tangent_end - tangent_start), (-width * 0.5 + wall_thickness * 0.5, y_center, tangent_center)
+        else:
+            extents, position = (wall_thickness, y_end - y_start, tangent_end - tangent_start), (width * 0.5 - wall_thickness * 0.5, y_center, tangent_center)
+        add_box(f"{wall}-wall-segment-{index}", extents, position, colors["wall"])
+
+    for wall, openings in openings_by_wall.items():
+        span = wall_spans[wall]
+        cursor = 0.0
+        piece_index = 1
+        for opening in openings:
+            start = float(opening["offset"])
+            end = start + float(opening["width"])
+            if start > cursor + 1e-6:
+                add_wall_piece(wall, piece_index, cursor, start, 0.0, height)
+                piece_index += 1
+            sill = float(opening["sill"])
+            top = float(opening["top"])
+            if sill > 1e-6:
+                add_wall_piece(wall, piece_index, start, end, 0.0, sill)
+                piece_index += 1
+            if top < height - 1e-6:
+                add_wall_piece(wall, piece_index, start, end, top, height)
+                piece_index += 1
+            cursor = end
+        if cursor < span - 1e-6:
+            add_wall_piece(wall, piece_index, cursor, span, 0.0, height)
+
+    if include_floor:
+        add_box("floor", (width, floor_thickness, depth), (0.0, -floor_thickness * 0.5, 0.0), colors["floor"])
+    if include_ceiling:
+        add_box("ceiling", (width, ceiling_thickness, depth), (0.0, height + ceiling_thickness * 0.5, 0.0), colors["ceiling"])
+
+    frame_size = min(0.1, wall_thickness * 0.6)
+
+    def add_frame_box(name: str, wall: str, tangent_center: float, tangent_size: float, y_center: float, y_size: float) -> None:
+        span = wall_spans[wall]
+        if wall in {"front", "back"}:
+            position = (tangent_center, y_center, -depth * 0.5 if wall == "front" else depth * 0.5)
+            extents = (tangent_size, y_size, wall_thickness * 1.15)
+        else:
+            position = (-width * 0.5 if wall == "left" else width * 0.5, y_center, tangent_center)
+            extents = (wall_thickness * 1.15, y_size, tangent_size)
+        add_box(name, extents, position, colors["trim"])
+
+    for opening in records:
+        wall = str(opening["wall"])
+        start = float(opening["offset"])
+        end = start + float(opening["width"])
+        sill = float(opening["sill"])
+        top = float(opening["top"])
+        span = wall_spans[wall]
+        tangent_start = -span * 0.5 + start
+        tangent_end = -span * 0.5 + end
+        prefix = f"{opening['kind']}-{opening['id']}-{wall}"
+        add_frame_box(f"{prefix}-left-jamb", wall, tangent_start, frame_size, (sill + top) * 0.5, top - sill)
+        add_frame_box(f"{prefix}-right-jamb", wall, tangent_end, frame_size, (sill + top) * 0.5, top - sill)
+        add_frame_box(f"{prefix}-top-lintel", wall, (tangent_start + tangent_end) * 0.5, float(opening["width"]) + frame_size * 2.0, top + frame_size * 0.5, frame_size)
+        if opening["kind"] == "window":
+            add_frame_box(f"{prefix}-sill", wall, (tangent_start + tangent_end) * 0.5, float(opening["width"]) + frame_size * 2.0, sill - frame_size * 0.5, frame_size)
+
+    if not scene.geometry:
+        raise ValueError("room descriptor produced no geometry")
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    token = f"room_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    output_path = workspace_dir / f"{token}.glb"
+    report_path = workspace_dir / f"{token}.json"
+    scene.export(output_path)
+    layout_hash = hashlib.sha256(json.dumps({"dimensions": [width, depth, height, wall_thickness, floor_thickness, ceiling_thickness], "includeFloor": include_floor, "includeCeiling": include_ceiling, "openings": records}, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.room-blockout",
+        "status": "pass",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "source": {"width": round(width, 6), "depth": round(depth, 6), "height": round(height, 6), "wallThickness": round(wall_thickness, 6), "floorThickness": round(floor_thickness, 6), "ceilingThickness": round(ceiling_thickness, 6), "includeFloor": include_floor, "includeCeiling": include_ceiling},
+        "summary": {"openingCount": len(records), "geometryCount": len(scene.geometry), "layoutHash": layout_hash, "bounds": [[round(float(value), 6) for value in row] for row in scene.bounds]},
+        "openings": records,
+        "reviewNotes": [
+            "The room shell, floor, optional ceiling, and explicit door/window voids are server-owned GLB geometry suitable for composition and camera blocking.",
+            "Openings are authored from normalized wall coordinates and do not infer architecture, trim, fixtures, materials, or hidden rooms from an image. Validate clearances and interior semantics downstream.",
+        ],
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {"evidence_kind": "room-blockout", "schema_version": 1, "status": "pass", "opening_count": len(records), "geometry_count": len(scene.geometry), "layout_hash": layout_hash, "report": report_path.name},
+    }
+
+
 def _vegetation_scatter(descriptor: dict[str, Any], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     """Build deterministic low-poly vegetation/rock instances for composition."""
     import numpy as np
@@ -579,12 +768,12 @@ def main() -> None:
         input_data = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
         node_id = str(params.get("_node_id") or "terrain-mesh")
-        if node_id not in {"terrain-mesh", "city-blockout", "vegetation-scatter"}:
+        if node_id not in {"terrain-mesh", "city-blockout", "vegetation-scatter", "room-blockout"}:
             error(f"environment-production: unsupported node '{node_id}'")
             return
         text = input_data.get("text")
         if not isinstance(text, str) or not text.strip():
-            error("environment-production: terrain-mesh requires a JSON descriptor on the text input")
+            error("environment-production: the selected node requires a JSON descriptor on the text input")
             return
         descriptor = json.loads(text)
         if not isinstance(descriptor, dict):
@@ -601,6 +790,10 @@ def main() -> None:
             result = _city_blockout(descriptor, Path(workspace_raw), params)
             progress(90, "Writing roads and building masses…")
             progress(100, "City blockout ready")
+        elif node_id == "room-blockout":
+            result = _room_blockout(descriptor, Path(workspace_raw), params)
+            progress(90, "Writing room shell and openings…")
+            progress(100, "Room blockout ready")
         else:
             result = _vegetation_scatter(descriptor, Path(workspace_raw), params)
             progress(90, "Writing vegetation instances…")
