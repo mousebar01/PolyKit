@@ -6,7 +6,11 @@
   "version": "1.0.0",
   "author": "PolyKit",
   "description": "Creates game-ready mesh derivatives such as collision geometry and level-of-detail assets.",
-  "requirements": ["trimesh", "pymeshlab", "Pillow"],
+  "requirements": [
+    "trimesh",
+    "pymeshlab",
+    "Pillow"
+  ],
   "i18n": {
     "zh-CN": {
       "name": "网格生产",
@@ -25,8 +29,12 @@
       "output": "mesh",
       "description": "Builds a simplified collision proxy from the whole scene while preserving the source coordinate frame.",
       "i18n": {
-        "zh-CN": { "name": "碰撞网格" },
-        "en-US": { "name": "Collision Mesh" }
+        "zh-CN": {
+          "name": "碰撞网格"
+        },
+        "en-US": {
+          "name": "Collision Mesh"
+        }
       },
       "params_schema": [
         {
@@ -35,8 +43,14 @@
           "type": "select",
           "default": "convex_hull",
           "options": [
-            { "value": "convex_hull", "label": "Convex Hull" },
-            { "value": "box", "label": "Bounding Box" }
+            {
+              "value": "convex_hull",
+              "label": "Convex Hull"
+            },
+            {
+              "value": "box",
+              "label": "Bounding Box"
+            }
           ],
           "tooltip": "Convex Hull follows the outer silhouette; Bounding Box is the cheapest broad-phase proxy."
         }
@@ -49,8 +63,12 @@
       "output": "mesh",
       "description": "Creates deterministic LOD0/LOD1/LOD2 GLB derivatives and a reduction report.",
       "i18n": {
-        "zh-CN": { "name": "生成 LOD" },
-        "en-US": { "name": "Generate LODs" }
+        "zh-CN": {
+          "name": "生成 LOD"
+        },
+        "en-US": {
+          "name": "Generate LODs"
+        }
       },
       "params_schema": [
         {
@@ -59,7 +77,7 @@
           "type": "float",
           "default": 0.5,
           "min": 0.05,
-          "max": 1.0,
+          "max": 1,
           "step": 0.05,
           "tooltip": "Target triangle ratio for the first distant level."
         },
@@ -69,7 +87,7 @@
           "type": "float",
           "default": 0.2,
           "min": 0.02,
-          "max": 1.0,
+          "max": 1,
           "step": 0.05,
           "tooltip": "Target triangle ratio for the second distant level."
         },
@@ -87,13 +105,23 @@
     {
       "id": "projection-bake",
       "name": "Projection Bake",
-      "inputs": ["image", "mesh"],
-      "input_labels": ["Reference Image", "Target Mesh"],
+      "inputs": [
+        "image",
+        "mesh"
+      ],
+      "input_labels": [
+        "Reference Image",
+        "Target Mesh"
+      ],
       "output": "mesh",
       "description": "Projects a reference image into mesh UVs with a deterministic camera model and embedded GLB texture.",
       "i18n": {
-        "zh-CN": { "name": "投影贴图烘焙" },
-        "en-US": { "name": "Projection Bake" }
+        "zh-CN": {
+          "name": "投影贴图烘焙"
+        },
+        "en-US": {
+          "name": "Projection Bake"
+        }
       },
       "params_schema": [
         {
@@ -102,9 +130,18 @@
           "type": "select",
           "default": "perspective-camera-projection",
           "options": [
-            { "value": "perspective-camera-projection", "label": "Perspective Camera" },
-            { "value": "orthographic-front-projection", "label": "Orthographic Front" },
-            { "value": "triplanar-fallback", "label": "Triplanar Fallback" }
+            {
+              "value": "perspective-camera-projection",
+              "label": "Perspective Camera"
+            },
+            {
+              "value": "orthographic-front-projection",
+              "label": "Orthographic Front"
+            },
+            {
+              "value": "triplanar-fallback",
+              "label": "Triplanar Fallback"
+            }
           ],
           "tooltip": "Camera-space UV projection used to place the embedded reference texture."
         },
@@ -112,9 +149,9 @@
           "id": "fov_degrees",
           "label": "FOV Degrees",
           "type": "float",
-          "default": 35.0,
-          "min": 10.0,
-          "max": 120.0,
+          "default": 35,
+          "min": 10,
+          "max": 120,
           "tooltip": "Vertical field of view for perspective projection."
         },
         {
@@ -123,34 +160,34 @@
           "type": "float",
           "default": 2.5,
           "min": 0.01,
-          "max": 10000.0,
+          "max": 10000,
           "tooltip": "Distance from the mesh bounds center in the same units as the mesh."
         },
         {
           "id": "yaw",
           "label": "Yaw",
           "type": "float",
-          "default": 0.0,
-          "min": -180.0,
-          "max": 180.0,
+          "default": 0,
+          "min": -180,
+          "max": 180,
           "tooltip": "Horizontal camera orientation in degrees."
         },
         {
           "id": "pitch",
           "label": "Pitch",
           "type": "float",
-          "default": 0.0,
-          "min": -89.0,
-          "max": 89.0,
+          "default": 0,
+          "min": -89,
+          "max": 89,
           "tooltip": "Vertical camera orientation in degrees."
         },
         {
           "id": "roll",
           "label": "Roll",
           "type": "float",
-          "default": 0.0,
-          "min": -180.0,
-          "max": 180.0,
+          "default": 0,
+          "min": -180,
+          "max": 180,
           "tooltip": "Camera roll in degrees."
         },
         {
@@ -168,10 +205,22 @@
           "type": "select",
           "default": "leave-unprojected",
           "options": [
-            { "value": "mirror-symmetry", "label": "Mirror Symmetry" },
-            { "value": "palette-continue", "label": "Continue Palette" },
-            { "value": "request-additional-view", "label": "Request More Views" },
-            { "value": "leave-unprojected", "label": "Leave Unprojected" }
+            {
+              "value": "mirror-symmetry",
+              "label": "Mirror Symmetry"
+            },
+            {
+              "value": "palette-continue",
+              "label": "Continue Palette"
+            },
+            {
+              "value": "request-additional-view",
+              "label": "Request More Views"
+            },
+            {
+              "value": "leave-unprojected",
+              "label": "Leave Unprojected"
+            }
           ],
           "tooltip": "Records how surfaces outside the camera view should be handled downstream; unseen texture samples are always flagged."
         }
@@ -184,8 +233,12 @@
       "output": "mesh",
       "description": "Generates explicit seam-safe UV coordinates with a deterministic local parametrizer and exports a GLB derivative.",
       "i18n": {
-        "zh-CN": { "name": "UV 展开" },
-        "en-US": { "name": "UV Unwrap" }
+        "zh-CN": {
+          "name": "UV 展开"
+        },
+        "en-US": {
+          "name": "UV Unwrap"
+        }
       },
       "params_schema": [
         {
@@ -194,8 +247,14 @@
           "type": "select",
           "default": "flat-plane",
           "options": [
-            { "value": "flat-plane", "label": "Flat Plane Charts" },
-            { "value": "triangle-trivial", "label": "Triangle Trivial" }
+            {
+              "value": "flat-plane",
+              "label": "Flat Plane Charts"
+            },
+            {
+              "value": "triangle-trivial",
+              "label": "Triangle Trivial"
+            }
           ],
           "tooltip": "Selects the deterministic pymeshlab parametrization. Inspect island distortion before baking production textures."
         }
@@ -208,8 +267,12 @@
       "output": "mesh",
       "description": "Bakes world-space normal and vertex-derived ambient-occlusion PNG sidecars onto a UV-enabled GLB derivative.",
       "i18n": {
-        "zh-CN": { "name": "表面贴图烘焙" },
-        "en-US": { "name": "Surface Map Bake" }
+        "zh-CN": {
+          "name": "表面贴图烘焙"
+        },
+        "en-US": {
+          "name": "Surface Map Bake"
+        }
       },
       "params_schema": [
         {
@@ -227,8 +290,14 @@
           "type": "select",
           "default": "flat-plane",
           "options": [
-            { "value": "flat-plane", "label": "Flat Plane Charts" },
-            { "value": "triangle-trivial", "label": "Triangle Trivial" }
+            {
+              "value": "flat-plane",
+              "label": "Flat Plane Charts"
+            },
+            {
+              "value": "triangle-trivial",
+              "label": "Triangle Trivial"
+            }
           ],
           "tooltip": "Parametrization used before map rasterization."
         }
@@ -241,8 +310,12 @@
       "output": "mesh",
       "description": "Audits finite geometry, topology defects, boundaries, manifoldness, winding, and watertight volume without modifying the mesh.",
       "i18n": {
-        "zh-CN": { "name": "几何完整性审计" },
-        "en-US": { "name": "Geometry Integrity" }
+        "zh-CN": {
+          "name": "几何完整性审计"
+        },
+        "en-US": {
+          "name": "Geometry Integrity"
+        }
       },
       "params_schema": [
         {
@@ -257,69 +330,9 @@
           "label": "Degenerate Area Epsilon",
           "type": "float",
           "default": 1e-12,
-          "min": 0.0,
-          "max": 1.0,
+          "min": 0,
+          "max": 1,
           "tooltip": "Triangle area at or below this value is counted as degenerate."
-        }
-      ]
-    },
-    {
-      "id": "visual-hull",
-      "name": "Visual Hull",
-      "input": "text",
-      "output": "mesh",
-      "description": "Carves a voxel visual hull from two or three orthographic binary silhouette masks supplied as a JSON descriptor.",
-      "i18n": {
-        "zh-CN": { "name": "视觉外壳" },
-        "en-US": { "name": "Visual Hull" }
-      },
-      "params_schema": [
-        {
-          "id": "name",
-          "label": "Asset Name",
-          "type": "string",
-          "default": "visual-hull",
-          "tooltip": "Base name used for the generated mesh and report files."
-        }
-      ]
-    },
-    {
-      "id": "bvh-build",
-      "name": "BVH Build",
-      "input": "mesh",
-      "output": "mesh",
-      "description": "Builds a deterministic triangle AABB hierarchy as a JSON sidecar for broad-phase queries and spatial inspection.",
-      "i18n": {
-        "zh-CN": { "name": "BVH 构建" },
-        "en-US": { "name": "BVH Build" }
-      },
-      "params_schema": [
-        {
-          "id": "leaf_triangles",
-          "label": "Triangles / Leaf",
-          "type": "int",
-          "default": 8,
-          "min": 1,
-          "max": 64,
-          "tooltip": "Maximum triangle count stored in one leaf node."
-        },
-        {
-          "id": "max_depth",
-          "label": "Max Depth",
-          "type": "int",
-          "default": 24,
-          "min": 1,
-          "max": 64,
-          "tooltip": "Maximum recursive depth of the generated hierarchy."
-        },
-        {
-          "id": "max_triangles",
-          "label": "Triangle Budget",
-          "type": "int",
-          "default": 200000,
-          "min": 1,
-          "max": 2000000,
-          "tooltip": "Bounds sidecar size; an incomplete budget is marked needs_review."
         }
       ]
     },
@@ -330,8 +343,12 @@
       "output": "mesh",
       "description": "Detects triangle self-intersections in the world-space mesh and returns the source unchanged with a bounded face report.",
       "i18n": {
-        "zh-CN": { "name": "自交审计" },
-        "en-US": { "name": "Self-Intersection Audit" }
+        "zh-CN": {
+          "name": "自交审计"
+        },
+        "en-US": {
+          "name": "Self-Intersection Audit"
+        }
       },
       "params_schema": [
         {
@@ -352,8 +369,12 @@
       "output": "mesh",
       "description": "Inspects glTF/GLB skin bindings, numeric JOINTS/WEIGHTS buffers, animation clips, channels, and morph targets without modifying the asset.",
       "i18n": {
-        "zh-CN": { "name": "动画资产审计" },
-        "en-US": { "name": "Animation Audit" }
+        "zh-CN": {
+          "name": "动画资产审计"
+        },
+        "en-US": {
+          "name": "Animation Audit"
+        }
       },
       "params_schema": [
         {
@@ -363,88 +384,6 @@
           "default": false,
           "tooltip": "Marks a rigged mesh for review when it has no animation channels."
         }
-      ]
-    },
-    {
-      "id": "morph-target-bake",
-      "name": "Morph Target Prep",
-      "inputs": ["mesh", "text"],
-      "input_labels": ["Base Mesh", "Target Vertices JSON"],
-      "output": "mesh",
-      "description": "Builds relative morph deltas from a base mesh and one or more world-space target vertex arrays.",
-      "i18n": {
-        "zh-CN": { "name": "形变目标准备" },
-        "en-US": { "name": "Morph Target Prep" }
-      },
-      "params_schema": [
-        {
-          "id": "epsilon",
-          "label": "Movement Epsilon",
-          "type": "float",
-          "default": 0.000001,
-          "min": 0.0,
-          "max": 1.0,
-          "step": 0.000001,
-          "tooltip": "Displacements at or below this value are stored as zero and counted as unmoved."
-        }
-      ]
-    },
-    {
-      "id": "joint-loop-audit",
-      "name": "Joint Loop Audit",
-      "inputs": ["mesh", "text"],
-      "input_labels": ["Rig Mesh", "Bone Descriptor JSON"],
-      "output": "mesh",
-      "description": "Counts distinct vertex bands around declared joints to catch deformation-ready topology gaps before skinning.",
-      "i18n": {
-        "zh-CN": { "name": "关节环线审计" },
-        "en-US": { "name": "Joint Loop Audit" }
-      },
-      "params_schema": [
-        {
-          "id": "min_loops",
-          "label": "Minimum Loops",
-          "type": "int",
-          "default": 3,
-          "min": 1,
-          "max": 64,
-          "tooltip": "Minimum distinct axial vertex bands required around every checked joint."
-        },
-        {
-          "id": "radius_scale",
-          "label": "Joint Radius Scale",
-          "type": "float",
-          "default": 0.35,
-          "min": 0.01,
-          "max": 4.0,
-          "step": 0.05,
-          "tooltip": "Axial inspection window as a fraction of the declared bone length."
-        },
-        {
-          "id": "band_tolerance",
-          "label": "Band Tolerance",
-          "type": "float",
-          "default": 0.5,
-          "min": 0.01,
-          "max": 4.0,
-          "step": 0.05,
-          "tooltip": "Relative gap threshold used to separate neighboring vertex bands."
-        }
-      ]
-    },
-    {
-      "id": "clothing-blockout",
-      "name": "Clothing Blockout",
-      "input": "text",
-      "output": "mesh",
-      "description": "Builds a deterministic garment blockout GLB from explicit top, skirt, pants, or cape dimensions; it is geometry, not a fitted cloth simulation.",
-      "i18n": {
-        "zh-CN": { "name": "服装块面生成" },
-        "en-US": { "name": "Clothing Blockout" }
-      },
-      "params_schema": [
-        { "id": "sections", "label": "Radial Sections", "type": "int", "default": 24, "min": 8, "max": 96, "tooltip": "Section count for skirt/cape frustums." },
-        { "id": "default_clearance", "label": "Default Clearance", "type": "float", "default": 0.02, "min": 0.0, "max": 1.0, "tooltip": "Recorded garment-to-body clearance when a garment omits an explicit value." }
       ]
     }
   ]
