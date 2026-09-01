@@ -26,6 +26,11 @@ horizontal or vertical material crop axis, emits a swatch strip, and flags
 blue-collapse risk for saturated violet/magenta/blue stops. The stops are
 reference evidence for a texture recipe, not a calibrated shader.
 
+`reference-evidence/pbr-evidence` emits de-lit albedo, roughness, height,
+image-gradient normal, and low-frequency AO PNG sidecars plus a four-panel
+contact sheet. Every channel is explicitly low-confidence image evidence; it
+is useful for a starting material recipe, not an inverse-rendered PBR truth.
+
 `reference-evidence/landmark-guide` adds a 10-percent anatomy grid and
 head/face/shoulder/hip guide points, with an unreviewed normalized landmark
 skeleton in JSON. It packages the measurement surface for character work but
@@ -55,6 +60,11 @@ first, candidate second), resizes the candidate to the reference frame, and
 emits a three-panel contact sheet with a difference heatmap and pixel metrics.
 The metrics localize discrepancies but do not replace geometric or semantic
 review.
+
+`reference-evidence/multi-view-evidence` accepts two or more connected images
+through a batch input, normalizes their heights, and emits a labeled contact
+sheet plus a view manifest. It preserves view evidence and ordering without
+pretending to solve camera pose or reconstruct geometry.
 
 `reference-evidence/detail-inventory` accepts an image and produces:
 

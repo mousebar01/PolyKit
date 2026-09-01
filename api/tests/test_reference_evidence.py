@@ -178,6 +178,37 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreater(report["metrics"]["changedPixelRatio"], 0.99)
             self.assertEqual(result["metadata"]["evidence_kind"], "reference-compare")
 
+    def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            views = []
+            for index, size, color in ((1, (40, 20), (220, 60, 40)), (2, (20, 40), (50, 180, 80)), (3, (30, 30), (50, 80, 220))):
+                path = root / f"view-{index}.png"
+                Image.new("RGB", size, color).save(path)
+                views.append(path)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePaths": [str(path) for path in views]},
+                {"_node_id": "multi-view-evidence", "columns": 2, "cell_height": 64},
+                str(workspace),
+                str(temp),
+            )
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as sheet:
+                self.assertEqual(sheet.size, (256, (64 + 24) * 2))
+            self.assertEqual(report["kind"], "polykit.multi-view-evidence")
+            self.assertEqual(report["viewCount"], 3)
+            self.assertEqual(report["layout"]["columns"], 2)
+            self.assertEqual(result["metadata"]["evidence_kind"], "multi-view-evidence")
+
     def test_material_region_emits_localized_palette_and_pbr_gates(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -249,6 +280,43 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(report["stops"][-1]["hueName"], "blue")
             self.assertGreaterEqual(len(report["riskFlags"]), 1)
             self.assertEqual(result["metadata"]["evidence_kind"], "gradient-stops")
+
+    def test_pbr_evidence_writes_five_reviewable_map_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "surface.png"
+            image = Image.new("RGB", (80, 60))
+            for x in range(image.width):
+                for y in range(image.height):
+                    image.putpixel((x, y), ((x * 3) % 256, (y * 4) % 256, ((x + y) * 2) % 256))
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "pbr-evidence", "max_dimension": 64},
+                str(workspace),
+                str(temp),
+            )
+            output = Path(str(result["filePath"]))
+            report_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith("pbr-evidence.json"))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with Image.open(output) as sheet:
+                self.assertEqual(sheet.size, (64 * 4, 48))
+            for key, suffix, mode in (("albedo", "_albedo.png", "RGB"), ("roughness", "_roughness.png", "L"), ("height", "_height.png", "L"), ("normal", "_normal.png", "RGB"), ("ambientOcclusion", "_ao.png", "L")):
+                path = next(Path(str(value)) for value in result["sidecars"] if str(value).endswith(suffix))
+                with Image.open(path) as map_image:
+                    self.assertEqual(map_image.size, (64, 48))
+                    self.assertEqual(map_image.mode, mode)
+                self.assertIn(key, report["maps"])
+            self.assertEqual(report["kind"], "polykit.pbr-evidence")
+            self.assertEqual(result["metadata"]["evidence_kind"], "pbr-evidence")
 
     def test_delight_albedo_writes_a_corrected_image_and_method_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:

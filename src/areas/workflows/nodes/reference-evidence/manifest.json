@@ -204,6 +204,21 @@
       ]
     },
     {
+      "id": "pbr-evidence",
+      "name": "PBR Evidence Maps",
+      "input": "image",
+      "output": "image",
+      "description": "Derives reviewable albedo, roughness, height, image-gradient normal, and AO PNG sidecars from one reference image.",
+      "i18n": {
+        "zh-CN": { "name": "PBR 证据贴图" },
+        "en-US": { "name": "PBR Evidence Maps" }
+      },
+      "params_schema": [
+        { "id": "max_dimension", "label": "Max Dimension", "type": "int", "default": 1024, "min": 64, "max": 4096, "tooltip": "Downsamples oversized references before map derivation." },
+        { "id": "ao_blur_radius", "label": "AO Blur Radius", "type": "float", "default": 6.0, "min": 1.0, "max": 64.0, "tooltip": "Low-frequency scale used by the AO evidence approximation." }
+      ]
+    },
+    {
       "id": "landmark-guide",
       "name": "Landmark Guide",
       "input": "image",
@@ -419,6 +434,22 @@
           "max": 255,
           "tooltip": "Difference intensity counted as changed in the heatmap metrics; 0 means any non-zero difference."
         }
+      ]
+    },
+    {
+      "id": "multi-view-evidence",
+      "name": "Multi-view Evidence",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Normalizes two or more connected reference images into a labeled contact sheet and view manifest.",
+      "i18n": {
+        "zh-CN": { "name": "多视图参考证据" },
+        "en-US": { "name": "Multi-view Evidence" }
+      },
+      "params_schema": [
+        { "id": "columns", "label": "Columns", "type": "int", "default": 3, "min": 1, "max": 6, "tooltip": "Contact-sheet columns." },
+        { "id": "cell_height", "label": "Cell Height", "type": "int", "default": 256, "min": 64, "max": 2048, "tooltip": "Normalized pixel height for each reference view." }
       ]
     }
   ]

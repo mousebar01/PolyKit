@@ -604,6 +604,98 @@ def _run_gradient_stops(input_path: Path, workspace_dir: Path, params: dict[str,
     }
 
 
+def _run_pbr_evidence(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Derive reviewable, low-confidence PBR map evidence from one image."""
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter, ImageMath, ImageOps, ImageStat
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for PBR evidence: {exc}") from exc
+    try:
+        max_dimension = int(params.get("max_dimension", 1024) or 1024)
+    except (TypeError, ValueError):
+        max_dimension = 1024
+    max_dimension = max(64, min(4096, max_dimension))
+    try:
+        blur_radius = float(params.get("ao_blur_radius", 6.0) or 6.0)
+    except (TypeError, ValueError):
+        blur_radius = 6.0
+    blur_radius = max(1.0, min(64.0, blur_radius))
+    token = f"{_slug(input_path.stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_pbr-evidence.png"
+    albedo_path = workspace_dir / f"{token}_albedo.png"
+    roughness_path = workspace_dir / f"{token}_roughness.png"
+    height_path = workspace_dir / f"{token}_height.png"
+    normal_path = workspace_dir / f"{token}_normal.png"
+    ao_path = workspace_dir / f"{token}_ao.png"
+    report_path = workspace_dir / f"{token}_pbr-evidence.json"
+    with Image.open(input_path) as source:
+        image = source.convert("RGB")
+        image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+        gray = image.convert("L")
+        illumination = image.filter(ImageFilter.GaussianBlur(radius=max(4.0, blur_radius * 2.0)))
+        corrected_channels = []
+        for source_channel, illumination_channel in zip(image.split(), illumination.split()):
+            divided = ImageMath.lambda_eval(
+                lambda operands: (operands["source"] * 255) / (operands["illumination"] + 1),
+                source=source_channel,
+                illumination=illumination_channel,
+            )
+            corrected_channels.append(ImageEnhance.Brightness(divided.convert("L")).enhance(0.5))
+        # Keep a bounded de-lit approximation as the albedo evidence. The
+        # source image remains available to reviewers as the canonical input.
+        albedo = Image.merge("RGB", corrected_channels)
+        height_map = ImageOps.autocontrast(gray)
+        roughness_map = ImageOps.autocontrast(ImageOps.invert(gray.filter(ImageFilter.GaussianBlur(radius=1.5))))
+        ao_map = ImageOps.autocontrast(ImageOps.invert(gray.filter(ImageFilter.GaussianBlur(radius=blur_radius))))
+        sobel_x = gray.filter(ImageFilter.Kernel((3, 3), (-1, 0, 1, -2, 0, 2, -1, 0, 1), scale=8.0, offset=128))
+        sobel_y = gray.filter(ImageFilter.Kernel((3, 3), (-1, -2, -1, 0, 0, 0, 1, 2, 1), scale=8.0, offset=128))
+        normal_map = Image.merge("RGB", (sobel_x, sobel_y, Image.new("L", image.size, 255)))
+        albedo.save(albedo_path, format="PNG")
+        roughness_map.save(roughness_path, format="PNG")
+        height_map.save(height_path, format="PNG")
+        normal_map.save(normal_path, format="PNG")
+        ao_map.save(ao_path, format="PNG")
+        tile_width, tile_height = image.width, image.height
+        canvas = Image.new("RGB", (tile_width * 4, tile_height), "#0f172a")
+        for index, tile in enumerate((albedo, roughness_map.convert("RGB"), normal_map, ao_map.convert("RGB"))):
+            canvas.paste(tile, (index * tile_width, 0))
+        canvas.save(output_path, format="PNG")
+        luminance_std = float(ImageStat.Stat(gray).stddev[0])
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.pbr-evidence",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceImage": {"name": input_path.name, "sha256": _sha256(input_path), "width": image.width, "height": image.height},
+        "maps": {
+            "albedo": {"file": albedo_path.name, "method": "low-frequency-division", "confidence": 0.25},
+            "roughness": {"file": roughness_path.name, "method": "inverse-smoothed-luminance", "confidence": 0.15},
+            "height": {"file": height_path.name, "method": "autocontrasted-luminance", "confidence": 0.2},
+            "normal": {"file": normal_path.name, "space": "image-gradient-encoded", "confidence": 0.1},
+            "ambientOcclusion": {"file": ao_path.name, "method": "inverse-low-frequency-luminance", "confidence": 0.1},
+        },
+        "sampling": {"maxDimension": max_dimension, "aoBlurRadius": blur_radius, "luminanceStdDev": round(luminance_std, 3)},
+        "reviewNotes": [
+            "These maps are image-derived evidence and are not calibrated inverse-rendered PBR channels.",
+            "Normal is an image-gradient encoding, not a tangent-space bake; review all maps before using them in a material.",
+        ],
+        "contactSheet": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(albedo_path), str(roughness_path), str(height_path), str(normal_path), str(ao_path), str(report_path)],
+        "metadata": {
+            "evidence_kind": "pbr-evidence",
+            "schema_version": 1,
+            "status": report["status"],
+            "map_count": len(report["maps"]),
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_landmark_guide(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageDraw
@@ -1198,6 +1290,82 @@ def _run_reference_compare(reference_path: Path, candidate_path: Path, workspace
     }
 
 
+def _run_multi_view_evidence(input_paths: list[Path], workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a batch of reference views into one reviewable contact sheet."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise RuntimeError(f"Pillow is required for multi-view evidence: {exc}") from exc
+    if len(input_paths) < 2:
+        raise ValueError("multi-view evidence requires at least two images")
+    columns = _bounded_int(params.get("columns", 3), 3, 1, 6)
+    cell_height = _bounded_int(params.get("cell_height", 256), 256, 64, 2048)
+    token = f"{_slug(input_paths[0].stem)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    output_path = workspace_dir / f"{token}_multi-view.png"
+    report_path = workspace_dir / f"{token}_multi-view.json"
+    cells: list[dict[str, Any]] = []
+    loaded: list[Image.Image] = []
+    try:
+        for index, path in enumerate(input_paths):
+            with Image.open(path) as source:
+                image = source.convert("RGB")
+                scale = cell_height / max(1, image.height)
+                cell_width = max(1, round(image.width * scale))
+                resized = image.resize((cell_width, cell_height), Image.Resampling.LANCZOS)
+                loaded.append(resized.copy())
+                cells.append({
+                    "index": index,
+                    "name": path.name,
+                    "sha256": _sha256(path),
+                    "sourceSize": [image.width, image.height],
+                    "cellSize": [cell_width, cell_height],
+                    "aspect": round(image.width / max(1, image.height), 6),
+                })
+        cell_width = max((image.width for image in loaded), default=cell_height)
+        rows = (len(loaded) + columns - 1) // columns
+        label_height = 24
+        canvas = Image.new("RGB", (columns * cell_width, rows * (cell_height + label_height)), "#0f172a")
+        draw = ImageDraw.Draw(canvas)
+        for index, image in enumerate(loaded):
+            column, row = index % columns, index // columns
+            left = column * cell_width + (cell_width - image.width) // 2
+            top = row * (cell_height + label_height)
+            canvas.paste(image, (left, top))
+            draw.rectangle((column * cell_width, top + cell_height, (column + 1) * cell_width - 1, top + cell_height + label_height - 1), fill="#1e293b")
+            draw.text((column * cell_width + 6, top + cell_height + 5), f"View {index + 1}: {cells[index]['name'][:48]}", fill="#e2e8f0")
+        canvas.save(output_path, format="PNG")
+    finally:
+        for image in loaded:
+            image.close()
+    report = {
+        "schemaVersion": 1,
+        "kind": "polykit.multi-view-evidence",
+        "status": "needs_visual_review",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "viewCount": len(cells),
+        "layout": {"columns": columns, "rows": rows, "cellHeight": cell_height, "cellWidth": cell_width, "labelHeight": label_height},
+        "views": cells,
+        "reviewNotes": [
+            "Views are normalized for side-by-side inspection; no camera pose or correspondence is inferred.",
+            "Use reviewed view ordering and landmarks as input to a multi-view reconstruction or projection bake.",
+        ],
+        "contactSheet": output_path.name,
+    }
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "filePath": str(output_path),
+        "sidecars": [str(report_path)],
+        "metadata": {
+            "evidence_kind": "multi-view-evidence",
+            "schema_version": 1,
+            "status": report["status"],
+            "view_count": len(cells),
+            "report": report_path.name,
+        },
+    }
+
+
 def _run_delight_albedo(input_path: Path, workspace_dir: Path, params: dict[str, Any]) -> dict[str, Any]:
     try:
         from PIL import Image, ImageEnhance, ImageFilter, ImageMath
@@ -1353,6 +1521,14 @@ def main() -> None:
                 return
             progress(20, "Comparing reference and candidate…")
             result = _run_reference_compare(paths[0], paths[1], workspace_dir, params)
+        elif node_id == "multi-view-evidence":
+            raw_paths = input_data.get("filePaths")
+            paths = [Path(str(value)) for value in raw_paths] if isinstance(raw_paths, list) else []
+            if len(paths) < 2 or any(not path.is_file() for path in paths):
+                error(f"reference-evidence: multi-view evidence requires at least two image files: {raw_paths}")
+                return
+            progress(20, "Normalizing reference views…")
+            result = _run_multi_view_evidence(paths, workspace_dir, params)
         elif input_path is None or not input_path.is_file():
             error(f"reference-evidence: input image not found: {input_raw}")
             return
@@ -1368,6 +1544,9 @@ def main() -> None:
         elif node_id == "gradient-stops":
             progress(20, "Extracting gradient stops…")
             result = _run_gradient_stops(input_path, workspace_dir, params)
+        elif node_id == "pbr-evidence":
+            progress(20, "Deriving PBR evidence maps…")
+            result = _run_pbr_evidence(input_path, workspace_dir, params)
         elif node_id == "landmark-guide":
             progress(20, "Drawing landmark guide…")
             result = _run_landmark_guide(input_path, workspace_dir, params)
