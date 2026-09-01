@@ -8,8 +8,14 @@
   "description": "Checks declarative attachment relationships before rigging and export.",
   "requirements": [],
   "i18n": {
-    "zh-CN": { "name": "绑定证据", "description": "在绑定和导出前检查附件与组件/骨骼的声明关系。" },
-    "en-US": { "name": "Rigging Evidence", "description": "Checks declarative attachment relationships before rigging and export." }
+    "zh-CN": {
+      "name": "绑定证据",
+      "description": "在绑定和导出前检查附件与组件/骨骼的声明关系。"
+    },
+    "en-US": {
+      "name": "Rigging Evidence",
+      "description": "Checks declarative attachment relationships before rigging and export."
+    }
   },
   "nodes": [
     {
@@ -19,8 +25,12 @@
       "output": "text",
       "description": "Validates attachment anchors, root parenting, cycles, and optional measured proximity.",
       "i18n": {
-        "zh-CN": { "name": "附件锚点审计" },
-        "en-US": { "name": "Attachment Anchor Audit" }
+        "zh-CN": {
+          "name": "附件锚点审计"
+        },
+        "en-US": {
+          "name": "Attachment Anchor Audit"
+        }
       },
       "params_schema": []
     },
@@ -31,20 +41,12 @@
       "output": "text",
       "description": "Validates portable skeleton hierarchy, coordinate system, local matrices, and four-influence skin weights before export.",
       "i18n": {
-        "zh-CN": { "name": "绑定载荷审计" },
-        "en-US": { "name": "Rig Payload Audit" }
-      },
-      "params_schema": []
-    },
-    {
-      "id": "chirality-audit",
-      "name": "Chirality Audit",
-      "input": "text",
-      "output": "text",
-      "description": "Checks left/right landmarks for a true sagittal reflection and reports whole-figure symmetry drift.",
-      "i18n": {
-        "zh-CN": { "name": "左右手性审计" },
-        "en-US": { "name": "Chirality Audit" }
+        "zh-CN": {
+          "name": "绑定载荷审计"
+        },
+        "en-US": {
+          "name": "Rig Payload Audit"
+        }
       },
       "params_schema": []
     },
@@ -55,63 +57,33 @@
       "output": "text",
       "description": "Generates normalized four-slot skin weights by propagating bone distance through the mesh solid instead of across air gaps.",
       "i18n": {
-        "zh-CN": { "name": "测地线蒙皮绑定" },
-        "en-US": { "name": "Geodesic Skin Bind" }
-      },
-      "params_schema": [
-        { "id": "resolution", "label": "Voxel Resolution", "type": "int", "default": 24, "min": 8, "max": 96, "tooltip": "Largest axis voxel resolution used for the solid distance field." },
-        { "id": "falloff_power", "label": "Falloff Power", "type": "float", "default": 3.0, "min": 0.5, "max": 8.0, "tooltip": "Higher values keep influence tighter around each bone." }
-      ]
-    },
-    {
-      "id": "facial-rig-audit",
-      "name": "Facial Rig Audit",
-      "input": "text",
-      "output": "text",
-      "description": "Checks blendshape names, normalized ranges, and optional ARKit-lite channels before facial animation export.",
-      "i18n": {
-        "zh-CN": { "name": "面部绑定审计" },
-        "en-US": { "name": "Facial Rig Audit" }
+        "zh-CN": {
+          "name": "测地线蒙皮绑定"
+        },
+        "en-US": {
+          "name": "Geodesic Skin Bind"
+        }
       },
       "params_schema": [
         {
-          "id": "profile",
-          "label": "Shape Profile",
-          "type": "select",
-          "default": "custom",
-          "options": [
-            { "value": "custom", "label": "Custom" },
-            { "value": "minimal", "label": "Minimal Face" },
-            { "value": "arkit-lite", "label": "ARKit Lite" }
-          ],
-          "tooltip": "Required shape profile; custom uses payload.requiredShapes when supplied."
+          "id": "resolution",
+          "label": "Voxel Resolution",
+          "type": "int",
+          "default": 24,
+          "min": 8,
+          "max": 96,
+          "tooltip": "Largest axis voxel resolution used for the solid distance field."
         },
-        { "id": "require_visemes", "label": "Require Visemes", "type": "boolean", "default": false, "tooltip": "Also require a complete portable lip-sync viseme map." }
+        {
+          "id": "falloff_power",
+          "label": "Falloff Power",
+          "type": "float",
+          "default": 3,
+          "min": 0.5,
+          "max": 8,
+          "tooltip": "Higher values keep influence tighter around each bone."
+        }
       ]
-    },
-    {
-      "id": "lip-sync-audit",
-      "name": "Lip-sync Audit",
-      "input": "text",
-      "output": "text",
-      "description": "Validates a portable viseme map and optional time-sampled mouth curves without claiming speech recognition quality.",
-      "i18n": {
-        "zh-CN": { "name": "口型同步审计" },
-        "en-US": { "name": "Lip-sync Audit" }
-      },
-      "params_schema": []
-    },
-    {
-      "id": "expression-clip-compile",
-      "name": "Expression Clip Compiler",
-      "input": "text",
-      "output": "text",
-      "description": "Compiles named blendshape expression clips into dense, normalized keyframes and per-shape channels.",
-      "i18n": {
-        "zh-CN": { "name": "表情片段编译" },
-        "en-US": { "name": "Expression Clip Compiler" }
-      },
-      "params_schema": []
     },
     {
       "id": "ik-solve",
@@ -120,26 +92,32 @@
       "output": "text",
       "description": "Solves an explicitly ordered joint chain toward a target with CPU FABRIK and reports convergence or reach limits.",
       "i18n": {
-        "zh-CN": { "name": "FABRIK 逆向运动学" },
-        "en-US": { "name": "FABRIK IK Solve" }
+        "zh-CN": {
+          "name": "FABRIK 逆向运动学"
+        },
+        "en-US": {
+          "name": "FABRIK IK Solve"
+        }
       },
       "params_schema": [
-        { "id": "iterations", "label": "Iterations", "type": "int", "default": 32, "min": 1, "max": 256, "tooltip": "Maximum forward/backward FABRIK iterations." },
-        { "id": "tolerance", "label": "Tolerance", "type": "float", "default": 0.001, "min": 0.000001, "max": 1.0, "tooltip": "Target distance at which the chain is considered converged." }
-      ]
-    },
-    {
-      "id": "mixamo-audit",
-      "name": "Mixamo Compatibility Audit",
-      "input": "text",
-      "output": "text",
-      "description": "Checks canonical Mixamo body names, aliases, parent chains, and cycles before retargeting an animation clip.",
-      "i18n": {
-        "zh-CN": { "name": "Mixamo 兼容性审计" },
-        "en-US": { "name": "Mixamo Compatibility Audit" }
-      },
-      "params_schema": [
-        { "id": "require_fingers", "label": "Require Fingers", "type": "boolean", "default": false, "tooltip": "Require the first phalanx of each hand for finger animation retargeting." }
+        {
+          "id": "iterations",
+          "label": "Iterations",
+          "type": "int",
+          "default": 32,
+          "min": 1,
+          "max": 256,
+          "tooltip": "Maximum forward/backward FABRIK iterations."
+        },
+        {
+          "id": "tolerance",
+          "label": "Tolerance",
+          "type": "float",
+          "default": 0.001,
+          "min": 0.000001,
+          "max": 1,
+          "tooltip": "Target distance at which the chain is considered converged."
+        }
       ]
     }
   ]
