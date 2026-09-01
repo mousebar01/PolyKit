@@ -1,11 +1,21 @@
 # Reference evidence
 
-PolyKit now includes the `reference-evidence/detail-inventory` process node.
-It is the first modeling-quality gate inspired by the local `img2threejs`
-reference: before geometry is judged, the reference needs an explicit,
-reviewable detail inventory.
+PolyKit now includes the `reference-evidence` process pack. Its two nodes are
+the first modeling-quality gates inspired by the local `img2threejs` reference:
+before geometry is judged, the reference needs an explicit, reviewable detail
+inventory and enough image quality to support that review.
 
-The node accepts an image and produces:
+`reference-evidence/reference-quality` measures resolution, luminance
+contrast, dynamic range, edge energy, and alpha coverage. It emits a status
+border and a `*-reference-quality.json` sidecar, flagging insufficient or
+low-information references before an expensive model run.
+
+`reference-evidence/material-palette` extracts dominant colors from the image,
+adds a swatch board, and records RGB/HSV/luminance shares in a
+`*-material-palette.json` sidecar. The palette is a prioritization aid, not a
+calibrated PBR measurement.
+
+`reference-evidence/detail-inventory` accepts an image and produces:
 
 - a normal PNG image artifact with a 2×2 through 5×5 review grid;
 - a `*-detail-inventory.json` sidecar with source dimensions, SHA-256, region
@@ -24,6 +34,6 @@ node to `Image Output` to publish the overlay and sidecars into the selected
 workspace collection. The process workspace is run-private until that sink
 publishes it, and sidecars are copied beside the output by the FastAPI runtime.
 
-This first slice deliberately stays deterministic and dependency-light. The
-next compatible additions are object-ID/per-component capture, per-channel
-material evidence, and bounded localized correction against the inventory.
+The mesh-side companions live in the `asset-evidence` pack. They provide
+component footprints, material-channel gates, explicit normalization, and a
+multi-view turntable contact sheet; see [asset evidence](asset-evidence.md).

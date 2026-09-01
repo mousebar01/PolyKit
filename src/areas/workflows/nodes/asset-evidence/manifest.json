@@ -1,0 +1,157 @@
+{
+  "id": "asset-evidence",
+  "name": "Asset Evidence",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Read-only mesh evidence reports for components, footprints, and spatial relationships.",
+  "requirements": ["trimesh", "Pillow"],
+  "i18n": {
+    "zh-CN": {
+      "name": "资产证据",
+      "description": "生成组件、足迹和空间关系的只读网格证据报告。"
+    },
+    "en-US": {
+      "name": "Asset Evidence",
+      "description": "Read-only mesh evidence reports for components, footprints, and spatial relationships."
+    }
+  },
+  "nodes": [
+    {
+      "id": "component-audit",
+      "name": "Component Audit",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Reports scene components, world footprints, and overlap/near relationships without modifying the mesh.",
+      "i18n": {
+        "zh-CN": { "name": "组件审计" },
+        "en-US": { "name": "Component Audit" }
+      },
+      "params_schema": [
+        {
+          "id": "near_tolerance",
+          "label": "Near Tolerance",
+          "type": "float",
+          "default": 0.02,
+          "min": 0.0,
+          "max": 100.0,
+          "tooltip": "Maximum world-space gap for marking two components as near/attached candidates."
+        }
+      ]
+    },
+    {
+      "id": "material-audit",
+      "name": "Material Audit",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Reports declared PBR material channels and flags components missing base color or roughness evidence.",
+      "i18n": {
+        "zh-CN": { "name": "材质审计" },
+        "en-US": { "name": "Material Audit" }
+      },
+      "params_schema": []
+    },
+    {
+      "id": "normalize-mesh",
+      "name": "Normalize Mesh",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Scales, centers, and grounds a mesh with an explicit transform report.",
+      "i18n": {
+        "zh-CN": { "name": "归一化网格" },
+        "en-US": { "name": "Normalize Mesh" }
+      },
+      "params_schema": [
+        {
+          "id": "target_size",
+          "label": "Target Size",
+          "type": "float",
+          "default": 1.0,
+          "min": 0.0001,
+          "max": 10000.0,
+          "tooltip": "Target length of the largest world-space axis."
+        },
+        {
+          "id": "up_axis",
+          "label": "Up Axis",
+          "type": "select",
+          "default": "Y",
+          "options": [
+            { "value": "X", "label": "X" },
+            { "value": "Y", "label": "Y" },
+            { "value": "Z", "label": "Z" }
+          ],
+          "tooltip": "Axis used for grounding and horizontal centering."
+        },
+        {
+          "id": "center_horizontal",
+          "label": "Center Horizontally",
+          "type": "boolean",
+          "default": true,
+          "tooltip": "Center the two axes perpendicular to the selected up axis."
+        },
+        {
+          "id": "ground",
+          "label": "Ground Mesh",
+          "type": "boolean",
+          "default": true,
+          "tooltip": "Move the minimum coordinate on the up axis to zero."
+        }
+      ]
+    },
+    {
+      "id": "turntable-evidence",
+      "name": "Turntable Evidence",
+      "input": "mesh",
+      "output": "image",
+      "description": "Renders a deterministic multi-view contact sheet for silhouette and assembly review.",
+      "i18n": {
+        "zh-CN": { "name": "转台证据图" },
+        "en-US": { "name": "Turntable Evidence" }
+      },
+      "params_schema": [
+        {
+          "id": "views",
+          "label": "Views",
+          "type": "select",
+          "default": 8,
+          "options": [
+            { "value": 4, "label": "4" },
+            { "value": 6, "label": "6" },
+            { "value": 8, "label": "8" },
+            { "value": 12, "label": "12" }
+          ],
+          "tooltip": "Number of evenly spaced azimuth views in the contact sheet."
+        },
+        {
+          "id": "elevation",
+          "label": "Elevation",
+          "type": "float",
+          "default": 20.0,
+          "min": -80.0,
+          "max": 80.0,
+          "tooltip": "Elevation angle shared by every turntable view."
+        },
+        {
+          "id": "max_faces",
+          "label": "Max Faces / Component",
+          "type": "int",
+          "default": 20000,
+          "min": 100,
+          "max": 200000,
+          "tooltip": "Caps plotted faces per component so evidence rendering stays responsive on dense meshes."
+        },
+        {
+          "id": "image_size",
+          "label": "View Size",
+          "type": "int",
+          "default": 512,
+          "min": 128,
+          "max": 2048,
+          "tooltip": "Approximate pixel size of each view cell."
+        }
+      ]
+    }
+  ]
+}

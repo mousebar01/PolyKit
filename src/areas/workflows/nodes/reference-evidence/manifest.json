@@ -65,6 +65,81 @@
           "tooltip": "Include PNG crops as sidecars for focused review."
         }
       ]
+    },
+    {
+      "id": "reference-quality",
+      "name": "Reference Quality Gate",
+      "input": "image",
+      "output": "image",
+      "description": "Measures resolution, contrast, dynamic range, edge energy, and alpha coverage before detail matching.",
+      "i18n": {
+        "zh-CN": { "name": "参考图质量门" },
+        "en-US": { "name": "Reference Quality Gate" }
+      },
+      "params_schema": [
+        {
+          "id": "min_width",
+          "label": "Minimum Width",
+          "type": "int",
+          "default": 512,
+          "min": 32,
+          "max": 16384,
+          "tooltip": "Images below this width are flagged as insufficient reference resolution."
+        },
+        {
+          "id": "min_height",
+          "label": "Minimum Height",
+          "type": "int",
+          "default": 512,
+          "min": 32,
+          "max": 16384,
+          "tooltip": "Images below this height are flagged as insufficient reference resolution."
+        },
+        {
+          "id": "min_contrast",
+          "label": "Minimum Contrast",
+          "type": "float",
+          "default": 12.0,
+          "min": 0.0,
+          "max": 128.0,
+          "tooltip": "Minimum luminance standard deviation used by the low-contrast warning."
+        }
+      ]
+    },
+    {
+      "id": "material-palette",
+      "name": "Material Palette",
+      "input": "image",
+      "output": "image",
+      "description": "Extracts dominant reference colors and writes a swatch board plus JSON palette evidence.",
+      "i18n": {
+        "zh-CN": { "name": "材质色板" },
+        "en-US": { "name": "Material Palette" }
+      },
+      "params_schema": [
+        {
+          "id": "colors",
+          "label": "Palette Colors",
+          "type": "select",
+          "default": 8,
+          "options": [
+            { "value": 4, "label": "4" },
+            { "value": 6, "label": "6" },
+            { "value": 8, "label": "8" },
+            { "value": 12, "label": "12" }
+          ],
+          "tooltip": "Number of dominant colors to extract from the reference."
+        },
+        {
+          "id": "sample_size",
+          "label": "Sample Max Dimension",
+          "type": "int",
+          "default": 512,
+          "min": 64,
+          "max": 2048,
+          "tooltip": "Downsamples large references before palette extraction to keep the node responsive."
+        }
+      ]
     }
   ]
 }

@@ -168,7 +168,7 @@ Built-in templates currently include:
 | `trellis2-textured-mesh` | image → generate → refine → output | Adds PBR texture |
 | `anima-trellis2-text-to-3d` | text → Anima → background removal → Trellis.2 → texture mesh → output | Stylized text-to-3D pipeline that publishes a textured GLB |
 
-Each template declares `requires: ["<pack-id>"]`. The editor lists templates separately and shows an install hint when a required pack is missing. Built-in process packs, such as `image-background-remover` and `reference-evidence/detail-inventory`, are included in the same server-owned inventory as model packs. The reference-evidence node publishes a review grid image plus a detail-inventory JSON sidecar, making evidence available to later modeling and validation steps without a browser-local path.
+Each template declares `requires: ["<pack-id>"]`. The editor lists templates separately and shows an install hint when a required pack is missing. Built-in process packs, such as `image-background-remover`, `reference-evidence/detail-inventory`, `reference-evidence/reference-quality`, and `asset-evidence/component-audit`, are included in the same server-owned inventory as model packs. The evidence nodes publish measured reports as sidecars, making reference and mesh evidence available to later modeling and validation steps without a browser-local path.
 
 To add a template:
 

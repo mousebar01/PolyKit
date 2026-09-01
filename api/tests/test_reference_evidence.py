@@ -14,6 +14,110 @@ PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/refe
 
 
 class ReferenceEvidenceProcessorTests(unittest.TestCase):
+    def test_material_palette_extracts_dominant_colors_and_board(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "materials.png"
+            image = Image.new("RGB", (120, 80), (180, 40, 40))
+            for x in range(40, 80):
+                for y in range(80):
+                    image.putpixel((x, y), (40, 100, 180))
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "material-palette", "colors": 4, "sample_size": 128},
+                str(workspace),
+                str(temp),
+            )
+
+            from PIL import Image as PILImage
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            with PILImage.open(output) as board:
+                self.assertEqual(board.format, "PNG")
+                self.assertEqual(board.width, 384)
+                self.assertEqual(board.height, 176)
+            self.assertEqual(report["kind"], "polykit.material-palette")
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(len(report["palette"]), 2)
+            self.assertAlmostEqual(sum(item["share"] for item in report["palette"]), 1.0, places=5)
+            self.assertEqual(report["palette"][0]["hex"], "#b42828")
+            self.assertEqual(result["metadata"]["color_count"], 2)
+
+    def test_reference_quality_flags_small_low_contrast_input(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "small.png"
+            Image.new("RGB", (64, 32), (120, 120, 120)).save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {
+                    "_node_id": "reference-quality",
+                    "min_width": 128,
+                    "min_height": 128,
+                    "min_contrast": 10,
+                },
+                str(workspace),
+                str(temp),
+            )
+
+            overlay = Path(str(result["filePath"]))
+            report_path = Path(str(result["sidecars"][0]))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertTrue(overlay.is_file())
+            self.assertEqual(report["kind"], "polykit.reference-quality")
+            self.assertEqual(report["status"], "insufficient_reference_resolution")
+            self.assertEqual({issue["code"] for issue in report["issues"]}, {
+                "insufficient_reference_resolution",
+                "low_reference_contrast",
+                "low_reference_dynamic_range",
+            })
+            self.assertEqual(result["metadata"]["status"], "insufficient_reference_resolution")
+
+    def test_reference_quality_passes_detailed_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "detailed.png"
+            image = Image.new("RGB", (128, 128), (255, 255, 255))
+            for x in range(128):
+                for y in range(128):
+                    image.putpixel((x, y), (x * 2, y * 2, (x + y) % 256))
+            image.save(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "reference-quality", "min_width": 64, "min_height": 64, "min_contrast": 5},
+                str(workspace),
+                str(temp),
+            )
+
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["sourceImage"]["width"], 128)
+            self.assertGreater(report["metrics"]["edgeMean"], 0)
+
     def test_detail_inventory_writes_overlay_report_and_crops(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
