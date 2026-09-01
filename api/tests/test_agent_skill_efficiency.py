@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import services.agent_skills as agent_skills
-from services.agent_skills import list_agent_skills, read_agent_skill_resource
+from services.agent_skills import AgentSkillError, list_agent_skills, read_agent_skill_resource
 
 
 class AgentSkillEfficiencyTests(unittest.TestCase):
@@ -47,6 +47,19 @@ class AgentSkillEfficiencyTests(unittest.TestCase):
                 resource = read_agent_skill_resource("scene-review", "references/guide.md", root)
             self.assertEqual(resource["skill"], "scene-review")
             self.assertEqual(resource["content"], "evidence first\n")
+
+    def test_resource_read_still_validates_skill_identity_from_frontmatter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill_dir = self._write_skill(root, "scene-review")
+            (skill_dir / "references").mkdir()
+            (skill_dir / "references" / "guide.md").write_text("evidence first\n", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: different-skill\ndescription: Invalid directory identity.\n---\n\n# Body\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AgentSkillError, "must match directory"):
+                read_agent_skill_resource("scene-review", "references/guide.md", root)
 
 
 if __name__ == "__main__":
