@@ -72,25 +72,6 @@ so a matching outline cannot hide missing eyes, seams, or other interior
 appearance changes. Optional normalized height bands make head/torso-specific
 checks possible; the output includes the measured cell count and heatmap.
 
-`reference-evidence/hair-evidence` measures dark coverage in crown, mid, and
-jaw bands of one image. `reference-evidence/hair-gate` compares those bands and
-the hairline against a candidate render. The gate deliberately remains a soft
-`needs_review` signal: pixels cannot prove that hair stands outside the skull,
-so a geometric scalp-exposure report is still required for a hard bald-patch
-check.
-
-`reference-evidence/turntable-gate` consumes ordered orbit captures (front,
-right, back, left by default). It makes missing/degenerate views and silhouette
-area collapse explicit failures, and flood-fills each mask to detect background
-holes enclosed by the silhouette. Legitimate openings can be allowed explicitly
-while the raw hole measurements remain in the report.
-
-`reference-evidence/pose-sweep-gate` consumes an ordered neutral/pose capture
-set and checks frame count, foreground-area collapse, adjacent silhouette
-change, and optional labels. It emits a contact sheet and JSON metrics. This is
-an image evidence gate only: it cannot prove joint placement, volume
-preservation, or skin-weight correctness.
-
 `reference-evidence/detail-inventory` accepts an image and produces:
 
 - a normal PNG image artifact with a 2×2 through 5×5 review grid;
