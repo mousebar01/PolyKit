@@ -146,7 +146,7 @@ def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_
             objects.append(obj)
             continue
         candidates = find_asset_candidates(
-            " ".join([obj.name, *obj.aliases, obj.category or ""]),
+            " ".join([obj.name, *obj.aliases]),
             workspace=workspace,
             category=obj.category,
             limit=1,
