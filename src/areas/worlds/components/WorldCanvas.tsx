@@ -113,8 +113,10 @@ function ProceduralInstances({
 
   useEffect(() => () => {
     geometry?.dispose()
+  }, [geometry])
+  useEffect(() => () => {
     material.dispose()
-  }, [geometry, material])
+  }, [material])
 
   if (!geometry) return null
   return (
