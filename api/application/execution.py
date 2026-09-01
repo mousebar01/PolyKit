@@ -75,18 +75,23 @@ def prepare_execution_run(
     plan: ExecutionPlan,
     *,
     initiator: ExecutionInitiator,
+    run_id: str | None = None,
 ) -> PreparedExecution:
     """Create and persist the durable Run shell for an already compiled plan.
 
     This owns the shared behavior required by manual UI, Agent, CLI, Workflow,
-    and World entry points. The caller only needs to schedule the returned
-    request with the runtime runner.
+    and World entry points. ``run_id`` is normally generated here; trusted
+    adapters may preallocate one when transport inputs must be materialized into
+    the Run-owned artifact directory before the durable plan is registered.
     """
 
     request, execution_prompt, order, collection = validate_execution_plan(plan)
 
     run_coordinator.purge_old_jobs()
-    run_id = str(uuid.uuid4())
+    assigned_run_id = run_id or str(uuid.uuid4())
+    if assigned_run_id in run_coordinator.jobs:
+        raise ValueError(f"Run {assigned_run_id} already exists")
+
     source = plan.source.model_dump(mode="json") if plan.source is not None else None
     initiator_payload = initiator.model_dump(mode="json", exclude_none=True)
 
@@ -105,14 +110,14 @@ def prepare_execution_run(
         meta["execution_metadata"] = metadata
         meta["workflow_metadata"] = metadata
 
-    job = JobStatus(job_id=run_id, status="pending", progress=0, meta=meta)
+    job = JobStatus(job_id=assigned_run_id, status="pending", progress=0, meta=meta)
     initialize_workflow_execution(job, request, order, workspace_root=runtime_paths.workspace)
     init_workflow_observability(job, request, execution_prompt, order)
     run_coordinator.register(job)
-    model_runtime_registry.begin_generation(run_id)
+    model_runtime_registry.begin_generation(assigned_run_id)
 
     return PreparedExecution(
-        run_id=run_id,
+        run_id=assigned_run_id,
         request=request,
         queued_nodes=len(execution_prompt),
         collection=collection,
