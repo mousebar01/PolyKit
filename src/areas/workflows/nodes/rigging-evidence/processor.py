@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import heapq
 import math
-import re
 import sys
 from collections import deque
 from datetime import datetime, timezone
@@ -706,22 +705,6 @@ def _analyze_ik_solve(payload: dict[str, Any], params: dict[str, Any]) -> dict[s
             "The report does not create a Blender armature, rotations, constraints, or collision-aware pose; inspect the solved pose before applying it to a rig.",
         ],
     }
-
-
-MIXAMO_CORE = (
-    "Hips", "Spine", "Spine1", "Spine2", "Neck", "Head",
-    "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
-    "RightShoulder", "RightArm", "RightForeArm", "RightHand",
-    "LeftUpLeg", "LeftLeg", "LeftFoot", "RightUpLeg", "RightLeg", "RightFoot",
-)
-MIXAMO_PARENT_RULES = {
-    "Spine": "Hips", "Spine1": "Spine", "Spine2": "Spine1", "Neck": "Spine2", "Head": "Neck",
-    "LeftShoulder": "Spine2", "LeftArm": "LeftShoulder", "LeftForeArm": "LeftArm", "LeftHand": "LeftForeArm",
-    "RightShoulder": "Spine2", "RightArm": "RightShoulder", "RightForeArm": "RightArm", "RightHand": "RightForeArm",
-    "LeftUpLeg": "Hips", "LeftLeg": "LeftUpLeg", "LeftFoot": "LeftLeg",
-    "RightUpLeg": "Hips", "RightLeg": "RightUpLeg", "RightFoot": "RightLeg",
-}
-MIXAMO_FINGER_ROOTS = ("LeftHandThumb1", "LeftHandIndex1", "LeftHandMiddle1", "LeftHandRing1", "LeftHandPinky1", "RightHandThumb1", "RightHandIndex1", "RightHandMiddle1", "RightHandRing1", "RightHandPinky1")
 
 
 def main() -> None:
