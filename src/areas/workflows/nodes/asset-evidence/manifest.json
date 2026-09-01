@@ -6,7 +6,10 @@
   "version": "1.0.0",
   "author": "PolyKit",
   "description": "Read-only mesh evidence reports for components, footprints, and spatial relationships.",
-  "requirements": ["trimesh", "Pillow"],
+  "requirements": [
+    "trimesh",
+    "Pillow"
+  ],
   "i18n": {
     "zh-CN": {
       "name": "资产证据",
@@ -25,8 +28,12 @@
       "output": "mesh",
       "description": "Reports scene components, world footprints, and overlap/near relationships without modifying the mesh.",
       "i18n": {
-        "zh-CN": { "name": "组件审计" },
-        "en-US": { "name": "Component Audit" }
+        "zh-CN": {
+          "name": "组件审计"
+        },
+        "en-US": {
+          "name": "Component Audit"
+        }
       },
       "params_schema": [
         {
@@ -34,8 +41,8 @@
           "label": "Near Tolerance",
           "type": "float",
           "default": 0.02,
-          "min": 0.0,
-          "max": 100.0,
+          "min": 0,
+          "max": 100,
           "tooltip": "Maximum world-space gap for marking two components as near/attached candidates."
         }
       ]
@@ -47,8 +54,12 @@
       "output": "mesh",
       "description": "Checks whether sampled surfaces of one scene component lie inside another and supports explicit allowed contact pairs.",
       "i18n": {
-        "zh-CN": { "name": "组件穿透审计" },
-        "en-US": { "name": "Pairwise Penetration" }
+        "zh-CN": {
+          "name": "组件穿透审计"
+        },
+        "en-US": {
+          "name": "Pairwise Penetration"
+        }
       },
       "params_schema": [
         {
@@ -76,8 +87,12 @@
       "output": "mesh",
       "description": "Reports declared PBR material channels and flags components missing base color or roughness evidence.",
       "i18n": {
-        "zh-CN": { "name": "材质审计" },
-        "en-US": { "name": "Material Audit" }
+        "zh-CN": {
+          "name": "材质审计"
+        },
+        "en-US": {
+          "name": "Material Audit"
+        }
       },
       "params_schema": []
     },
@@ -88,17 +103,21 @@
       "output": "mesh",
       "description": "Scales, centers, and grounds a mesh with an explicit transform report.",
       "i18n": {
-        "zh-CN": { "name": "归一化网格" },
-        "en-US": { "name": "Normalize Mesh" }
+        "zh-CN": {
+          "name": "归一化网格"
+        },
+        "en-US": {
+          "name": "Normalize Mesh"
+        }
       },
       "params_schema": [
         {
           "id": "target_size",
           "label": "Target Size",
           "type": "float",
-          "default": 1.0,
+          "default": 1,
           "min": 0.0001,
-          "max": 10000.0,
+          "max": 10000,
           "tooltip": "Target length of the largest world-space axis."
         },
         {
@@ -107,9 +126,18 @@
           "type": "select",
           "default": "Y",
           "options": [
-            { "value": "X", "label": "X" },
-            { "value": "Y", "label": "Y" },
-            { "value": "Z", "label": "Z" }
+            {
+              "value": "X",
+              "label": "X"
+            },
+            {
+              "value": "Y",
+              "label": "Y"
+            },
+            {
+              "value": "Z",
+              "label": "Z"
+            }
           ],
           "tooltip": "Axis used for grounding and horizontal centering."
         },
@@ -126,112 +154,6 @@
           "type": "boolean",
           "default": true,
           "tooltip": "Move the minimum coordinate on the up axis to zero."
-        }
-      ]
-    },
-    {
-      "id": "turntable-evidence",
-      "name": "Turntable Evidence",
-      "input": "mesh",
-      "output": "image",
-      "description": "Renders a deterministic multi-view contact sheet for silhouette and assembly review.",
-      "i18n": {
-        "zh-CN": { "name": "转台证据图" },
-        "en-US": { "name": "Turntable Evidence" }
-      },
-      "params_schema": [
-        {
-          "id": "views",
-          "label": "Views",
-          "type": "select",
-          "default": 8,
-          "options": [
-            { "value": 4, "label": "4" },
-            { "value": 6, "label": "6" },
-            { "value": 8, "label": "8" },
-            { "value": 12, "label": "12" }
-          ],
-          "tooltip": "Number of evenly spaced azimuth views in the contact sheet."
-        },
-        {
-          "id": "elevation",
-          "label": "Elevation",
-          "type": "float",
-          "default": 20.0,
-          "min": -80.0,
-          "max": 80.0,
-          "tooltip": "Elevation angle shared by every turntable view."
-        },
-        {
-          "id": "max_faces",
-          "label": "Max Faces / Component",
-          "type": "int",
-          "default": 20000,
-          "min": 100,
-          "max": 200000,
-          "tooltip": "Caps plotted faces per component so evidence rendering stays responsive on dense meshes."
-        },
-        {
-          "id": "image_size",
-          "label": "View Size",
-          "type": "int",
-          "default": 512,
-          "min": 128,
-          "max": 2048,
-          "tooltip": "Approximate pixel size of each view cell."
-        }
-      ]
-    },
-    {
-      "id": "component-id-sheet",
-      "name": "Component ID Sheet",
-      "input": "mesh",
-      "output": "image",
-      "description": "Renders stable flat colors per mesh component across multiple views for coverage and correspondence checks.",
-      "i18n": {
-        "zh-CN": { "name": "组件 ID 证据图" },
-        "en-US": { "name": "Component ID Sheet" }
-      },
-      "params_schema": [
-        {
-          "id": "views",
-          "label": "Views",
-          "type": "select",
-          "default": 6,
-          "options": [
-            { "value": 4, "label": "4" },
-            { "value": 6, "label": "6" },
-            { "value": 8, "label": "8" },
-            { "value": 12, "label": "12" }
-          ],
-          "tooltip": "Number of multi-view object-ID panels."
-        },
-        {
-          "id": "elevation",
-          "label": "Elevation",
-          "type": "float",
-          "default": 20.0,
-          "min": -80.0,
-          "max": 80.0,
-          "tooltip": "Elevation angle shared by every ID panel."
-        },
-        {
-          "id": "max_faces",
-          "label": "Max Faces / Component",
-          "type": "int",
-          "default": 20000,
-          "min": 100,
-          "max": 200000,
-          "tooltip": "Caps rasterized faces per component for responsive evidence generation."
-        },
-        {
-          "id": "image_size",
-          "label": "View Size",
-          "type": "int",
-          "default": 512,
-          "min": 128,
-          "max": 2048,
-          "tooltip": "Approximate pixel size of each ID panel."
         }
       ]
     }
