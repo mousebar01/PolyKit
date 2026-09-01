@@ -14,8 +14,9 @@ from routers.workspace_worlds import (
 )
 from services.runtime_paths import runtime_paths
 from services.scene_planner import ScenePlanError, compile_scene_plan, normalize_scene_plan
-from services.scene_assets import find_asset_candidates, resolve_scene_assets
+from services.scene_assets import find_asset_candidates, resolve_scene_assets, resolve_scene_asset_slots
 from services.world_domain import create_world_document
+from services.world_plans import compile_scene_asset_generation_plan
 from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import save_world
 
@@ -192,6 +193,41 @@ class ScenePlannerTests(unittest.TestCase):
             plan = normalize_scene_plan({"objects": [{"id": "stove", "name": "Stove", "category": "prop"}]})
             resolved = resolve_scene_assets(plan, workspace=workspace)
             self.assertEqual(resolved.objects[0].asset.workspace_path, "Workflows/hero_prop.glb")
+
+
+    def test_asset_resolution_prefers_structure_then_library_then_generation(self):
+        plan = normalize_scene_plan({
+            "objects": [
+                {"id": "room", "name": "Room", "role": "room"},
+                {"id": "hero", "name": "Unique vending machine", "role": "hero"},
+                {"id": "chair", "name": "Chair", "role": "context"},
+            ]
+        })
+        resolved, decisions = resolve_scene_asset_slots(plan, workspace=Path("/tmp/does-not-exist"))
+        self.assertEqual([item["mode"] for item in decisions], ["procedural", "generate", "unresolved"])
+        self.assertIsNone(next(item for item in resolved.objects if item.id == "hero").asset)
+
+        _, with_context = resolve_scene_asset_slots(
+            plan,
+            workspace=Path("/tmp/does-not-exist"),
+            include_context=True,
+        )
+        self.assertEqual(with_context[2]["mode"], "generate")
+
+    def test_generated_scene_asset_plan_normalizes_and_validates_before_binding(self):
+        plan = compile_scene_asset_generation_plan(
+            world_id="metro",
+            object_id="ticket-machine",
+            prompt="weathered retro ticket machine",
+            enable_texture=False,
+            enable_optimize=False,
+        )
+        self.assertEqual(plan.source.kind, "world")
+        self.assertEqual(plan.metadata["proto_id"], "ticket-machine")
+        self.assertTrue(plan.metadata["bind_world_artifact"])
+        self.assertEqual(plan.prompt["normalize"].class_type, "asset-evidence/normalize-mesh")
+        self.assertEqual(plan.prompt["integrity"].class_type, "mesh-production/geometry-integrity")
+        self.assertEqual(plan.prompt["output"].inputs["mesh"], ["integrity", "mesh"])
 
 
 class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):
