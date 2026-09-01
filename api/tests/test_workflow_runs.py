@@ -5,13 +5,13 @@ from unittest.mock import patch
 
 from routers.workflow_runs import (
     TextToAssetRequest,
-    _require_known_class_type,
     build_text_to_asset_workflow,
     create_text_to_asset_run,
     list_runs,
 )
 from schemas.generation import JobStatus
 from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
+from services.capability_registry import resolve_capability
 from services.run_coordinator import run_coordinator
 from services.workflow_executor import WorkflowError, topological_order
 from services.workspace_paths import normalize_collection, resolve_workspace_path
@@ -95,7 +95,10 @@ class ServerWorkflowValidationTests(unittest.TestCase):
         self.assertEqual(request.prompt["texture"].inputs["params"]["texture_steps"], 8)
         self.assertEqual(request.prompt["optimize"].inputs["params"]["target_faces"], 50000)
         self.assertEqual(request.prompt["output"].inputs["mesh"], ["optimize", "mesh"])
-        self.assertEqual(request.metadata, {"world_id": "cabin", "proto_id": "stove"})
+        self.assertEqual(request.metadata["world_id"], "cabin")
+        self.assertEqual(request.metadata["proto_id"], "stove")
+        self.assertEqual(request.metadata["generation_kind"], "ai")
+        self.assertEqual(request.metadata["generation_mode"], "text")
 
     def test_text_to_asset_builder_can_skip_texture_stage(self) -> None:
         request = build_text_to_asset_workflow(
@@ -153,13 +156,11 @@ class TextToAssetRouteTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(WorkflowError):
             topological_order(request.prompt)
 
-    def test_requires_known_class_types(self) -> None:
-        with patch("routers.workflow_runs.is_known", return_value=False):
-            with self.assertRaises(ValueError):
-                _require_known_class_type("nobody/nowhere")
-        with patch("routers.workflow_runs.is_known", return_value=True):
-            _require_known_class_type("polykit.image")
-            _require_known_class_type("polykit.output")
+    def test_builtin_class_types_resolve_as_capabilities(self) -> None:
+        self.assertEqual(resolve_capability("polykit.image").kind, "source")
+        self.assertEqual(resolve_capability("polykit.output").kind, "sink")
+        with self.assertRaises(KeyError):
+            resolve_capability("nobody/nowhere")
 
 
 class ServerWorkflowListTests(unittest.IsolatedAsyncioTestCase):

@@ -2,29 +2,31 @@
   "id": "blender-scene",
   "name": "Blender Scene Builder",
   "type": "process",
+  "capability_kind": "generator",
+  "generator_kind": "procedural",
   "entry": "processor_v2.py",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "PolyKit",
-  "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export.",
+  "description": "Builds validated parameterized structures, including cabin and subway-station presets, before export.",
   "i18n": {
     "zh-CN": {
       "name": "Blender 场景构建",
-      "description": "按 BuildSpec 锚点参数化构建小屋，并在导出前校验结构接触关系。"
+      "description": "按参数和 BuildSpec 构建并校验小屋、地铁站等精确结构。"
     },
     "en-US": {
       "name": "Blender Scene Builder",
-      "description": "Builds a parameterized cabin from BuildSpec anchors and rejects contact gaps before export."
+      "description": "Builds and validates precise parameterized structures such as cabins and subway stations."
     }
   },
   "nodes": [
     {
       "id": "build",
-      "name": "Build Validated Cabin",
+      "name": "Build Validated Structure",
       "input": "text",
       "output": "mesh",
       "i18n": {
-        "zh-CN": { "name": "构建校验小屋" },
-        "en-US": { "name": "Build Validated Cabin" }
+        "zh-CN": { "name": "构建校验结构" },
+        "en-US": { "name": "Build Validated Structure" }
       },
       "params_schema": [
         {
@@ -32,13 +34,27 @@
           "label": "Preset",
           "type": "select",
           "default": "cabin",
-          "options": [{ "value": "cabin", "label": "Winter Cabin v2" }]
+          "options": [
+            { "value": "cabin", "label": "Winter Cabin v2" },
+            { "value": "subway_station", "label": "Subway Station" }
+          ]
         },
         {
           "id": "scene_name",
           "label": "Scene Name",
           "type": "string",
-          "default": "winter_cabin_reference"
+          "default": "generated_structure"
+        },
+        {
+          "id": "render_profile",
+          "label": "Render Profile",
+          "type": "select",
+          "default": "production",
+          "options": [
+            { "value": "production", "label": "Production" },
+            { "value": "gray", "label": "Gray" },
+            { "value": "toon", "label": "Toon" }
+          ]
         },
         {
           "id": "cabin_width",
@@ -79,6 +95,86 @@
           "default": 0.45,
           "min": 0.0,
           "max": 2.0
+        },
+        {
+          "id": "station_width",
+          "label": "Station Width (m)",
+          "type": "float",
+          "default": 20.0,
+          "min": 12.0,
+          "max": 40.0
+        },
+        {
+          "id": "station_length",
+          "label": "Station Length (m)",
+          "type": "float",
+          "default": 48.0,
+          "min": 24.0,
+          "max": 120.0
+        },
+        {
+          "id": "ceiling_height",
+          "label": "Ceiling Height (m)",
+          "type": "float",
+          "default": 5.8,
+          "min": 3.5,
+          "max": 12.0
+        },
+        {
+          "id": "platform_width",
+          "label": "Platform Width (m)",
+          "type": "float",
+          "default": 4.6,
+          "min": 2.5,
+          "max": 9.0
+        },
+        {
+          "id": "platform_height",
+          "label": "Platform Height (m)",
+          "type": "float",
+          "default": 0.95,
+          "min": 0.4,
+          "max": 2.0
+        },
+        {
+          "id": "column_spacing",
+          "label": "Column Spacing (m)",
+          "type": "float",
+          "default": 8.0,
+          "min": 4.0,
+          "max": 20.0
+        },
+        {
+          "id": "column_size",
+          "label": "Column Size (m)",
+          "type": "float",
+          "default": 0.9,
+          "min": 0.25,
+          "max": 2.0
+        },
+        {
+          "id": "rail_gauge",
+          "label": "Rail Gauge (m)",
+          "type": "float",
+          "default": 1.5,
+          "min": 0.8,
+          "max": 2.4
+        },
+        {
+          "id": "tactile_width_ratio",
+          "label": "Tactile Width Ratio",
+          "type": "float",
+          "default": 0.16,
+          "min": 0.08,
+          "max": 0.3
+        },
+        {
+          "id": "tactile_inset_ratio",
+          "label": "Tactile Inset Ratio",
+          "type": "float",
+          "default": 0.04,
+          "min": 0.01,
+          "max": 0.1
         },
         {
           "id": "contact_tolerance",

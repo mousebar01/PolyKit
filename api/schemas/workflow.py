@@ -1,31 +1,17 @@
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
-from pydantic import BaseModel, Field
+from schemas.execution import ExecutionNode, ExecutionPlan
 
 
-class WorkflowExecutionNode(BaseModel):
-    """One executable node in the server-side workflow prompt.
+class WorkflowExecutionNode(ExecutionNode):
+    """Compatibility name for legacy workflow execution payloads."""
 
-    ``inputs`` intentionally stays open-ended.  Node manifests own the
-    meaning and validation of their parameters, while the control plane only
-    needs to understand references between nodes.
+
+class WorkflowExecutionRequest(ExecutionPlan):
+    """Compatibility wrapper around the canonical :class:`ExecutionPlan`.
+
+    Existing Web, Agent, World, and persisted run payloads can keep using the
+    old name while new application code targets the generic execution layer.
     """
 
-    class_type: str
-    inputs: Dict[str, Any] = Field(default_factory=dict)
-
-
-class WorkflowExecutionRequest(BaseModel):
-    """Compiled execution JSON sent by the Web workflow editor."""
-
-    schema_version: int = 1
-    workflow_id: Optional[str] = None
     prompt: Dict[str, WorkflowExecutionNode]
-    output_node_id: Optional[str] = None
-    target_node_ids: Optional[List[str]] = None
-    collection: str = "Workflows"
-    # Optional server-side provenance for Agent orchestration.  It is kept
-    # outside the node graph so existing editable workflow documents remain
-    # unchanged; the run store exposes it as metadata for later attachment to
-    # a world/prototype.
-    metadata: Dict[str, Any] = Field(default_factory=dict)

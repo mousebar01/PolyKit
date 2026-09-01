@@ -1,4 +1,4 @@
-"""Artifact-aware canonical workflow engine.
+"""Artifact-aware execution engine implementation.
 
 Existing model/process node APIs still consume filesystem paths, while the DAG
 carries typed file-backed mesh or image artifacts. Meshes publish through
@@ -7,10 +7,10 @@ preview sink). Run-specific storage and cancellation live in an explicit
 ExecutionContext. Deterministic node outputs are cached across runs in the
 current server process using a bounded workspace-backed cache.
 
-WorkflowRun durability is separate from that opportunistic cache: every
-completed node is checkpointed into run-owned storage and may be restored after
-process restart. ``polykit.interrupt`` suspends the run without occupying the
-execution slot; an external signal resumes the same run id.
+Durable Run state is separate from that opportunistic cache: every completed
+node is checkpointed into run-owned storage and may be restored after process
+restart. ``polykit.interrupt`` suspends the run without occupying the execution
+slot; an external signal resumes the same run id.
 """
 from __future__ import annotations
 
@@ -19,12 +19,14 @@ import hashlib
 import json
 import shutil
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from schemas.workflow import WorkflowExecutionRequest
 from services.execution_context import ExecutionContext
+from services.execution_references import iter_input_references
 from services.model_runtime_registry import model_runtime_registry
 from services.mesh_artifacts import (
     COORDINATE_SPACE_CANONICAL,
@@ -163,13 +165,7 @@ def _materialize_cached_preview(value: Any, preview_dir: Path, counter: Optional
 
 
 def _record_process_metadata(job: Any, node_id: str, value: Any) -> None:
-    """Persist process-node evidence alongside the durable WorkflowRun.
-
-    Process packs return small JSON metadata (for example Blender version and
-    construction validation). Keeping it on the run makes that evidence
-    queryable after the node checkpoint is restored, without adding a second
-    task state store or copying it into the World document.
-    """
+    """Persist process-node evidence alongside the durable Run."""
     raw_metadata = value.get("metadata") if isinstance(value, dict) else None
     if not isinstance(raw_metadata, dict):
         return
@@ -183,12 +179,7 @@ def _record_process_metadata(job: Any, node_id: str, value: Any) -> None:
 
 
 class ArtifactNodeOutputCache(NodeOutputCache):
-    """Cross-run cache whose file-backed outputs outlive individual run dirs.
-
-    The index is intentionally process-local. Mesh files are copied into a
-    bounded workspace cache so a completed run may clean its ``.artifacts``
-    tree without invalidating entries still reusable by later runs.
-    """
+    """Cross-run cache whose file-backed outputs outlive individual run dirs."""
 
     def __init__(self, max_entries: int = 64) -> None:
         super().__init__()
@@ -319,12 +310,12 @@ _SHARED_NODE_CACHE = ArtifactNodeOutputCache()
 
 
 def clear_workflow_cache() -> None:
-    """Drop cross-run workflow cache entries and their private file copies."""
+    """Drop cross-run cache entries and their private file copies."""
     _SHARED_NODE_CACHE.clear()
 
 
 class WorkflowEngine:
-    """Execute a workflow while keeping intermediate artifact files run-private."""
+    """Execute a plan while keeping intermediate artifact files run-private."""
 
     def __init__(self, node_cache: Optional[NodeOutputCache] = None, cache_enabled: bool = True) -> None:
         self.node_cache = node_cache if node_cache is not None else _SHARED_NODE_CACHE
@@ -411,11 +402,21 @@ class WorkflowEngine:
                     return {key: _resolve(item) for key, item in value.items()}
                 return value
 
+            def _resolve_params(value: Any) -> Any:
+                # A whole params input may be a legacy reference. Nested
+                # two-string parameter arrays are literals because the legacy
+                # pair format is structurally ambiguous there.
+                return _resolve(value) if is_reference(value) else value
+
             def _resolve_legacy(value: Any) -> Any:
-                return unwrap_image_value(unwrap_mesh_value(_resolve(value)))
+                if value is node.inputs.get("params"):
+                    resolved = _resolve_params(value)
+                else:
+                    resolved = _resolve(value)
+                return unwrap_image_value(unwrap_mesh_value(resolved))
 
             if node.class_type == INTERRUPT_NODE:
-                raw_params = _resolve(node.inputs.get("params", {}))
+                raw_params = _resolve_params(node.inputs.get("params", {}))
                 params = raw_params if isinstance(raw_params, dict) else {}
                 signal_name = str(params.get("signal_name") or params.get("signalName") or node_id).strip() or node_id
                 gate_prompt = str(params.get("prompt") or params.get("message") or "Approval required to continue.")[:2000]
@@ -512,11 +513,14 @@ class WorkflowEngine:
                 continue
 
             cacheable_now = self.cache_enabled and _is_deterministic(
-                _resolve(node.inputs.get("params", {})) or {}
+                _resolve_params(node.inputs.get("params", {})) or {}
             )
             if cacheable_now:
-                for value in node.inputs.values():
-                    if is_reference(value) and cacheable.get(value[0]) is False:
+                for input_name, value in node.inputs.items():
+                    if any(
+                        cacheable.get(ref_node) is False
+                        for ref_node, _output_name in iter_input_references(input_name, value)
+                    ):
                         cacheable_now = False
                         break
             cacheable[node_id] = cacheable_now

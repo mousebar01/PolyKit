@@ -2,7 +2,7 @@
   "mcpServers": {
     "polykit": {
       "command": "uv",
-      "args": ["run", "python", "tools/polykit-mcp/server.py"]
+      "args": ["run", "python", "tools/polykit-mcp/canonical_server.py"]
     },
     "blender": {
       "command": "uvx",
