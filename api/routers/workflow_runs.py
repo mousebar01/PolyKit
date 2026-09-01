@@ -1,6 +1,5 @@
 import asyncio
 import json
-import traceback
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -10,129 +9,26 @@ from application.execution import prepare_execution_run
 from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
 from schemas.execution import ExecutionInitiator, ExecutionPlan, ExecutionSource
 from schemas.workflow import WorkflowExecutionRequest
-from services.execution_engine import ExecutionEngine, ExecutionWait
-from services.image_generation import enqueue_generation_job, texture_refiner_id, workspace_url
+from services.execution_runtime import run_execution
+from services.image_generation import enqueue_generation_job, texture_refiner_id
 from services.model_runtime_registry import model_runtime_registry
 from services.run_coordinator import run_coordinator
-from services.run_observability import (
-    finalize_workflow_run,
-    inspect_workflow_run,
-    mark_workflow_run_started,
-    observe_workflow_checkpoint,
-)
-from services.process_runner import ProcessExecutionError
+from services.run_observability import finalize_workflow_run, inspect_workflow_run
+from services.runtime_paths import runtime_paths
 from services.workflow_execution import (
     current_waiting,
     execution_summary,
     load_workflow_execution_request,
-    mark_current_step_failed,
     prepare_execution_resume,
     submit_signal,
 )
-from services.workflow_executor import WorkflowError
-from services.runtime_paths import runtime_paths
 from services.workspace_paths import normalize_collection
 
 router = APIRouter(tags=["workflow-runs"])
 
-
-async def _run_workflow_dag(job_id: str, request: WorkflowExecutionRequest) -> None:
-    """Execute or resume a canonical plan in the shared single-GPU server slot.
-
-    The function name remains for compatibility with startup recovery and older
-    imports. New scheduling code should think in terms of ExecutionPlan/Run.
-    """
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, run_coordinator.generation_lock.acquire)
-    run_coordinator.set_active(job_id)
-    cancel_event = run_coordinator.cancel_events.get(job_id)
-    collection = normalize_collection(request.collection or "Workflows")
-    thumbnail_target = None
-    thumbnail_workspace_path = None
-
-    try:
-        if run_coordinator.is_cancelled(job_id):
-            return
-        job = run_coordinator.jobs[job_id]
-        job.status = "running"
-        job.error = None
-        mark_workflow_run_started(job)
-        run_coordinator.persist(job)
-
-        def persist_observed() -> None:
-            observe_workflow_checkpoint(job)
-            run_coordinator.persist(job)
-
-        engine = ExecutionEngine()
-        result = await engine.run(
-            job_id=job_id,
-            request=request,
-            job=job,
-            persist=persist_observed,
-            cancel_event=cancel_event,
-            is_cancelled=lambda: run_coordinator.is_cancelled(job_id),
-        )
-
-        if run_coordinator.is_cancelled(job_id):
-            return
-        if isinstance(result, ExecutionWait):
-            job.status = "waiting"
-            job.step = f"Waiting for signal '{result.signal_name}'"
-            job.error = None
-            run_coordinator.persist(job)
-            return
-
-        final_artifact = result
-        if final_artifact is None or not final_artifact.exists():
-            raise WorkflowError("Execution completed without an output artifact")
-
-        job.status = "done"
-        job.progress = 100
-        job.step = "Execution complete"
-        job.output_url = workspace_url(final_artifact, collection)
-        finalize_workflow_run(job, status="done", output_url=job.output_url)
-        run_coordinator.mark_completed(job)
-        if (job.meta or {}).get("artifact_kind", "mesh") == "mesh":
-            thumbnail_target = final_artifact
-            try:
-                thumbnail_workspace_path = final_artifact.relative_to(runtime_paths.workspace).as_posix()
-            except ValueError:
-                thumbnail_target = None
-
-    except (WorkflowError, ProcessExecutionError) as exc:
-        if run_coordinator.is_cancelled(job_id):
-            return
-        job = run_coordinator.jobs[job_id]
-        mark_current_step_failed(job, str(exc))
-        job.status = "error"
-        job.error = str(exc)
-        finalize_workflow_run(job, status="error", error=job.error)
-        run_coordinator.mark_completed(job)
-    except Exception as exc:
-        if run_coordinator.is_cancelled(job_id):
-            return
-        tb = traceback.format_exc()
-        msg = f"[Execution ERROR] {exc}\n{tb}"
-        try:
-            print(msg)
-        except UnicodeEncodeError:
-            print(msg.encode("ascii", errors="replace").decode("ascii"))
-        job = run_coordinator.jobs[job_id]
-        mark_current_step_failed(job, str(exc))
-        job.status = "error"
-        job.error = tb.strip()
-        finalize_workflow_run(job, status="error", error=str(exc))
-        run_coordinator.mark_completed(job)
-    finally:
-        run_coordinator.clear_active(job_id)
-        model_runtime_registry.end_generation(job_id)
-        run_coordinator.generation_lock.release()
-        if thumbnail_target is not None and thumbnail_workspace_path is not None:
-            try:
-                from services.asset_thumbnails import _LIBRARY_SIZE, prewarm_thumbnail
-                prewarm_thumbnail(thumbnail_workspace_path, thumbnail_target, _LIBRARY_SIZE)
-            except Exception as exc:
-                print(f"[Thumbnails] execution prewarm could not be queued: {exc}")
+# Private compatibility symbol retained for startup recovery, old imports, and
+# tests while the canonical runtime lives in services.execution_runtime.
+_run_workflow_dag = run_execution
 
 
 class WorkflowRunStatus(BaseModel):
@@ -251,9 +147,7 @@ async def execute_workflow(
     plan = ExecutionPlan.model_validate(request.model_dump(mode="python"))
     if plan.source is None:
         plan = plan.model_copy(
-            update={
-                "source": ExecutionSource(kind="workflow", id=request.workflow_id),
-            }
+            update={"source": ExecutionSource(kind="workflow", id=request.workflow_id)}
         )
     try:
         prepared = prepare_execution_run(
@@ -263,7 +157,7 @@ async def execute_workflow(
     except (KeyError, ValueError, OSError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    background_tasks.add_task(_run_workflow_dag, prepared.run_id, prepared.request)
+    background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
     return {
         "run_id": prepared.run_id,
         "status": "pending",
@@ -272,7 +166,11 @@ async def execute_workflow(
     }
 
 
-def _queue_existing_run(job_id: str, request: WorkflowExecutionRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+def _queue_existing_run(
+    job_id: str,
+    request: WorkflowExecutionRequest,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
     job = run_coordinator.jobs[job_id]
     prepare_execution_resume(job)
     run_coordinator.clear_completed(job_id)
@@ -282,12 +180,16 @@ def _queue_existing_run(job_id: str, request: WorkflowExecutionRequest, backgrou
     job.step = "Queued for resume"
     run_coordinator.persist(job)
     model_runtime_registry.begin_generation(job_id)
-    background_tasks.add_task(_run_workflow_dag, job_id, request)
+    background_tasks.add_task(run_execution, job_id, request)
     return {"run_id": job_id, "status": "pending", "resumed": True}
 
 
 @router.post("/{run_id}/signals")
-async def signal_run(run_id: str, signal: WorkflowSignalRequest, background_tasks: BackgroundTasks):
+async def signal_run(
+    run_id: str,
+    signal: WorkflowSignalRequest,
+    background_tasks: BackgroundTasks,
+):
     """Deliver the expected signal and resume the same durable Run."""
     job = run_coordinator.jobs.get(run_id)
     if job is None:
@@ -341,7 +243,7 @@ async def recover_interrupted_workflow_runs() -> None:
         job.step = "Recovering interrupted execution"
         run_coordinator.persist(job)
         model_runtime_registry.begin_generation(job.job_id)
-        asyncio.create_task(_run_workflow_dag(job.job_id, request))
+        asyncio.create_task(run_execution(job.job_id, request))
 
 
 @router.post("/text-to-asset")
@@ -356,7 +258,11 @@ async def create_text_to_asset_run(
 
 
 @router.get("", response_model=list[WorkflowRunStatus])
-async def list_runs(limit: int = 20, workflow_id: Optional[str] = None, collection: Optional[str] = None):
+async def list_runs(
+    limit: int = 20,
+    workflow_id: Optional[str] = None,
+    collection: Optional[str] = None,
+):
     """Return recent server-owned runs so a refreshed web client can reconnect."""
     limit = max(1, min(limit, 100))
     runs = []
