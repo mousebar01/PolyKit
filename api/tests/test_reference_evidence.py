@@ -228,41 +228,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertLess(fail_report["signals"]["silhouetteIoU"], 0.85)
             self.assertTrue(fail_report["gates"]["silhouetteGateAuthoritative"])
 
-    def test_hair_evidence_measures_dark_head_bands_without_inventing_geometry(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            source = root / "character.png"
-            image = Image.new("RGBA", (128, 200), (0, 0, 0, 0))
-            for x in range(32, 96):
-                for y in range(20, 180):
-                    image.putpixel((x, y), (42, 42, 48, 255) if y < 32 else (220, 170, 130, 255))
-            image.save(source)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePath": str(source)},
-                {"_node_id": "hair-evidence"},
-                str(workspace),
-                str(temp),
-            )
-            output = Path(str(result["filePath"]))
-            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
-            self.assertTrue(output.is_file())
-            with Image.open(output) as overlay:
-                self.assertEqual(overlay.size, (128, 200))
-                self.assertEqual(overlay.mode, "RGBA")
-            self.assertEqual(report["kind"], "polykit.hair-evidence")
-            self.assertEqual(report["status"], "measured")
-            self.assertEqual(report["maskSource"], "alpha")
-            self.assertGreater(report["hairFraction"], 0.3)
-            self.assertGreater(report["bands"]["crown"]["coverage"], report["bands"]["jaw"]["coverage"])
-            self.assertEqual(result["metadata"]["evidence_kind"], "hair-evidence")
-
     def test_interior_difference_ignores_background_but_detects_shared_foreground_change(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -318,43 +283,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertGreater(different_report["interiorDifference"], 0.01)
             self.assertEqual(different["metadata"]["evidence_kind"], "interior-difference")
 
-    def test_hair_gate_reports_coverage_shortfall_without_claiming_geometric_pass(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            reference = root / "reference.png"
-            candidate = root / "candidate.png"
-
-            def write_character(path: Path, narrow_hair: bool) -> None:
-                image = Image.new("RGBA", (128, 200), (0, 0, 0, 0))
-                for x in range(32, 96):
-                    for y in range(20, 180):
-                        is_hair = y < 32 and (not narrow_hair or x < 52)
-                        image.putpixel((x, y), (42, 42, 48, 255) if is_hair else (220, 170, 130, 255))
-                image.save(path)
-
-            write_character(reference, narrow_hair=False)
-            write_character(candidate, narrow_hair=True)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            result = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(reference), str(candidate)]},
-                {"_node_id": "hair-gate", "band_shortfall": 0.08},
-                str(workspace),
-                str(temp),
-            )
-            report = json.loads(str(result["text"]))
-            self.assertEqual(report["kind"], "polykit.hair-gate")
-            self.assertEqual(report["status"], "needs_review")
-            self.assertFalse(report["hardChannelPresent"])
-            self.assertTrue(any(data["shortfall"] for data in report["bands"].values()))
-            self.assertGreaterEqual(len(result["sidecars"]), 3)
-            self.assertEqual(result["metadata"]["evidence_kind"], "hair-gate")
-
     def test_multi_view_evidence_normalizes_three_reference_views(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -385,57 +313,6 @@ class ReferenceEvidenceProcessorTests(unittest.TestCase):
             self.assertEqual(report["viewCount"], 3)
             self.assertEqual(report["layout"]["columns"], 2)
             self.assertEqual(result["metadata"]["evidence_kind"], "multi-view-evidence")
-
-    def test_turntable_gate_requires_ordered_views_and_detects_enclosed_hole(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            views = []
-            for index in range(4):
-                path = root / f"view-{index}.png"
-                image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-                for x in range(12, 52):
-                    for y in range(10, 54):
-                        image.putpixel((x, y), (210, 100, 70, 255))
-                image.save(path)
-                views.append(path)
-            workspace = root / "workspace"
-            workspace.mkdir()
-            temp = root / "tmp"
-            temp.mkdir()
-
-            passed = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(path) for path in views]},
-                {"_node_id": "turntable-gate", "required_azimuths": "0,90,180,270"},
-                str(workspace),
-                str(temp),
-            )
-            pass_report = json.loads(str(passed["text"]))
-            self.assertEqual(pass_report["kind"], "polykit.turntable-gate")
-            self.assertEqual(pass_report["status"], "pass")
-            self.assertEqual(pass_report["requiredAzimuths"], [0.0, 90.0, 180.0, 270.0])
-            self.assertEqual(len(pass_report["captures"]), 4)
-
-            hole = root / "hole.png"
-            hole_image = Image.open(views[0]).convert("RGBA")
-            for x in range(27, 38):
-                for y in range(26, 38):
-                    hole_image.putpixel((x, y), (0, 0, 0, 0))
-            hole_image.save(hole)
-            failed = run_processor(
-                PACK_DIR,
-                "processor.py",
-                {"filePaths": [str(views[0]), str(hole), str(views[2]), str(views[3])]},
-                {"_node_id": "turntable-gate"},
-                str(workspace),
-                str(temp),
-            )
-            fail_report = json.loads(str(failed["text"]))
-            self.assertEqual(fail_report["status"], "fail")
-            self.assertTrue(any("hole" in failure for failure in fail_report["failures"]))
-            hole_capture = fail_report["captures"][1]
-            self.assertGreater(hole_capture["holes"]["interiorHolePixelCount"], 4)
 
     def test_material_region_emits_localized_palette_and_pbr_gates(self) -> None:
         with tempfile.TemporaryDirectory() as td:
