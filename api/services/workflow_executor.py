@@ -1,4 +1,4 @@
-"""Execution graph primitives and node-execution support helpers.
+"""Workflow graph primitives and node-execution support helpers.
 
 The runtime engine lives behind :mod:`services.execution_engine`. This module
 contains reusable graph, cache, input-decoding, and node-adapter functions.
