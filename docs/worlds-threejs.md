@@ -22,7 +22,8 @@ production mesh path: their output is never exported, persisted as production
 mesh evidence, or used to replace a Blender artifact in `WorldCanvas`.
 
 The server-side `scene-composer` and `mesh-exporter` nodes perform GLB/export
-work. They do not delegate modeling to browser Three.js code. This distinction
+work, including a Blender-backed FBX export when the local Blender executable
+is available. They do not delegate modeling to browser Three.js code. This distinction
 keeps a fast local blockout useful without allowing a browser placeholder to be
 mistaken for the production Blender result.
 

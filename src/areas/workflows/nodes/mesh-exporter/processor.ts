@@ -1,5 +1,7 @@
 import path = require('path')
 import fs   = require('fs')
+import os   = require('os')
+import { execFile } from 'child_process'
 
 // ─── Output naming: {input_stem}_{YYYYMMDD-HHMMSS}_{id}_{tag}{ext} ─────────────
 function slugify(name: string): string {
@@ -194,7 +196,53 @@ function writePLY(prims: PrimGeometry[], outPath: string): void {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-const EXT_MAP: Record<string, string> = { glb: '.glb', stl: '.stl', obj: '.obj', ply: '.ply' }
+const EXT_MAP: Record<string, string> = { glb: '.glb', fbx: '.fbx', stl: '.stl', obj: '.obj', ply: '.ply' }
+
+function runBlenderFbxExport(inputPath: string, outputPath: string): Promise<void> {
+  const candidates = [
+    process.env.POLYKIT_BLENDER_BIN,
+    process.env.BLENDER_BIN,
+    'blender',
+    path.join(os.homedir(), '.local', 'bin', 'blender'),
+  ].filter((value): value is string => Boolean(value && value.trim()))
+  const script = [
+    'import bpy',
+    'bpy.ops.wm.read_factory_settings(use_empty=True)',
+    `input_path = ${JSON.stringify(inputPath)}`,
+    `output_path = ${JSON.stringify(outputPath)}`,
+    'suffix = input_path.lower().rsplit(".", 1)[-1] if "." in input_path else ""',
+    'if suffix in {"glb", "gltf"}: bpy.ops.import_scene.gltf(filepath=input_path)',
+    'elif suffix == "obj": (bpy.ops.wm.obj_import if hasattr(bpy.ops.wm, "obj_import") else bpy.ops.import_scene.obj)(filepath=input_path)',
+    'elif suffix == "stl": (bpy.ops.wm.stl_import if hasattr(bpy.ops.wm, "stl_import") else bpy.ops.import_mesh.stl)(filepath=input_path)',
+    'elif suffix == "ply": (bpy.ops.wm.ply_import if hasattr(bpy.ops.wm, "ply_import") else bpy.ops.import_mesh.ply)(filepath=input_path)',
+    'else: raise RuntimeError("Blender FBX bridge supports GLB, glTF, OBJ, STL, and PLY inputs")',
+    'bpy.ops.export_scene.fbx(filepath=output_path, bake_anim=True, add_leaf_bones=False, apply_unit_scale=True, use_mesh_modifiers=True)',
+  ].join('\n')
+
+  let lastError: Error | undefined
+  const attempt = (index: number): Promise<void> => {
+    if (index >= candidates.length) {
+      throw lastError ?? new Error('Blender executable was not found; set POLYKIT_BLENDER_BIN to its path')
+    }
+    const executable = candidates[index]
+    return new Promise((resolve, reject) => {
+      execFile(executable, ['-b', '--python-expr', script], { timeout: 300_000, maxBuffer: 4 * 1024 * 1024 }, (error, _stdout, stderr) => {
+        if (!error) {
+          resolve()
+          return
+        }
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          lastError = error
+          attempt(index + 1).then(resolve).catch(reject)
+          return
+        }
+        const detail = String(stderr || error.message || '').trim().split('\n').slice(-12).join('\n')
+        reject(new Error(`Blender FBX export failed: ${detail || error.message}`))
+      })
+    })
+  }
+  return attempt(0)
+}
 
 const processor = async (
   input:   ProcessInput,
@@ -209,13 +257,6 @@ const processor = async (
 
   context.log(`Format: ${format} — input: ${input.filePath}`)
 
-  const { NodeIO } = require('@gltf-transform/core')
-  const { ALL_EXTENSIONS } = require('@gltf-transform/extensions')
-  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
-
-  context.progress(20, 'Loading mesh…')
-  const doc = await io.read(input.filePath)
-
   // Exports land in the shared workspace Workflows/ collection — the single
   // output directory the asset library presents.
   const outStem = path.basename(input.filePath, path.extname(input.filePath))
@@ -224,16 +265,28 @@ const processor = async (
   const outPath = path.join(outDir, outputName(outStem, 'export', ext))
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
 
-  context.progress(50, `Exporting as ${format.toUpperCase()}…`)
-
-  if (format === 'glb') {
-    await io.write(outPath, doc)
+  if (format === 'fbx') {
+    context.progress(20, 'Loading mesh in Blender…')
+    await runBlenderFbxExport(input.filePath, outPath)
+    if (!fs.existsSync(outPath)) throw new Error('Blender reported success but did not write the FBX output')
   } else {
-    const prims = extractPrimitives(doc)
-    if (prims.length === 0) throw new Error('mesh-exporter: no mesh data found in input')
-    if      (format === 'stl') writeSTL(prims, outPath)
-    else if (format === 'obj') writeOBJ(prims, outPath)
-    else if (format === 'ply') writePLY(prims, outPath)
+    const { NodeIO } = require('@gltf-transform/core')
+    const { ALL_EXTENSIONS } = require('@gltf-transform/extensions')
+    const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
+    context.progress(20, 'Loading mesh…')
+    const doc = await io.read(input.filePath)
+
+    context.progress(50, `Exporting as ${format.toUpperCase()}…`)
+
+    if (format === 'glb') {
+      await io.write(outPath, doc)
+    } else {
+      const prims = extractPrimitives(doc)
+      if (prims.length === 0) throw new Error('mesh-exporter: no mesh data found in input')
+      if      (format === 'stl') writeSTL(prims, outPath)
+      else if (format === 'obj') writeOBJ(prims, outPath)
+      else if (format === 'ply') writePLY(prims, outPath)
+    }
   }
 
   context.progress(100, 'Done')
