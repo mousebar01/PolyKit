@@ -6,7 +6,9 @@
   "version": "1.0.0",
   "author": "PolyKit",
   "description": "Creates a reviewable detail grid, region crops, and a machine-readable detail inventory from a reference image.",
-  "requirements": ["Pillow"],
+  "requirements": [
+    "Pillow"
+  ],
   "i18n": {
     "zh-CN": {
       "name": "参考图证据",
@@ -24,8 +26,12 @@
       "input": "image",
       "output": "image",
       "i18n": {
-        "zh-CN": { "name": "细节清单" },
-        "en-US": { "name": "Detail Inventory" }
+        "zh-CN": {
+          "name": "细节清单"
+        },
+        "en-US": {
+          "name": "Detail Inventory"
+        }
       },
       "params_schema": [
         {
@@ -34,10 +40,22 @@
           "type": "select",
           "default": 3,
           "options": [
-            { "value": 2, "label": "2 × 2" },
-            { "value": 3, "label": "3 × 3" },
-            { "value": 4, "label": "4 × 4" },
-            { "value": 5, "label": "5 × 5" }
+            {
+              "value": 2,
+              "label": "2 × 2"
+            },
+            {
+              "value": 3,
+              "label": "3 × 3"
+            },
+            {
+              "value": 4,
+              "label": "4 × 4"
+            },
+            {
+              "value": 5,
+              "label": "5 × 5"
+            }
           ],
           "tooltip": "Splits the reference into review regions and writes one crop per region."
         },
@@ -73,8 +91,12 @@
       "output": "image",
       "description": "Measures resolution, contrast, dynamic range, edge energy, and alpha coverage before detail matching.",
       "i18n": {
-        "zh-CN": { "name": "参考图质量门" },
-        "en-US": { "name": "Reference Quality Gate" }
+        "zh-CN": {
+          "name": "参考图质量门"
+        },
+        "en-US": {
+          "name": "Reference Quality Gate"
+        }
       },
       "params_schema": [
         {
@@ -99,9 +121,9 @@
           "id": "min_contrast",
           "label": "Minimum Contrast",
           "type": "float",
-          "default": 12.0,
-          "min": 0.0,
-          "max": 128.0,
+          "default": 12,
+          "min": 0,
+          "max": 128,
           "tooltip": "Minimum luminance standard deviation used by the low-contrast warning."
         }
       ]
@@ -113,8 +135,12 @@
       "output": "image",
       "description": "Extracts dominant reference colors and writes a swatch board plus JSON palette evidence.",
       "i18n": {
-        "zh-CN": { "name": "材质色板" },
-        "en-US": { "name": "Material Palette" }
+        "zh-CN": {
+          "name": "材质色板"
+        },
+        "en-US": {
+          "name": "Material Palette"
+        }
       },
       "params_schema": [
         {
@@ -123,10 +149,22 @@
           "type": "select",
           "default": 8,
           "options": [
-            { "value": 4, "label": "4" },
-            { "value": 6, "label": "6" },
-            { "value": 8, "label": "8" },
-            { "value": 12, "label": "12" }
+            {
+              "value": 4,
+              "label": "4"
+            },
+            {
+              "value": 6,
+              "label": "6"
+            },
+            {
+              "value": 8,
+              "label": "8"
+            },
+            {
+              "value": 12,
+              "label": "12"
+            }
           ],
           "tooltip": "Number of dominant colors to extract from the reference."
         },
@@ -148,8 +186,12 @@
       "output": "image",
       "description": "Extracts localized color, luminance, saturation, edge, and cautious PBR evidence from a normalized image crop.",
       "i18n": {
-        "zh-CN": { "name": "材质区域分析" },
-        "en-US": { "name": "Material Region" }
+        "zh-CN": {
+          "name": "材质区域分析"
+        },
+        "en-US": {
+          "name": "Material Region"
+        }
       },
       "params_schema": [
         {
@@ -159,10 +201,46 @@
           "default": "material-region",
           "tooltip": "Stable material or component id recorded in the evidence report."
         },
-        { "id": "x", "label": "Region X", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized left coordinate." },
-        { "id": "y", "label": "Region Y", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized top coordinate." },
-        { "id": "width", "label": "Region Width", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop width." },
-        { "id": "height", "label": "Region Height", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop height." },
+        {
+          "id": "x",
+          "label": "Region X",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized left coordinate."
+        },
+        {
+          "id": "y",
+          "label": "Region Y",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized top coordinate."
+        },
+        {
+          "id": "width",
+          "label": "Region Width",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop width."
+        },
+        {
+          "id": "height",
+          "label": "Region Height",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop height."
+        },
         {
           "id": "colors",
           "label": "Palette Colors",
@@ -181,8 +259,12 @@
       "output": "image",
       "description": "Extracts median RGB/HSV color stops along a material crop axis and flags hue risks for tone-mapped finishes.",
       "i18n": {
-        "zh-CN": { "name": "渐变色阶" },
-        "en-US": { "name": "Gradient Stops" }
+        "zh-CN": {
+          "name": "渐变色阶"
+        },
+        "en-US": {
+          "name": "Gradient Stops"
+        }
       },
       "params_schema": [
         {
@@ -191,16 +273,66 @@
           "type": "select",
           "default": "u",
           "options": [
-            { "value": "u", "label": "Horizontal" },
-            { "value": "v", "label": "Vertical" }
+            {
+              "value": "u",
+              "label": "Horizontal"
+            },
+            {
+              "value": "v",
+              "label": "Vertical"
+            }
           ],
           "tooltip": "Direction in the crop along which the reference is sampled."
         },
-        { "id": "stops", "label": "Stops", "type": "int", "default": 6, "min": 2, "max": 16, "tooltip": "Number of median color bands." },
-        { "id": "x", "label": "Region X", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized left coordinate." },
-        { "id": "y", "label": "Region Y", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Normalized top coordinate." },
-        { "id": "width", "label": "Region Width", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop width." },
-        { "id": "height", "label": "Region Height", "type": "float", "default": 1.0, "min": 0.001, "max": 1.0, "step": 0.01, "tooltip": "Normalized crop height." }
+        {
+          "id": "stops",
+          "label": "Stops",
+          "type": "int",
+          "default": 6,
+          "min": 2,
+          "max": 16,
+          "tooltip": "Number of median color bands."
+        },
+        {
+          "id": "x",
+          "label": "Region X",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized left coordinate."
+        },
+        {
+          "id": "y",
+          "label": "Region Y",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized top coordinate."
+        },
+        {
+          "id": "width",
+          "label": "Region Width",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop width."
+        },
+        {
+          "id": "height",
+          "label": "Region Height",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop height."
+        }
       ]
     },
     {
@@ -210,12 +342,32 @@
       "output": "image",
       "description": "Derives reviewable albedo, roughness, height, image-gradient normal, and AO PNG sidecars from one reference image.",
       "i18n": {
-        "zh-CN": { "name": "PBR 证据贴图" },
-        "en-US": { "name": "PBR Evidence Maps" }
+        "zh-CN": {
+          "name": "PBR 证据贴图"
+        },
+        "en-US": {
+          "name": "PBR Evidence Maps"
+        }
       },
       "params_schema": [
-        { "id": "max_dimension", "label": "Max Dimension", "type": "int", "default": 1024, "min": 64, "max": 4096, "tooltip": "Downsamples oversized references before map derivation." },
-        { "id": "ao_blur_radius", "label": "AO Blur Radius", "type": "float", "default": 6.0, "min": 1.0, "max": 64.0, "tooltip": "Low-frequency scale used by the AO evidence approximation." }
+        {
+          "id": "max_dimension",
+          "label": "Max Dimension",
+          "type": "int",
+          "default": 1024,
+          "min": 64,
+          "max": 4096,
+          "tooltip": "Downsamples oversized references before map derivation."
+        },
+        {
+          "id": "ao_blur_radius",
+          "label": "AO Blur Radius",
+          "type": "float",
+          "default": 6,
+          "min": 1,
+          "max": 64,
+          "tooltip": "Low-frequency scale used by the AO evidence approximation."
+        }
       ]
     },
     {
@@ -225,8 +377,12 @@
       "output": "image",
       "description": "Draws a normalized anatomy guide and emits an unreviewed landmark skeleton for character proportion work.",
       "i18n": {
-        "zh-CN": { "name": "关键点引导" },
-        "en-US": { "name": "Landmark Guide" }
+        "zh-CN": {
+          "name": "关键点引导"
+        },
+        "en-US": {
+          "name": "Landmark Guide"
+        }
       },
       "params_schema": [
         {
@@ -245,17 +401,21 @@
       "output": "image",
       "description": "Emits a heuristic referenceCamera descriptor and a framing overlay for silhouette and landmark alignment.",
       "i18n": {
-        "zh-CN": { "name": "参考相机引导" },
-        "en-US": { "name": "Reference Camera Guide" }
+        "zh-CN": {
+          "name": "参考相机引导"
+        },
+        "en-US": {
+          "name": "Reference Camera Guide"
+        }
       },
       "params_schema": [
         {
           "id": "fov_degrees",
           "label": "FOV Degrees",
           "type": "float",
-          "default": 35.0,
-          "min": 10.0,
-          "max": 120.0,
+          "default": 35,
+          "min": 10,
+          "max": 120,
           "tooltip": "Vertical field of view; the default is a starting guess based on image aspect ratio."
         },
         {
@@ -264,43 +424,43 @@
           "type": "float",
           "default": 2.5,
           "min": 0.01,
-          "max": 10000.0,
+          "max": 10000,
           "tooltip": "Starting distance hint in scene units; confirm it against a fitted mesh."
         },
         {
           "id": "height_offset",
           "label": "Height Offset",
           "type": "float",
-          "default": 0.0,
-          "min": -10000.0,
-          "max": 10000.0,
+          "default": 0,
+          "min": -10000,
+          "max": 10000,
           "tooltip": "Vertical position hint in scene units."
         },
         {
           "id": "yaw",
           "label": "Yaw",
           "type": "float",
-          "default": 0.0,
-          "min": -180.0,
-          "max": 180.0,
+          "default": 0,
+          "min": -180,
+          "max": 180,
           "tooltip": "Optional horizontal camera orientation hint in degrees."
         },
         {
           "id": "pitch",
           "label": "Pitch",
           "type": "float",
-          "default": 0.0,
-          "min": -89.0,
-          "max": 89.0,
+          "default": 0,
+          "min": -89,
+          "max": 89,
           "tooltip": "Optional vertical camera orientation hint in degrees."
         },
         {
           "id": "roll",
           "label": "Roll",
           "type": "float",
-          "default": 0.0,
-          "min": -180.0,
-          "max": 180.0,
+          "default": 0,
+          "min": -180,
+          "max": 180,
           "tooltip": "Optional camera roll hint in degrees."
         }
       ]
@@ -308,24 +468,106 @@
     {
       "id": "camera-fit",
       "name": "Reference Camera Fit",
-      "inputs": ["image", "text"],
-      "input_labels": ["Reference Image", "3D↔2D Correspondences JSON"],
+      "inputs": [
+        "image",
+        "text"
+      ],
+      "input_labels": [
+        "Reference Image",
+        "3D↔2D Correspondences JSON"
+      ],
       "output": "image",
       "description": "Fits FOV, Euler orientation, and camera position from six or more 3D-to-2D landmark correspondences.",
       "i18n": {
-        "zh-CN": { "name": "参考相机拟合" },
-        "en-US": { "name": "Reference Camera Fit" }
+        "zh-CN": {
+          "name": "参考相机拟合"
+        },
+        "en-US": {
+          "name": "Reference Camera Fit"
+        }
       },
       "params_schema": [
-        { "id": "initial_fov_degrees", "label": "Initial FOV", "type": "float", "default": 35.0, "min": 10.0, "max": 120.0, "tooltip": "Starting vertical field of view for the numerical fit." },
-        { "id": "initial_yaw", "label": "Initial Yaw", "type": "float", "default": 0.0, "min": -180.0, "max": 180.0, "tooltip": "Starting horizontal orientation." },
-        { "id": "initial_pitch", "label": "Initial Pitch", "type": "float", "default": 0.0, "min": -89.0, "max": 89.0, "tooltip": "Starting vertical orientation." },
-        { "id": "initial_roll", "label": "Initial Roll", "type": "float", "default": 0.0, "min": -180.0, "max": 180.0, "tooltip": "Starting camera roll." },
-        { "id": "initial_position_x", "label": "Initial X", "type": "float", "default": 0.0, "min": -100000.0, "max": 100000.0, "tooltip": "Starting camera X position." },
-        { "id": "initial_position_y", "label": "Initial Y", "type": "float", "default": 0.0, "min": -100000.0, "max": 100000.0, "tooltip": "Starting camera Y position." },
-        { "id": "initial_position_z", "label": "Initial Z", "type": "float", "default": 2.5, "min": 0.01, "max": 100000.0, "tooltip": "Starting camera distance/position." },
-        { "id": "maximum_iterations", "label": "Iterations", "type": "int", "default": 60, "min": 1, "max": 200, "tooltip": "Maximum damped least-squares iterations." },
-        { "id": "max_rms_pixels", "label": "Pass RMS (px)", "type": "float", "default": 1.0, "min": 0.0, "max": 100000.0, "tooltip": "Maximum final reprojection RMS for a pass status." }
+        {
+          "id": "initial_fov_degrees",
+          "label": "Initial FOV",
+          "type": "float",
+          "default": 35,
+          "min": 10,
+          "max": 120,
+          "tooltip": "Starting vertical field of view for the numerical fit."
+        },
+        {
+          "id": "initial_yaw",
+          "label": "Initial Yaw",
+          "type": "float",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "tooltip": "Starting horizontal orientation."
+        },
+        {
+          "id": "initial_pitch",
+          "label": "Initial Pitch",
+          "type": "float",
+          "default": 0,
+          "min": -89,
+          "max": 89,
+          "tooltip": "Starting vertical orientation."
+        },
+        {
+          "id": "initial_roll",
+          "label": "Initial Roll",
+          "type": "float",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "tooltip": "Starting camera roll."
+        },
+        {
+          "id": "initial_position_x",
+          "label": "Initial X",
+          "type": "float",
+          "default": 0,
+          "min": -100000,
+          "max": 100000,
+          "tooltip": "Starting camera X position."
+        },
+        {
+          "id": "initial_position_y",
+          "label": "Initial Y",
+          "type": "float",
+          "default": 0,
+          "min": -100000,
+          "max": 100000,
+          "tooltip": "Starting camera Y position."
+        },
+        {
+          "id": "initial_position_z",
+          "label": "Initial Z",
+          "type": "float",
+          "default": 2.5,
+          "min": 0.01,
+          "max": 100000,
+          "tooltip": "Starting camera distance/position."
+        },
+        {
+          "id": "maximum_iterations",
+          "label": "Iterations",
+          "type": "int",
+          "default": 60,
+          "min": 1,
+          "max": 200,
+          "tooltip": "Maximum damped least-squares iterations."
+        },
+        {
+          "id": "max_rms_pixels",
+          "label": "Pass RMS (px)",
+          "type": "float",
+          "default": 1,
+          "min": 0,
+          "max": 100000,
+          "tooltip": "Maximum final reprojection RMS for a pass status."
+        }
       ]
     },
     {
@@ -335,17 +577,21 @@
       "output": "image",
       "description": "Suppresses broad illumination with deterministic low-frequency division before projection texturing.",
       "i18n": {
-        "zh-CN": { "name": "去光照底色" },
-        "en-US": { "name": "De-light Albedo" }
+        "zh-CN": {
+          "name": "去光照底色"
+        },
+        "en-US": {
+          "name": "De-light Albedo"
+        }
       },
       "params_schema": [
         {
           "id": "blur_radius",
           "label": "Illumination Blur",
           "type": "float",
-          "default": 24.0,
-          "min": 1.0,
-          "max": 128.0,
+          "default": 24,
+          "min": 1,
+          "max": 128,
           "tooltip": "Scale of lighting variation to suppress; use a larger radius for broad studio lighting."
         },
         {
@@ -353,8 +599,8 @@
           "label": "Correction Strength",
           "type": "float",
           "default": 0.85,
-          "min": 0.0,
-          "max": 1.0,
+          "min": 0,
+          "max": 1,
           "tooltip": "Blend between the original reference and the de-lit approximation."
         }
       ]
@@ -366,8 +612,12 @@
       "output": "image",
       "description": "Validates a camera-space projection plan and emits an overlay plus a runtime bake descriptor.",
       "i18n": {
-        "zh-CN": { "name": "投影贴图计划" },
-        "en-US": { "name": "Projected Texture Plan" }
+        "zh-CN": {
+          "name": "投影贴图计划"
+        },
+        "en-US": {
+          "name": "Projected Texture Plan"
+        }
       },
       "params_schema": [
         {
@@ -383,9 +633,18 @@
           "type": "select",
           "default": "perspective-camera-projection",
           "options": [
-            { "value": "perspective-camera-projection", "label": "Perspective Camera" },
-            { "value": "orthographic-front-projection", "label": "Orthographic Front" },
-            { "value": "triplanar-fallback", "label": "Triplanar Fallback" }
+            {
+              "value": "perspective-camera-projection",
+              "label": "Perspective Camera"
+            },
+            {
+              "value": "orthographic-front-projection",
+              "label": "Orthographic Front"
+            },
+            {
+              "value": "triplanar-fallback",
+              "label": "Triplanar Fallback"
+            }
           ],
           "tooltip": "Projection strategy recorded for the renderer-side bake."
         },
@@ -404,10 +663,22 @@
           "type": "select",
           "default": "mirror-symmetry",
           "options": [
-            { "value": "mirror-symmetry", "label": "Mirror Symmetry" },
-            { "value": "palette-continue", "label": "Continue Palette" },
-            { "value": "request-additional-view", "label": "Request More Views" },
-            { "value": "leave-unprojected", "label": "Leave Unprojected" }
+            {
+              "value": "mirror-symmetry",
+              "label": "Mirror Symmetry"
+            },
+            {
+              "value": "palette-continue",
+              "label": "Continue Palette"
+            },
+            {
+              "value": "request-additional-view",
+              "label": "Request More Views"
+            },
+            {
+              "value": "leave-unprojected",
+              "label": "Leave Unprojected"
+            }
           ],
           "tooltip": "How the runtime should mark regions the single reference camera cannot observe."
         }
@@ -421,8 +692,12 @@
       "output": "image",
       "description": "Compares two connected images with a resized candidate panel and a deterministic difference heatmap.",
       "i18n": {
-        "zh-CN": { "name": "参考图对比" },
-        "en-US": { "name": "Reference Compare" }
+        "zh-CN": {
+          "name": "参考图对比"
+        },
+        "en-US": {
+          "name": "Reference Compare"
+        }
       },
       "params_schema": [
         {
@@ -444,20 +719,12 @@
       "output": "image",
       "description": "Scores a reference and candidate with deterministic silhouette, SSIM, edge, tonal, and pixel-error signals.",
       "i18n": {
-        "zh-CN": { "name": "视觉审查" },
-        "en-US": { "name": "Divine Eye" }
-      },
-      "params_schema": []
-    },
-    {
-      "id": "hair-evidence",
-      "name": "Hair Evidence",
-      "input": "image",
-      "output": "image",
-      "description": "Measures head-region dark coverage, crown/mid/jaw bands, and a cautious hairline from one reference image.",
-      "i18n": {
-        "zh-CN": { "name": "头发证据" },
-        "en-US": { "name": "Hair Evidence" }
+        "zh-CN": {
+          "name": "视觉审查"
+        },
+        "en-US": {
+          "name": "Divine Eye"
+        }
       },
       "params_schema": []
     },
@@ -469,29 +736,41 @@
       "output": "image",
       "description": "Measures luminance differences only in shared foreground cells, with optional height bands and a review heatmap.",
       "i18n": {
-        "zh-CN": { "name": "内部差异审计" },
-        "en-US": { "name": "Interior Difference" }
+        "zh-CN": {
+          "name": "内部差异审计"
+        },
+        "en-US": {
+          "name": "Interior Difference"
+        }
       },
       "params_schema": [
-        { "id": "band_from", "label": "Band From", "type": "float", "default": 0.0, "min": 0.0, "max": 1.0, "tooltip": "Start of the normalized foreground-height band." },
-        { "id": "band_to", "label": "Band To", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "tooltip": "End of the normalized foreground-height band." },
-        { "id": "grid", "label": "Grid", "type": "int", "default": 96, "min": 16, "max": 192, "tooltip": "Comparison lattice resolution." }
-      ]
-    },
-    {
-      "id": "hair-gate",
-      "name": "Hair Gate",
-      "input": "image",
-      "batch_input": "image",
-      "output": "text",
-      "description": "Compares hair coverage and hairline against a reference while keeping baldness as an explicit geometric limitation.",
-      "i18n": {
-        "zh-CN": { "name": "头发对比审计" },
-        "en-US": { "name": "Hair Gate" }
-      },
-      "params_schema": [
-        { "id": "band_shortfall", "label": "Band Shortfall", "type": "float", "default": 0.08, "min": 0.0, "max": 1.0, "tooltip": "Coverage delta below which a band is flagged for review." },
-        { "id": "hairline_offset_max", "label": "Hairline Offset", "type": "float", "default": 0.013, "min": 0.0, "max": 1.0, "tooltip": "Maximum normalized hairline offset before review." }
+        {
+          "id": "band_from",
+          "label": "Band From",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "tooltip": "Start of the normalized foreground-height band."
+        },
+        {
+          "id": "band_to",
+          "label": "Band To",
+          "type": "float",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "tooltip": "End of the normalized foreground-height band."
+        },
+        {
+          "id": "grid",
+          "label": "Grid",
+          "type": "int",
+          "default": 96,
+          "min": 16,
+          "max": 192,
+          "tooltip": "Comparison lattice resolution."
+        }
       ]
     },
     {
@@ -502,48 +781,32 @@
       "output": "image",
       "description": "Normalizes two or more connected reference images into a labeled contact sheet and view manifest.",
       "i18n": {
-        "zh-CN": { "name": "多视图参考证据" },
-        "en-US": { "name": "Multi-view Evidence" }
+        "zh-CN": {
+          "name": "多视图参考证据"
+        },
+        "en-US": {
+          "name": "Multi-view Evidence"
+        }
       },
       "params_schema": [
-        { "id": "columns", "label": "Columns", "type": "int", "default": 3, "min": 1, "max": 6, "tooltip": "Contact-sheet columns." },
-        { "id": "cell_height", "label": "Cell Height", "type": "int", "default": 256, "min": 64, "max": 2048, "tooltip": "Normalized pixel height for each reference view." }
-      ]
-    },
-    {
-      "id": "turntable-gate",
-      "name": "Turntable Gate",
-      "input": "image",
-      "batch_input": "image",
-      "output": "text",
-      "description": "Requires ordered orbit captures and checks silhouette-area collapse plus enclosed background holes.",
-      "i18n": {
-        "zh-CN": { "name": "转台硬审计" },
-        "en-US": { "name": "Turntable Gate" }
-      },
-      "params_schema": [
-        { "id": "required_azimuths", "label": "Required Azimuths", "type": "string", "default": "0,90,180,270", "tooltip": "Comma-separated angles; input images must follow this order." },
-        { "id": "collapse_ratio", "label": "Collapse Ratio", "type": "float", "default": 0.15, "min": 0.0, "max": 1.0, "tooltip": "Minimum silhouette area relative to the first capture." },
-        { "id": "hole_fraction", "label": "Hole Fraction", "type": "float", "default": 0.01, "min": 0.0, "max": 1.0, "tooltip": "Minimum enclosed-background fraction for a hole failure." },
-        { "id": "allow_holes", "label": "Allow Legitimate Holes", "type": "boolean", "default": false, "tooltip": "Keep raw hole measurements but do not fail on intentional rings/openings." }
-      ]
-    },
-    {
-      "id": "pose-sweep-gate",
-      "name": "Pose Sweep Gate",
-      "input": "image",
-      "batch_input": "image",
-      "output": "image",
-      "description": "Checks an ordered deformation capture set for frame count, silhouette collapse, and visible pose change; it cannot prove joint correctness from images alone.",
-      "i18n": {
-        "zh-CN": { "name": "姿态变形审计" },
-        "en-US": { "name": "Pose Sweep Gate" }
-      },
-      "params_schema": [
-        { "id": "required_frames", "label": "Required Frames", "type": "int", "default": 4, "min": 2, "max": 32, "tooltip": "Expected number of ordered neutral/pose captures." },
-        { "id": "collapse_ratio", "label": "Collapse Ratio", "type": "float", "default": 0.2, "min": 0.0, "max": 1.0, "tooltip": "Minimum foreground area relative to the first frame." },
-        { "id": "min_pose_delta", "label": "Minimum Pose Delta", "type": "float", "default": 0.03, "min": 0.0, "max": 1.0, "tooltip": "Minimum adjacent silhouette change expected somewhere in the sweep." },
-        { "id": "pose_labels", "label": "Pose Labels", "type": "string", "default": "", "tooltip": "Optional comma-separated labels in the same order as the input captures." }
+        {
+          "id": "columns",
+          "label": "Columns",
+          "type": "int",
+          "default": 3,
+          "min": 1,
+          "max": 6,
+          "tooltip": "Contact-sheet columns."
+        },
+        {
+          "id": "cell_height",
+          "label": "Cell Height",
+          "type": "int",
+          "default": 256,
+          "min": 64,
+          "max": 2048,
+          "tooltip": "Normalized pixel height for each reference view."
+        }
       ]
     }
   ]
