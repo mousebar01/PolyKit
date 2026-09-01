@@ -28,9 +28,10 @@ Agent / MCP
    不要让同一个对象拥有互相矛盾的支撑关系；不要把对象名当作文件路径。
 
 这对应 EmbodiedGen `LayoutDesigner` 的 disassemble + hierarchy 两阶段，但
-LLM 决策留在现有 Agent，服务端只负责校验、检索、布局和持久化。若对象没有高
-置信度的本地资产，Agent 应调用 `polykit_generate_text_asset`，等待完成后再把
-相对路径写回对象的 `asset.workspacePath`。
+LLM 决策留在现有 Agent。服务端负责校验、检索、布局和持久化；资产补全通过
+`POST /workspace-library/worlds/{world_id}/resolve-assets` 统一执行。解析顺序是：
+已绑定资产 → 程序化结构/占位 → Workspace 资产库 → 本地生成。生成完成后产物会
+自动回绑到稳定对象 id，不再要求 Agent 手工写 `asset.workspacePath`。
 
 Create a world first, then compile a plan:
 
@@ -79,10 +80,10 @@ The composition node accepts Blender-Z-up placement vectors only when its
 is `glTF-Y-up`. This prevents a Blender viewport vector from silently placing
 parts underground in the exported scene.
 
-When `resolve_assets` is enabled, the server searches `Workflows/` for mesh
-assets using names, aliases, categories, and optional `*.asset.json` sidecars.
-Low-confidence matches are left unresolved so the Agent can call a local
-generation workflow instead.  For an unresolved prop or set-dressing object,
+When `resolve_assets` is enabled, the planner performs conservative Workspace
+lookup only. The product-level resolver is `POST /workspace-library/worlds/{world_id}/resolve-assets`:
+it reuses strong local matches first and queues local generation only for missing
+hero/manipulated slots (context and scatter generation are opt-in).  For an unresolved prop or set-dressing object,
 the caller may then use the read-only `polykit_asset_search_external` fallback
 against Poly Haven's public API.  Import is an explicit second step with
 `polykit_asset_import_external`; the server downloads and verifies the selected
