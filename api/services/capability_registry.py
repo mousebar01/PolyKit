@@ -103,10 +103,30 @@ def is_known_capability(class_type: str) -> bool:
         return False
 
 
+def texture_refiner_for(generator_id: str) -> str | None:
+    """Return the compatible sibling image+mesh refinement capability, if any."""
+
+    if "/" not in generator_id:
+        return None
+    pack_id, node_id = generator_id.rsplit("/", 1)
+    if node_id != "generate":
+        return None
+    candidate = f"{pack_id}/refine"
+    try:
+        manifest = model_runtime_registry.get_manifest(candidate)
+    except (KeyError, ValueError):
+        return None
+    inputs = manifest.get("inputs") or []
+    if manifest.get("output") == "mesh" and "image" in inputs and "mesh" in inputs:
+        return candidate
+    return None
+
+
 __all__ = [
     "CapabilityDescriptor",
     "CapabilityKind",
     "GeneratorKind",
     "is_known_capability",
     "resolve_capability",
+    "texture_refiner_for",
 ]
