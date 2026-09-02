@@ -861,8 +861,6 @@ elif OPERATION == 'geometry-nodes':
         metadata.update({'nodeGroup': group.name, 'count': count, 'spacing': spacing, 'size': size, 'instances': True})
     except Exception as exc:
         metadata['warnings'].append('geometry_nodes_setup_failed:' + str(exc))
-        # Keep a useful deterministic result on Blender versions with a
-        # changed Geometry Nodes socket API.
         for index in range(1, count):
             cube('Procedural_Instance_%03d' % index, (index * spacing, 0.0, size / 2.0), (size, size, size), METAL, MODEL, bevel=size * 0.08)
         metadata.update({'count': count, 'spacing': spacing, 'size': size, 'instances': False})
@@ -1014,27 +1012,14 @@ elif OPERATION in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr'}:
                         polygon.material_index = 0
                     obj['polyKitNprMaterialPolicy'] = 'replaced_by_explicit_request'
                 else:
-                    _material_slots_with_toon_variant(
-                        obj,
-                        lambda base, source: build_eevee_toon_material(base, source),
-                    )
+                    _material_slots_with_toon_variant(obj, lambda base, source: build_eevee_toon_material(base, source))
                 build_eevee_outline(obj, outline_width, noise_scale, wobble, BLACK, outline_group)
                 obj['polyKitNprRenderer'] = 'eevee'
             try:
                 scene.render.engine = 'BLENDER_EEVEE_NEXT'
             except Exception:
                 scene.render.engine = 'BLENDER_EEVEE'
-            metadata.update({
-                'renderer': 'eevee',
-                'outlineWidth': outline_width,
-                'outlineNoiseScale': noise_scale,
-                'outlineWobble': wobble,
-                'outline': 'geometry-nodes-inverted-hull',
-                'toonFill': 'per-material-diffuse-shader-to-rgb-constant-ramp-emission',
-                'outlineNodeGroups': [outline_group.name],
-                'lineMode': line_info,
-                'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant',
-            })
+            metadata.update({'renderer': 'eevee', 'outlineWidth': outline_width, 'outlineNoiseScale': noise_scale, 'outlineWobble': wobble, 'outline': 'geometry-nodes-inverted-hull', 'toonFill': 'per-material-diffuse-shader-to-rgb-constant-ramp-emission', 'outlineNodeGroups': [outline_group.name], 'lineMode': line_info, 'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant'})
         elif renderer == 'cycles':
             if not hasattr(bpy.types, 'ShaderNodeRaycast'):
                 raise RuntimeError('Cycles NPR requires Blender 5.2 ShaderNodeRaycast; use renderer=eevee as fallback')
@@ -1051,10 +1036,7 @@ elif OPERATION in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr'}:
                         polygon.material_index = 0
                     obj['polyKitNprMaterialPolicy'] = 'replaced_by_explicit_request'
                 else:
-                    _material_slots_with_toon_variant(
-                        obj,
-                        lambda base, source: build_cycles_npr_material(outline_width, ray_length, base, source)[0],
-                    )
+                    _material_slots_with_toon_variant(obj, lambda base, source: build_cycles_npr_material(outline_width, ray_length, base, source)[0])
                 obj['polyKitNprRenderer'] = 'cycles'
             scene.render.engine = 'CYCLES'
             try:
@@ -1062,104 +1044,69 @@ elif OPERATION in {'surface', 'lighting', 'deform', 'simulation-setup', 'npr'}:
                 scene.cycles.use_denoising = True
             except Exception:
                 pass
-            metadata.update({
-                'renderer': 'cycles',
-                'outlineWidth': outline_width,
-                'rayLength': ray_length,
-                'outline': 'four-direction-shader-raycast',
-                'raySampleGroup': sample_group.name,
-                'rayLookGroup': look_group.name,
-                'cyclesFill': look_group.get('polyKitNprCyclesFill', 'unknown'),
-                'rayDirections': ['+X', '-X', '+Y', '-Y'],
-                'raycastOnlyLocal': True,
-                'samples': int(PARAMS.get('samples', 32)),
-                'lineMode': line_info,
-                'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant',
-            })
+            metadata.update({'renderer': 'cycles', 'outlineWidth': outline_width, 'rayLength': ray_length, 'outline': 'four-direction-shader-raycast', 'raySampleGroup': sample_group.name, 'rayLookGroup': look_group.name, 'cyclesFill': look_group.get('polyKitNprCyclesFill', 'unknown'), 'rayDirections': ['+X', '-X', '+Y', '-Y'], 'raycastOnlyLocal': True, 'samples': int(PARAMS.get('samples', 32)), 'lineMode': line_info, 'materialPolicy': 'replaced_by_explicit_request' if replace_material else 'preserved_with_toon_variant'})
         else:
             raise RuntimeError('NPR renderer must be eevee or cycles')
 else:
     raise RuntimeError('unsupported production operation: ' + OPERATION)
 
-if OPERATION != 'geometry-report':
-    objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' or obj.type == 'CURVE']
-    camera = add_presentation(objects)
-    metadata['objectCount'] = len(objects)
-    metadata['meshObjectCount'] = len([obj for obj in objects if obj.type == 'MESH'])
-    root = pathlib.Path(tempfile.mkdtemp(prefix='polykit_blender_production_'))
-    glb_path = root / (SCENE_NAME + '.glb')
-    blend_path = root / (SCENE_NAME + '.blend')
-    preview_path = root / (SCENE_NAME + '.png')
-    scene.render.filepath = str(preview_path)
-    bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
-    # Render while the renderer-native graph is still active. The GLB export
-    # below intentionally flattens NPR materials for portability and must not
-    # change the evidence image into a PBR fallback.
-    if RENDER_PREVIEW:
-        bpy.ops.render.render(write_still=True)
-        metadata['renderEvidence'] = {
-            'schemaVersion': 1,
-            'engine': scene.render.engine,
-            'camera': camera.name,
-            'preview': {'path': str(preview_path), 'metrics': render_metrics(preview_path)},
-        }
-    if OPERATION == 'npr' and not replace_material:
-        for obj in objects:
-            indices = obj.get('polyKitNprOriginalMaterialIndices')
-            authored_count = int(obj.get('polyKitNprAuthoredSlotCount', 0) or 0)
-            if indices is None or authored_count <= 0:
-                continue
-            try:
-                original_indices = [int(index) for index in indices]
-            except (TypeError, ValueError):
-                original_indices = []
-            for polygon, index in zip(obj.data.polygons, original_indices):
-                polygon.material_index = max(0, min(int(index), authored_count - 1))
-            while len(obj.data.materials) > authored_count:
-                obj.data.materials.pop(index=len(obj.data.materials) - 1)
-        used_materials = {
-            slot.material
-            for obj in objects
-            if obj.type == 'MESH'
-            for slot in obj.material_slots
-            if slot.material is not None
-        }
-        for mat in used_materials:
-            bsdf = principled(mat)
-            if bsdf is None:
-                continue
-            base = bsdf.inputs.get('Base Color')
-            color = tuple(float(channel) for channel in (base.default_value[:3] if base is not None else mat.diffuse_color[:3]))
-            roughness = float(bsdf.inputs.get('Roughness').default_value) if bsdf.inputs.get('Roughness') else 0.75
-            metallic = float(bsdf.inputs.get('Metallic').default_value) if bsdf.inputs.get('Metallic') else 0.0
-            mat.node_tree.nodes.clear()
-            output = mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
-            flat = mat.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
-            flat.name = 'Principled BSDF'
-            flat.inputs['Base Color'].default_value = (*color, 1.0)
-            flat.inputs['Roughness'].default_value = roughness
-            flat.inputs['Metallic'].default_value = metallic
-            mat.node_tree.links.new(flat.outputs['BSDF'], output.inputs['Surface'])
-    if OPERATION == 'surface':
-        # Blender's glTF exporter cannot serialize procedural ColorRamp/Noise
-        # links as a portable PBR base color and otherwise falls back to white.
-        # Keep the authored node graph in the .blend sidecar, but export the
-        # calibrated Principled default so downstream GLB consumers retain the
-        # declared substrate color.
-        for mat in bpy.data.materials:
-            bsdf = principled(mat)
-            base = bsdf.inputs.get('Base Color') if bsdf else None
-            if not base:
-                continue
-            for link in list(mat.node_tree.links):
-                if link.to_node == bsdf and link.to_socket == base:
-                    mat.node_tree.links.remove(link)
-    bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT', export_apply=True)
-    def b64(path):
-        return base64.b64encode(path.read_bytes()).decode('ascii') if path.exists() else ''
-    RESULT = {'glb_b64': b64(glb_path), 'blend_b64': b64(blend_path), 'preview_b64': b64(preview_path) if RENDER_PREVIEW else '', 'metadata': metadata}
-else:
-    RESULT = {'metadata': metadata}
+objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' or obj.type == 'CURVE']
+camera = add_presentation(objects)
+metadata['objectCount'] = len(objects)
+metadata['meshObjectCount'] = len([obj for obj in objects if obj.type == 'MESH'])
+root = pathlib.Path(tempfile.mkdtemp(prefix='polykit_blender_production_'))
+glb_path = root / (SCENE_NAME + '.glb')
+blend_path = root / (SCENE_NAME + '.blend')
+preview_path = root / (SCENE_NAME + '.png')
+scene.render.filepath = str(preview_path)
+bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+if RENDER_PREVIEW:
+    bpy.ops.render.render(write_still=True)
+    metadata['renderEvidence'] = {'schemaVersion': 1, 'engine': scene.render.engine, 'camera': camera.name, 'preview': {'path': str(preview_path), 'metrics': render_metrics(preview_path)}}
+if OPERATION == 'npr' and not replace_material:
+    for obj in objects:
+        indices = obj.get('polyKitNprOriginalMaterialIndices')
+        authored_count = int(obj.get('polyKitNprAuthoredSlotCount', 0) or 0)
+        if indices is None or authored_count <= 0:
+            continue
+        try:
+            original_indices = [int(index) for index in indices]
+        except (TypeError, ValueError):
+            original_indices = []
+        for polygon, index in zip(obj.data.polygons, original_indices):
+            polygon.material_index = max(0, min(int(index), authored_count - 1))
+        while len(obj.data.materials) > authored_count:
+            obj.data.materials.pop(index=len(obj.data.materials) - 1)
+    used_materials = {slot.material for obj in objects if obj.type == 'MESH' for slot in obj.material_slots if slot.material is not None}
+    for mat in used_materials:
+        bsdf = principled(mat)
+        if bsdf is None:
+            continue
+        base = bsdf.inputs.get('Base Color')
+        color = tuple(float(channel) for channel in (base.default_value[:3] if base is not None else mat.diffuse_color[:3]))
+        roughness = float(bsdf.inputs.get('Roughness').default_value) if bsdf.inputs.get('Roughness') else 0.75
+        metallic = float(bsdf.inputs.get('Metallic').default_value) if bsdf.inputs.get('Metallic') else 0.0
+        mat.node_tree.nodes.clear()
+        output = mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
+        flat = mat.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
+        flat.name = 'Principled BSDF'
+        flat.inputs['Base Color'].default_value = (*color, 1.0)
+        flat.inputs['Roughness'].default_value = roughness
+        flat.inputs['Metallic'].default_value = metallic
+        mat.node_tree.links.new(flat.outputs['BSDF'], output.inputs['Surface'])
+if OPERATION == 'surface':
+    for mat in bpy.data.materials:
+        bsdf = principled(mat)
+        base = bsdf.inputs.get('Base Color') if bsdf else None
+        if not base:
+            continue
+        for link in list(mat.node_tree.links):
+            if link.to_node == bsdf and link.to_socket == base:
+                mat.node_tree.links.remove(link)
+bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT', export_apply=True)
+def b64(path):
+    return base64.b64encode(path.read_bytes()).decode('ascii') if path.exists() else ''
+RESULT = {'glb_b64': b64(glb_path), 'blend_b64': b64(blend_path), 'preview_b64': b64(preview_path) if RENDER_PREVIEW else '', 'metadata': metadata}
 result = RESULT
 '''
     return (
@@ -1213,9 +1160,6 @@ for obj in objects:
     bm = bmesh.new()
     try:
         bm.from_mesh(mesh)
-        # glTF commonly splits vertices for hard/normal seams. Merge only
-        # coincident report vertices so those representation seams are not
-        # misreported as open topology; authored positional gaps remain.
         bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
         bm.normal_update()
         finding = {'object': obj.name, 'vertices': len(bm.verts), 'edges': len(bm.edges), 'faces': len(bm.faces), 'nonManifoldEdges': 0, 'boundaryEdges': 0, 'looseVertices': 0, 'zeroAreaFaces': 0}
@@ -1238,11 +1182,7 @@ report_path = root / 'geometry-report.json'
 report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 bpy.ops.wm.save_as_mainfile(filepath=str(root / 'geometry-report.blend'))
 bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_materials='EXPORT', export_apply=True)
-RESULT = {
-    'glb_b64': base64.b64encode(glb_path.read_bytes()).decode('ascii'),
-    'report_b64': base64.b64encode(report_path.read_bytes()).decode('ascii'),
-    'report_json': json.dumps(report, ensure_ascii=False, separators=(',', ':')),
-}
+RESULT = {'glb_b64': base64.b64encode(glb_path.read_bytes()).decode('ascii'), 'report_b64': base64.b64encode(report_path.read_bytes()).decode('ascii'), 'report_json': json.dumps(report, ensure_ascii=False, separators=(',', ':'))}
 result = RESULT
 '''
     return script.replace('__INPUT_PATH__', repr(input_path)).replace('__INPUT_B64__', repr(input_b64)).replace('__PARAMS_JSON__', repr(json.dumps(dict(params), separators=(',', ':'))))
@@ -1283,13 +1223,29 @@ def main() -> None:
     input_data = payload.get('input') if isinstance(payload.get('input'), Mapping) else {}
     workspace_dir = Path(str(payload.get('workspaceDir') or '.')).expanduser().resolve()
     node_id = str(params.get('_node_id') or params.get('operation') or 'surface')
-    aliases = {'opening': 'opening', 'array-stairs': 'array-stairs', 'curve-profile': 'curve-profile', 'assembly': 'assembly', 'surface': 'surface', 'lighting': 'lighting', 'deform': 'deform'}
+    aliases = {
+        'opening': 'opening',
+        'array-stairs': 'array-stairs',
+        'curve-profile': 'curve-profile',
+        'geometry-nodes': 'geometry-nodes',
+        'assembly': 'assembly',
+        'surface': 'surface',
+        'lighting': 'lighting',
+        'deform': 'deform',
+        'simulation-setup': 'simulation-setup',
+        'npr': 'npr',
+        'geometry-report': 'geometry-report',
+    }
     operation = aliases.get(node_id)
     if operation is None:
         error(f'blender-production: unsupported node operation {node_id!r}')
         return
     input_path = str(input_data.get('filePath') or '') or None
-    if operation in {'surface', 'lighting', 'deform'} and input_path and not Path(input_path).is_file():
+    requires_input = {'surface', 'lighting', 'deform', 'simulation-setup', 'npr', 'geometry-report'}
+    if operation in requires_input and not input_path:
+        error(f'blender-production: {operation} requires a mesh input')
+        return
+    if input_path and not Path(input_path).is_file():
         error(f'blender-production: input mesh not found: {input_path}')
         return
     input_b64 = None
@@ -1298,9 +1254,6 @@ def main() -> None:
         if input_file.stat().st_size > 64 * 1024 * 1024:
             error('blender-production: remote mesh transfer is limited to 64 MiB; use a shared workspace for larger assets')
             return
-        # Remote Blender bridges commonly impose a request-size limit. Compress
-        # embedded mesh bytes before placing them in the JSON code payload while
-        # retaining the existing bounded 64 MiB source guard.
         input_b64 = base64.b64encode(zlib.compress(input_file.read_bytes(), level=9)).decode('ascii')
     render_preview = _bool(params, 'render_preview', True)
     scene_name = _slug(str(params.get('scene_name') or f'production_{operation}_{uuid.uuid4().hex[:8]}'))
@@ -1314,9 +1267,13 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         progress(5, f'Connecting to Blender bridge at {host}:{port}…')
-        code = _scene_script(operation, params, input_path, input_b64, scene_name, render_preview)
+        if operation == 'geometry-report':
+            code = _report_script(input_path or '', input_b64, params)
+        else:
+            code = _scene_script(operation, params, input_path, input_b64, scene_name, render_preview)
         result = _send_blender_code(host, port, code)
-        glb_b64 = str(result.get('glb_b64') or '')
+        if operation == 'geometry-report':
+            glb_b64 = str(result.get('glb_b64') or '')
             report_b64 = str(result.get('report_b64') or '')
             report_json = str(result.get('report_json') or '')
             if not glb_b64 or not report_b64 or not report_json:
