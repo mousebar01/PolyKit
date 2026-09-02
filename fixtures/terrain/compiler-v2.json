@@ -1,0 +1,119 @@
+{
+  "resolution": 17,
+  "spec": {
+    "terrainVersion": 2,
+    "name": "Compiler Fixture",
+    "logline": "Parity fixture",
+    "seed": 424242,
+    "size": 64,
+    "seaLevel": 0,
+    "regions": [
+      {
+        "id": "ridge",
+        "name": "Ridge",
+        "kind": "mountain",
+        "center": [0.28, 0.3],
+        "radius": 0.38,
+        "irregularity": 0.65,
+        "baseElevation": 5,
+        "amplitude": 18,
+        "roughness": 0.72,
+        "material": {
+          "name": "rock",
+          "texturePrompt": "rock",
+          "color": "#777c82",
+          "tiling": 6
+        }
+      },
+      {
+        "id": "forest",
+        "name": "Forest",
+        "kind": "forest",
+        "center": [0.68, 0.36],
+        "radius": 0.32,
+        "irregularity": 0.55,
+        "baseElevation": 2,
+        "amplitude": 7,
+        "roughness": 0.5,
+        "material": {
+          "name": "forest",
+          "texturePrompt": "forest",
+          "color": "#315b38",
+          "tiling": 6
+        }
+      },
+      {
+        "id": "plain",
+        "name": "Plain",
+        "kind": "plains",
+        "center": [0.5, 0.72],
+        "radius": 0.4,
+        "irregularity": 0.35,
+        "baseElevation": 1,
+        "amplitude": 3,
+        "roughness": 0.25,
+        "material": {
+          "name": "grass",
+          "texturePrompt": "grass",
+          "color": "#87945f",
+          "tiling": 6
+        }
+      }
+    ],
+    "rivers": [
+      {
+        "id": "run",
+        "path": [[0.18, 0.1], [0.45, 0.5], [0.72, 0.9]],
+        "width": 4,
+        "depth": 2
+      }
+    ],
+    "assets": [],
+    "relations": [],
+    "sky": {
+      "panoramaPrompt": "",
+      "sunAzimuth": 0,
+      "sunElevation": 30,
+      "sunColor": "#ffffff",
+      "sunIntensity": 1,
+      "ambientColor": "#ffffff",
+      "ambientIntensity": 0.5,
+      "fogColor": "#ffffff",
+      "fogDensity": 0
+    }
+  },
+  "samples": [
+    {
+      "grid": [4, 4],
+      "expected": {
+        "height": -2.0,
+        "weights": [1.0, 0.0, 0.0],
+        "dominant": 0
+      }
+    },
+    {
+      "grid": [8, 8],
+      "expected": {
+        "height": -2.0,
+        "weights": [0.26237213611602783, 0.34194302558898926, 0.3956848084926605],
+        "dominant": 2
+      }
+    },
+    {
+      "grid": [12, 10],
+      "expected": {
+        "height": 1.7972463369369507,
+        "weights": [0.0, 0.3658730685710907, 0.6341269612312317],
+        "dominant": 2
+      }
+    },
+    {
+      "grid": [8, 13],
+      "expected": {
+        "height": 1.1069499254226685,
+        "weights": [0.0, 0.0, 1.0],
+        "dominant": 2
+      }
+    }
+  ]
+}
