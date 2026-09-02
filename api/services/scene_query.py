@@ -22,7 +22,7 @@ def _text(value: Any) -> str:
 
 def _strings(value: Any) -> list[str]:
     if value is None:
-        raise ValueError(f"{field_name} must be a string or a list of strings")
+        return []
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
@@ -46,7 +46,7 @@ def _query_strings(value: Any, field_name: str) -> list[str]:
     """
 
     if value is None:
-        return []
+        raise ValueError(f"{field_name} must be a string or a list of strings")
     if isinstance(value, str):
         values: Sequence[Any] = [value]
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
