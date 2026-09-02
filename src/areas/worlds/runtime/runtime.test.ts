@@ -10,8 +10,9 @@ import { solvePlacements } from './placement.ts'
 import { buildProceduralGeometry } from './procedural.ts'
 import { hashString, mulberry32 } from './rng.ts'
 import { createInitialRuntime } from './runtime.ts'
+import { compileSurfaceFields } from './surfaceFields.ts'
 import { buildTerrain } from './terrain.ts'
-import type { WorldSpec } from './types.ts'
+import { TERRAIN_SURFACES, type TerrainSurface, type WorldSpec } from './types.ts'
 
 test('world runtime starts with domain state and quality, not workflow progress', () => {
   const runtime = createInitialRuntime('Build a playable winter cabin demo')
@@ -48,10 +49,13 @@ test('demo terrain is local, bounded, and deterministic', () => {
   const second = buildTerrain(DEMO_SPEC, options)
   assert.equal(first.res, 48)
   assert.deepEqual(first.heights, second.heights)
+  assert.deepEqual(first.surfaceWeights, second.surfaceWeights)
   assert.ok(first.minHeight < first.maxHeight)
   assert.equal(first.heights.length, 48 * 48)
+  assert.equal(first.surfaceWeights.length, TERRAIN_SURFACES.length)
   assert.ok(first.slopeAt(0, 0) >= 0)
   assert.equal(first.regionWeightAt(999, 0, 0), 0)
+  assert.ok(first.surfaceWeightAt('rock', 0, 0) >= 0)
   assert.ok(Number.isFinite(first.waterDistanceAt(0, 0)))
 })
 
@@ -77,6 +81,43 @@ test('terrain compiler v2 matches the shared production fixture', () => {
     assert.equal(sample.expected.weights.length, terrain.regionWeights.length)
     for (let regionIndex = 0; regionIndex < terrain.regionWeights.length; regionIndex += 1) {
       assert.ok(Math.abs(terrain.regionWeights[regionIndex][index] - sample.expected.weights[regionIndex]) < 1e-6)
+    }
+  }
+})
+
+test('surface field compiler matches the shared production fixture', () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL('../../../../fixtures/terrain/surface-fields-v1.json', import.meta.url),
+    'utf8',
+  )) as {
+    resolution: number
+    size: number
+    seaLevel: number
+    surfaceOrder: string[]
+    heights: number[]
+    regionSurfaces: TerrainSurface[]
+    regionWeights: number[][]
+    samples: Array<{
+      grid: [number, number]
+      expected: { surfaceWeights: number[]; dominantSurface: number }
+    }>
+  }
+  assert.deepEqual(fixture.surfaceOrder, [...TERRAIN_SURFACES])
+  const compiled = compileSurfaceFields({
+    heights: new Float32Array(fixture.heights),
+    regionWeights: fixture.regionWeights.map((weights) => new Float32Array(weights)),
+    regionSurfaces: fixture.regionSurfaces,
+    res: fixture.resolution,
+    size: fixture.size,
+    seaLevel: fixture.seaLevel,
+  })
+  for (const sample of fixture.samples) {
+    const [column, row] = sample.grid
+    const index = row * fixture.resolution + column
+    assert.equal(compiled.dominantSurface[index], sample.expected.dominantSurface)
+    assert.equal(compiled.surfaceWeights.length, sample.expected.surfaceWeights.length)
+    for (let surfaceIndex = 0; surfaceIndex < compiled.surfaceWeights.length; surfaceIndex += 1) {
+      assert.ok(Math.abs(compiled.surfaceWeights[surfaceIndex][index] - sample.expected.surfaceWeights[surfaceIndex]) < 1e-6)
     }
   }
 })
