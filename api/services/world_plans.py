@@ -69,11 +69,13 @@ def compile_scene_composition_plan(
         for item in raw_objects
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
-    instances = {
-        item.get("objectId"): item
-        for item in (raw_instances if isinstance(raw_instances, list) else [])
-        if isinstance(item, dict) and isinstance(item.get("objectId"), str)
-    }
+    instances_by_object: dict[str, list[dict[str, Any]]] = {}
+    for item in raw_instances if isinstance(raw_instances, list) else []:
+        if not isinstance(item, dict):
+            continue
+        object_id = item.get("objectId")
+        if isinstance(object_id, str):
+            instances_by_object.setdefault(object_id, []).append(item)
 
     nodes: dict[str, ExecutionNode] = {}
     mesh_refs: list[list[str]] = []
@@ -99,16 +101,17 @@ def compile_scene_composition_plan(
             class_type="polykit.mesh",
             inputs={"mesh": {"kind": "workspace_path", "path": workspace_path}},
         )
-        mesh_refs.append([node_id, "mesh"])
-        instance = instances.get(object_id) or {}
-        placements.append(
-            {
-                "position": instance.get("position", [0, 0, 0]),
-                "rotation": instance.get("rotation", [0, 0, 0]),
-                "scale": instance.get("scale", 1),
-                "size": object_data.get("size", [1, 1, 1]),
-            }
-        )
+        object_instances = instances_by_object.get(object_id) or [{}]
+        for instance in object_instances:
+            mesh_refs.append([node_id, "mesh"])
+            placements.append(
+                {
+                    "position": instance.get("position", [0, 0, 0]),
+                    "rotation": instance.get("rotation", [0, 0, 0]),
+                    "scale": instance.get("scale", 1),
+                    "size": object_data.get("size", [1, 1, 1]),
+                }
+            )
 
     if missing and not allow_missing:
         raise ScenePlanError("Scene objects are missing mesh assets: " + ", ".join(sorted(missing)))
