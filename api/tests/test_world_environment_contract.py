@@ -78,12 +78,36 @@ class WorldEnvironmentContractTests(unittest.TestCase):
         self.assertEqual(ridge["landform"], "mountain")
         self.assertEqual(ridge["surface"], "snow")
         self.assertEqual(ridge["kind"], "mountain")
+        self.assertEqual(ridge["coverage"], "local")
 
         # A surface does not imply geometry. A new region with no landform uses
         # the conservative plains profile rather than treating forest as shape.
         wood = environment["regions"][1]
         self.assertEqual(wood["surface"], "forest")
         self.assertEqual(wood["kind"], "plains")
+        self.assertEqual(wood["coverage"], "local")
+
+    def test_single_region_new_world_defaults_to_world_coverage(self) -> None:
+        world = create_world_document(name="One complete terrain")
+        world["runtime"]["build"]["environment"] = _environment([
+            _region(landform="hills", surface="grass"),
+        ])
+
+        saved = save_world(world["id"], world)
+        region = saved["runtime"]["build"]["environment"]["regions"][0]
+        self.assertEqual(region["coverage"], "world")
+        self.assertEqual(region["kind"], "hills")
+        self.assertEqual(region["surface"], "grass")
+
+    def test_single_region_can_explicitly_remain_local(self) -> None:
+        world = create_world_document(name="One local volcano")
+        world["runtime"]["build"]["environment"] = _environment([
+            _region(landform="volcanic", surface="rock", coverage="LOCAL"),
+        ])
+
+        saved = save_world(world["id"], world)
+        region = saved["runtime"]["build"]["environment"]["regions"][0]
+        self.assertEqual(region["coverage"], "local")
 
     def test_explicit_landform_wins_over_legacy_kind_for_new_worlds(self) -> None:
         world = create_world_document(name="Transition contract")
@@ -95,6 +119,16 @@ class WorldEnvironmentContractTests(unittest.TestCase):
         region = saved["runtime"]["build"]["environment"]["regions"][0]
         self.assertEqual(region["kind"], "mountain")
         self.assertEqual(region["surface"], "snow")
+        self.assertEqual(region["coverage"], "world")
+
+    def test_new_world_rejects_multiple_world_coverage_regions(self) -> None:
+        world = create_world_document(name="Invalid world bases")
+        world["runtime"]["build"]["environment"] = _environment([
+            _region(coverage="world"),
+            _region(id="other", name="Other", coverage="world"),
+        ])
+        with self.assertRaisesRegex(WorldStoreError, "at most one coverage=world"):
+            save_world(world["id"], world)
 
     def test_legacy_worlds_remain_versionless_and_keep_existing_kind(self) -> None:
         world = create_world_document(name="Legacy terrain")
@@ -108,6 +142,7 @@ class WorldEnvironmentContractTests(unittest.TestCase):
         self.assertEqual(saved_environment["regions"][0]["kind"], "forest")
         self.assertNotIn("landform", saved_environment["regions"][0])
         self.assertNotIn("surface", saved_environment["regions"][0])
+        self.assertNotIn("coverage", saved_environment["regions"][0])
 
     def test_new_world_rejects_unknown_explicit_landform(self) -> None:
         world = create_world_document(name="Invalid terrain")
