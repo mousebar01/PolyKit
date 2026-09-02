@@ -6,6 +6,7 @@ import { Gamepad2 } from 'lucide-react'
 import { Button } from '@shared/components/ui/button'
 import { useI18n } from '@shared/i18n'
 import type { ScenePlan, ScenePlanInstance, ScenePlanObject } from '../runtime/scenePlan'
+import { buildProceduralGeometry, proceduralMaterial } from '../runtime/procedural'
 import { workspaceUrl } from '../worldApi'
 
 interface ScenePlanCanvasProps {
@@ -24,8 +25,29 @@ const ROLE_COLORS: Record<string, string> = {
   distractor: '#829b78',
 }
 
+const PROCEDURAL_HINTS = new Set<string>([
+  'tree',
+  'pine',
+  'palm',
+  'cactus',
+  'rock',
+  'boulder',
+  'grass',
+  'crystal',
+  'hut',
+  'monolith',
+])
+
+type ProceduralPreviewHint = Parameters<typeof buildProceduralGeometry>[0]
+
 function roleColor(role: string): string {
   return ROLE_COLORS[role] ?? '#8b93a1'
+}
+
+function proceduralHintFor(object: ScenePlanObject): ProceduralPreviewHint | null {
+  const raw = object.constraints?.proceduralHint ?? object.constraints?.procedural_hint
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return PROCEDURAL_HINTS.has(value) ? value as ProceduralPreviewHint : null
 }
 
 function PlanBox({ instance, object }: { instance: ScenePlanInstance; object: ScenePlanObject }): JSX.Element {
@@ -47,6 +69,38 @@ function PlanBox({ instance, object }: { instance: ScenePlanInstance; object: Sc
         />
       </mesh>
     </group>
+  )
+}
+
+function PlanProcedural({
+  instance,
+  object,
+  hint,
+}: {
+  instance: ScenePlanInstance
+  object: ScenePlanObject
+  hint: ProceduralPreviewHint
+}): JSX.Element {
+  const geometry = useMemo(
+    () => buildProceduralGeometry(hint, `${object.id}:${instance.id}`),
+    [hint, instance.id, object.id],
+  )
+  const material = useMemo(() => proceduralMaterial(), [])
+  const targetHeight = Math.max(0.05, object.size[1] * instance.scale)
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+  useEffect(() => () => material.dispose(), [material])
+
+  return (
+    <mesh
+      geometry={geometry}
+      material={material}
+      position={instance.position}
+      rotation={instance.rotation}
+      scale={targetHeight}
+      castShadow
+      receiveShadow
+    />
   )
 }
 
@@ -119,7 +173,7 @@ function WalkthroughController({
     const objectById = new Map(plan.objects.map((object) => [object.id, object]))
     return plan.instances.flatMap((instance) => {
       const object = objectById.get(instance.objectId)
-      // Surface-mounted props are above the walking plane.  The simplified
+      // Surface-mounted props are above the walking plane. The simplified
       // collider deliberately uses semantic dimensions instead of detailed
       // render meshes, as recommended by the game-systems reference.
       if (!object || object.role === 'room' || object.role === 'background' || instance.position[1] > 0.2) return []
@@ -222,7 +276,10 @@ function ScenePlanWorld({ plan, artifacts = {} }: { plan: ScenePlan; artifacts?:
         const object = objectById.get(instance.objectId)
         if (!object) return null
         const assetPath = object.asset?.workspacePath ?? artifacts[object.id]?.mesh?.workspace_path
-        const fallback = <PlanBox key={instance.id} instance={instance} object={object} />
+        const proxyHint = object.role === 'room' || object.role === 'background' ? null : proceduralHintFor(object)
+        const fallback = proxyHint
+          ? <PlanProcedural key={instance.id} instance={instance} object={object} hint={proxyHint} />
+          : <PlanBox key={instance.id} instance={instance} object={object} />
         if (!assetPath || object.role === 'room' || object.role === 'background') return fallback
         const url = workspaceUrl(assetPath)
         return (
