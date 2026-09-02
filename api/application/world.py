@@ -48,6 +48,20 @@ class CompiledWorldAssetResolution:
     library_bindings: list[tuple[str, str]]
 
 
+def _asset_face_budget(*, role: str | None, category: str | None, ceiling: int) -> int:
+    """Keep expressive assets detailed without giving every mesh hero density."""
+
+    role_name = str(role or "").strip().lower()
+    category_name = str(category or "").strip().lower()
+    if role_name in {"hero", "manipulated"}:
+        return min(ceiling, 100_000)
+    if category_name in {"vegetation", "rock"}:
+        return min(ceiling, 30_000)
+    if category_name == "prop":
+        return min(ceiling, 20_000)
+    return min(ceiling, 20_000)
+
+
 def compile_world_asset_resolution(
     world: Mapping[str, Any],
     *,
@@ -90,6 +104,12 @@ def compile_world_asset_resolution(
                 )
                 if world_prompt:
                     object_prompt += f" Match the visual style of this world brief: {world_prompt}"
+                target_faces = _asset_face_budget(
+                    role=obj.role,
+                    category=obj.category,
+                    ceiling=command.target_faces,
+                )
+                decision["target_faces"] = target_faces
                 generation_plans.append(
                     compile_scene_asset_generation_plan(
                         world_id=world_id,
@@ -100,7 +120,7 @@ def compile_world_asset_resolution(
                         mesh_model_id=command.mesh_model_id,
                         enable_texture=command.enable_texture,
                         enable_optimize=command.enable_optimize,
-                        target_faces=command.target_faces,
+                        target_faces=target_faces,
                     )
                 )
         return CompiledWorldAssetResolution(
@@ -161,12 +181,18 @@ def compile_world_asset_resolution(
             )
             if world_prompt:
                 prompt += f" Match the visual style of this world brief: {world_prompt}"
+            target_faces = _asset_face_budget(
+                role=tier,
+                category=category,
+                ceiling=command.target_faces,
+            )
             decisions.append({
                 "object_id": object_id,
                 "mode": "generate",
                 "tier": tier,
                 "prompt": prompt,
                 "target_height": raw.get("targetHeight"),
+                "target_faces": target_faces,
             })
             generation_plans.append(
                 compile_scene_asset_generation_plan(
@@ -178,7 +204,7 @@ def compile_world_asset_resolution(
                     mesh_model_id=command.mesh_model_id,
                     enable_texture=command.enable_texture,
                     enable_optimize=command.enable_optimize,
-                    target_faces=command.target_faces,
+                    target_faces=target_faces,
                 )
             )
         else:
@@ -196,6 +222,7 @@ def compile_world_asset_resolution(
         generation_plans=generation_plans,
         library_bindings=library_bindings,
     )
+
 
 def prepare_world_composition_run(
     world: Mapping[str, Any],
