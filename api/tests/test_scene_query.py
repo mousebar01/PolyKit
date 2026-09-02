@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
+from application.world import compile_world_blender_projection, query_world_scene
 from services.blender_scene_bridge import compile_blender_scene_projection
 from services.scene_planner import normalize_scene_plan
 from services.scene_query import SceneQuery, resolve_scene_query
@@ -82,6 +83,10 @@ def _scene():
     })
 
 
+def _world():
+    return {"runtime": {"version": 1, "scene": _scene().model_dump(mode="json", by_alias=True)}}
+
+
 class SceneQueryTests(unittest.TestCase):
     def test_semantic_spatial_query_resolves_nearest_matching_instance(self) -> None:
         result = resolve_scene_query(_scene(), {
@@ -108,6 +113,13 @@ class SceneQueryTests(unittest.TestCase):
     def test_ids_accept_instance_identity(self) -> None:
         result = resolve_scene_query(_scene(), SceneQuery(ids=["pine-b-i"]))
         self.assertEqual([item.instance_id for item in result.matches], ["pine-b-i"])
+
+    def test_world_application_exposes_query_and_blender_projection(self) -> None:
+        result = query_world_scene(_world(), {"ids": ["pine-a-i"]}, world_id="world-1")
+        projection = compile_world_blender_projection(_world(), world_id="world-1")
+        self.assertEqual([item.instance_id for item in result.matches], ["pine-a-i"])
+        self.assertEqual(projection["sceneId"], "query-demo")
+        self.assertEqual(projection["kind"], "polykit.blender-scene-projection")
 
     def test_blender_projection_keeps_semantic_identity_out_of_filenames(self) -> None:
         projection = compile_blender_scene_projection(_scene())
