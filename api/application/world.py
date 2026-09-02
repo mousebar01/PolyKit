@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 
 from application.execution import PreparedExecution, prepare_execution_run
 from schemas.execution import ExecutionInitiator
+from services.blender_scene_bridge import compile_blender_scene_projection
 from services.scene_assets import find_asset_candidates, resolve_scene_asset_slots
 from services.scene_planner import normalize_scene_plan
+from services.scene_query import SceneQuery, SceneQueryResult, resolve_scene_query
 from services.world_plans import compile_scene_asset_generation_plan, compile_scene_composition_plan
 from services.world_workflows import compile_structure_plan
 
@@ -46,6 +48,37 @@ class CompiledWorldAssetResolution:
     decisions: list[dict[str, Any]]
     generation_plans: list[Any]
     library_bindings: list[tuple[str, str]]
+
+
+def _semantic_world_scene(world: Mapping[str, Any], *, world_id: str | None = None):
+    runtime = world.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise ValueError("World has no valid runtime")
+    scene = runtime.get("scene")
+    if not isinstance(scene, Mapping):
+        raise ValueError("World runtime has no semantic scene")
+    return normalize_scene_plan(scene, scene_id=world_id)
+
+
+def query_world_scene(
+    world: Mapping[str, Any],
+    query: SceneQuery | Mapping[str, Any],
+    *,
+    world_id: str | None = None,
+) -> SceneQueryResult:
+    """Resolve an Agent-authored structured query against the current world scene."""
+
+    return resolve_scene_query(_semantic_world_scene(world, world_id=world_id), query)
+
+
+def compile_world_blender_projection(
+    world: Mapping[str, Any],
+    *,
+    world_id: str | None = None,
+) -> dict[str, Any]:
+    """Project the current semantic scene into Blender Collections/custom properties."""
+
+    return compile_blender_scene_projection(_semantic_world_scene(world, world_id=world_id))
 
 
 def _asset_face_budget(*, role: str | None, category: str | None, ceiling: int) -> int:
@@ -264,7 +297,9 @@ __all__ = [
     "CompiledWorldAssetResolution",
     "ResolveWorldAssetsCommand",
     "compile_world_asset_resolution",
+    "compile_world_blender_projection",
     "ComposeWorldCommand",
     "prepare_world_composition_run",
     "prepare_world_structure_run",
+    "query_world_scene",
 ]
