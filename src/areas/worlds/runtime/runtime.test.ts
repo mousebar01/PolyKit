@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import * as THREE from 'three'
 
@@ -10,6 +11,7 @@ import { buildProceduralGeometry } from './procedural.ts'
 import { hashString, mulberry32 } from './rng.ts'
 import { createInitialRuntime } from './runtime.ts'
 import { buildTerrain } from './terrain.ts'
+import type { WorldSpec } from './types.ts'
 
 test('world runtime starts with domain state and quality, not workflow progress', () => {
   const runtime = createInitialRuntime('Build a playable winter cabin demo')
@@ -51,6 +53,32 @@ test('demo terrain is local, bounded, and deterministic', () => {
   assert.ok(first.slopeAt(0, 0) >= 0)
   assert.equal(first.regionWeightAt(999, 0, 0), 0)
   assert.ok(Number.isFinite(first.waterDistanceAt(0, 0)))
+})
+
+test('terrain compiler v2 matches the shared production fixture', () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL('../../../../fixtures/terrain/compiler-v2.json', import.meta.url),
+    'utf8',
+  )) as {
+    resolution: number
+    spec: WorldSpec
+    samples: Array<{
+      grid: [number, number]
+      expected: { height: number; weights: number[]; dominant: number }
+    }>
+  }
+  assert.equal(fixture.spec.terrainVersion, 2)
+  const terrain = buildTerrain(fixture.spec, { resolution: fixture.resolution })
+  for (const sample of fixture.samples) {
+    const [column, row] = sample.grid
+    const index = row * terrain.res + column
+    assert.ok(Math.abs(terrain.heights[index] - sample.expected.height) < 1e-6)
+    assert.equal(terrain.dominant[index], sample.expected.dominant)
+    assert.equal(sample.expected.weights.length, terrain.regionWeights.length)
+    for (let regionIndex = 0; regionIndex < terrain.regionWeights.length; regionIndex += 1) {
+      assert.ok(Math.abs(terrain.regionWeights[regionIndex][index] - sample.expected.weights[regionIndex]) < 1e-6)
+    }
+  }
 })
 
 test('terrain grass is deterministic, terrain-aligned, and capped', () => {
