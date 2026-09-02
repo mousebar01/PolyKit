@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import processor as legacy
+from surface_fields import SURFACE_KINDS, compile_surface_fields, surface_for_region
 from terrain_fields import compile_fields, parse_program, surface_colors
 
 
@@ -41,6 +42,22 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
     resolution = _requested_resolution(descriptor, params)
     program = parse_program(descriptor, resolution=resolution)
     fields = compile_fields(program)
+    raw_regions = descriptor.get("regions") if isinstance(descriptor.get("regions"), list) else []
+    region_surfaces = [
+        surface_for_region(
+            raw_regions[index].get("surface") if index < len(raw_regions) and isinstance(raw_regions[index], dict) else None,
+            region.kind,
+        )
+        for index, region in enumerate(program.regions)
+    ]
+    surface_weights, dominant_surface = compile_surface_fields(
+        heights=fields.heights,
+        region_weights=fields.region_weights,
+        region_surfaces=region_surfaces,
+        resolution=program.resolution,
+        size=program.size,
+        sea_level=program.sea_level,
+    )
     res = program.resolution
     vertices = np.empty((res * res, 3), dtype=np.float32)
     for row in range(res):
@@ -86,11 +103,16 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
 
     vertex_hash = hashlib.sha256(vertices.tobytes()).hexdigest()
     field_hash = hashlib.sha256(fields.heights.tobytes()).hexdigest()
+    surface_field_hash = hashlib.sha256(b"".join(weights.tobytes() for weights in surface_weights)).hexdigest()
     dominant_counts = {
         region.id: int(np.count_nonzero(fields.dominant == index))
         for index, region in enumerate(program.regions)
     }
     unassigned_count = int(np.count_nonzero(fields.dominant < 0))
+    dominant_surface_counts = {
+        surface: int(np.count_nonzero(dominant_surface == index))
+        for index, surface in enumerate(SURFACE_KINDS)
+    }
     report = {
         "schemaVersion": 2,
         "kind": "polykit.terrain-mesh",
@@ -108,6 +130,7 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
             "version": 2,
             "reference": "worlds/runtime/terrain.ts",
             "fieldHash": field_hash,
+            "surfaceFieldHash": surface_field_hash,
         },
         "terrain": {
             "vertexCount": int(len(vertices)),
@@ -119,6 +142,10 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
         },
         "surface": {
             "materialMode": "region-vertex-blend",
+            "fieldMode": "region-altitude-slope",
+            "channels": list(SURFACE_KINDS),
+            "fieldHash": surface_field_hash,
+            "dominantSurfaceCounts": dominant_surface_counts,
             "dominantRegionCounts": dominant_counts,
             "unassignedCount": unassigned_count,
         },
@@ -131,13 +158,14 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
             {
                 "id": region.id,
                 "kind": region.kind,
+                "surface": region_surfaces[index],
                 "center": list(region.center),
                 "radius": round(region.radius, 6),
                 "irregularity": round(region.irregularity, 6),
                 "amplitude": round(region.amplitude, 6),
                 "color": "#%02x%02x%02x" % region.color,
             }
-            for region in program.regions
+            for index, region in enumerate(program.regions)
         ],
         "rivers": [
             {
@@ -150,7 +178,8 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
         ],
         "reviewNotes": [
             "Terrain Compiler v2 mirrors browser world-field math so preview and production sample the same seeded terrain.",
-            "Region material colors are blended from the same influence weights used by elevation and placement; texture splatting remains a later production stage.",
+            "Surface channels are compiled from region influence, post-carve altitude, and slope; steep or unsuitable cover falls back to exposed rock.",
+            "Region material colors still use the existing influence blend. Texture splatting can consume the fixed surface channels later without changing height generation.",
         ],
     }
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -168,6 +197,8 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
             "water_included": water_included,
             "vertex_hash": vertex_hash,
             "field_hash": field_hash,
+            "surface_field_hash": surface_field_hash,
+            "surface_field_mode": "region-altitude-slope",
             "material_mode": "region-vertex-blend",
             "report": report_path.name,
         },
