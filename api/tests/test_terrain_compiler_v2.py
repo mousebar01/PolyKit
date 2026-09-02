@@ -1,0 +1,112 @@
+import copy
+import importlib.util
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
+import trimesh
+
+from services.process_runner import run_processor
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PACK_DIR = REPO_ROOT / "src/areas/workflows/nodes/environment-production"
+FIXTURE_PATH = REPO_ROOT / "fixtures/terrain/compiler-v2.json"
+
+
+def _load_compiler():
+    module_name = "polykit_test_terrain_fields"
+    spec = importlib.util.spec_from_file_location(module_name, PACK_DIR / "terrain_fields.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load terrain_fields.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class TerrainCompilerV2Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+        cls.compiler = _load_compiler()
+
+    def _run(self, root: Path, descriptor: dict, *, entry: str = "processor_v2.py", include_water: bool = False) -> dict:
+        workspace = root / "workspace"
+        workspace.mkdir(exist_ok=True)
+        temp = root / "tmp"
+        temp.mkdir(exist_ok=True)
+        return run_processor(
+            PACK_DIR,
+            entry,
+            {"text": json.dumps(descriptor)},
+            {"_node_id": "terrain-mesh", "resolution": self.fixture["resolution"], "include_water": include_water},
+            str(workspace),
+            str(temp),
+        )
+
+    def test_python_fields_match_shared_browser_fixture(self) -> None:
+        program = self.compiler.parse_program(self.fixture["spec"], resolution=self.fixture["resolution"])
+        fields = self.compiler.compile_fields(program)
+        for sample in self.fixture["samples"]:
+            actual = self.compiler.grid_sample(fields, *sample["grid"])
+            expected = sample["expected"]
+            self.assertAlmostEqual(actual["height"], expected["height"], places=6)
+            self.assertEqual(actual["dominant"], expected["dominant"])
+            self.assertEqual(len(actual["weights"]), len(expected["weights"]))
+            for actual_weight, expected_weight in zip(actual["weights"], expected["weights"]):
+                self.assertAlmostEqual(actual_weight, expected_weight, places=6)
+
+    def test_v2_processor_exports_region_blended_terrain(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            result = self._run(Path(td), self.fixture["spec"])
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            scene = trimesh.load(Path(str(result["filePath"])), force="scene", process=False)
+            terrain = scene.geometry["terrain"]
+            colors = np.asarray(terrain.visual.vertex_colors)[:, :3]
+            self.assertEqual(result["metadata"]["terrain_version"], 2)
+            self.assertEqual(result["metadata"]["compiler_version"], 2)
+            self.assertEqual(report["compiler"]["version"], 2)
+            self.assertEqual(report["surface"]["materialMode"], "region-vertex-blend")
+            self.assertEqual(report["source"]["terrainVersion"], 2)
+            self.assertGreater(len(np.unique(colors, axis=0)), 3)
+            self.assertEqual(len(terrain.vertices), self.fixture["resolution"] ** 2)
+
+    def test_v2_irregularity_changes_the_compiled_field(self) -> None:
+        base = copy.deepcopy(self.fixture["spec"])
+        flat_masks = copy.deepcopy(base)
+        for region in flat_masks["regions"]:
+            region["irregularity"] = 0
+        base_fields = self.compiler.compile_fields(self.compiler.parse_program(base, resolution=self.fixture["resolution"]))
+        flat_fields = self.compiler.compile_fields(self.compiler.parse_program(flat_masks, resolution=self.fixture["resolution"]))
+        self.assertFalse(np.array_equal(base_fields.heights, flat_fields.heights))
+        self.assertTrue(any(
+            not np.array_equal(base_weights, flat_weights)
+            for base_weights, flat_weights in zip(base_fields.region_weights, flat_fields.region_weights)
+        ))
+
+    def test_versioned_entry_preserves_legacy_terrain_without_version(self) -> None:
+        descriptor = {
+            "seed": 11,
+            "size": 18,
+            "seaLevel": 0,
+            "regions": [
+                {"id": "ridge", "kind": "mountain", "center": [0.5, 0.5], "radius": 0.42, "amplitude": 4, "roughness": 0.6}
+            ],
+            "rivers": [],
+        }
+        with tempfile.TemporaryDirectory() as legacy_td, tempfile.TemporaryDirectory() as versioned_td:
+            legacy_result = self._run(Path(legacy_td), descriptor, entry="processor.py")
+            versioned_result = self._run(Path(versioned_td), descriptor, entry="processor_v2.py")
+            legacy_report = json.loads(Path(str(legacy_result["sidecars"][0])).read_text(encoding="utf-8"))
+            versioned_report = json.loads(Path(str(versioned_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(legacy_report["terrain"]["vertexHash"], versioned_report["terrain"]["vertexHash"])
+            self.assertEqual(legacy_report["schemaVersion"], 1)
+            self.assertEqual(versioned_report["schemaVersion"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
