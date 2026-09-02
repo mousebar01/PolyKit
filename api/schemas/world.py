@@ -152,6 +152,14 @@ class WorldRuntime(BaseModel):
     quality: WorldRuntimeQuality
 
 
+class WorldAuthoringSpec(BaseModel):
+    """Creation-time defaults that must not silently migrate older worlds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    terrain_version: Literal[2] = 2
+
+
 class WorldDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -163,6 +171,7 @@ class WorldDocument(BaseModel):
     updated_at: str
     run_id: str | None = None
     parent_world_id: str | None = None
+    authoring: WorldAuthoringSpec | None = None
     runtime: WorldRuntime
     artifacts: dict[str, Any] = Field(default_factory=dict)
 
