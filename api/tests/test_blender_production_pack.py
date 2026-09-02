@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
@@ -78,7 +80,9 @@ class BlenderProductionManifestTests(unittest.TestCase):
                 self.assertIn("metadata['renderEvidence']", script)
                 self.assertIn("generic camera helper silently switch that run back to Eevee", script)
                 self.assertIn("original_indices = [int(index) for index in indices]", script)
-                self.assertIn("Render while the renderer-native graph is still active", script)
+                render_index = script.index("bpy.ops.render.render(write_still=True)")
+                restore_index = script.index("if OPERATION == 'npr' and not replace_material:")
+                self.assertLess(render_index, restore_index)
 
         report = processor._report_script("/tmp/input.glb", "", {})
         compile(report, "geometry-report.py", "exec")
@@ -113,6 +117,38 @@ class BlenderProductionDispatchTests(unittest.TestCase):
                 result = asyncio.run(execute())
             self.assertEqual(result["mesh"], output)
             self.assertEqual(run.call_args.args[3]["_node_id"], "opening")
+
+    def test_geometry_report_uses_dedicated_report_script(self) -> None:
+        processor = _load_processor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.glb"
+            input_path.write_bytes(b"glb")
+            payload = {
+                "workspaceDir": temp_dir,
+                "input": {"filePath": str(input_path)},
+                "params": {"_node_id": "geometry-report"},
+            }
+            response = {
+                "glb_b64": base64.b64encode(b"glb-result").decode("ascii"),
+                "report_b64": base64.b64encode(b"{}").decode("ascii"),
+                "report_json": "{}",
+            }
+            events: list[dict] = []
+            with patch.object(processor.sys, "stdin", io.StringIO(json.dumps(payload) + "\n")), patch.object(
+                processor, "_report_script", return_value="report-script"
+            ) as report_script, patch.object(processor, "_scene_script") as scene_script, patch.object(
+                processor, "_send_blender_code", return_value=response
+            ) as send_code, patch.object(processor, "emit", side_effect=events.append):
+                processor.main()
+
+            report_script.assert_called_once()
+            scene_script.assert_not_called()
+            self.assertEqual(send_code.call_args.args[2], "report-script")
+            done = next(event for event in events if event.get("type") == "done")
+            result = done["result"]
+            self.assertTrue(Path(result["filePath"]).is_file())
+            self.assertEqual(Path(result["sidecars"][0]).read_text(encoding="utf-8"), "{}")
+            self.assertEqual(result["metadata"]["operation"], "geometry-report")
 
 
 if __name__ == "__main__":
