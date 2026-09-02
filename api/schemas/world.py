@@ -157,7 +157,7 @@ class WorldAuthoringSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    terrain_version: Literal[2] = 2
+    terrain_version: Literal[2]
 
 
 class WorldDocument(BaseModel):
