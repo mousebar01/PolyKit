@@ -142,12 +142,71 @@ export function buildTerrain(spec: WorldSpec, options: TerrainBuildOptions = {})
     terrainNoise: new Noise2D((spec.seed ^ hashString(region.id)) >>> 0),
     detailNoise: new Noise2D((spec.seed ^ hashString(`${region.id}:detail`)) >>> 0),
   }))
+  const worldRegionIndices = fields
+    .map((field, index) => field.spec.coverage === 'world' ? index : -1)
+    .filter((index) => index >= 0)
+  if (worldRegionIndices.length > 1) {
+    throw new Error('Terrain Compiler v2 supports at most one coverage=world region')
+  }
+  const worldRegionIndex = worldRegionIndices[0] ?? -1
 
   for (let j = 0; j < res; j += 1) {
     const v = j / (res - 1)
     for (let i = 0; i < res; i += 1) {
       const u = i / (res - 1)
       const index = j * res + i
+
+      if (worldRegionIndex >= 0) {
+        const localSamples: Array<{ regionIndex: number; weight: number; elevation: number }> = []
+        let localTotal = 0
+        let worldElevation = 0
+
+        for (let regionIndex = 0; regionIndex < fields.length; regionIndex += 1) {
+          const field = fields[regionIndex]
+          const region = field.spec
+          const warpStrength = clamp(region.irregularity, 0, 1) * Math.max(0, region.radius) * 0.9
+          const queryX = u * 3 + regionIndex * 7.31
+          const queryY = v * 3 - regionIndex * 4.17
+          const [warpedX, warpedY] = warpNoise.warp(queryX, queryY, 1)
+          const du = u - region.center[0] + (warpedX - queryX) * warpStrength * 0.33
+          const dv = v - region.center[1] + (warpedY - queryY) * warpStrength * 0.33
+          const normalizedDistance = Math.hypot(du, dv) / Math.max(region.radius, 1e-4)
+          const weight = 1 - smoothstep(0.55, 1.15, normalizedDistance)
+          const elevation = regionElevation(field, u, v, clamp(normalizedDistance, 0, 1))
+
+          if (regionIndex === worldRegionIndex) {
+            worldElevation = elevation
+            continue
+          }
+          if (weight <= 0.001) continue
+          localSamples.push({ regionIndex, weight, elevation })
+          localTotal += weight
+        }
+
+        const localScale = localTotal > 1 ? 1 / localTotal : 1
+        const worldWeight = Math.max(0, 1 - Math.min(localTotal, 1))
+        regionWeights[worldRegionIndex][index] = worldWeight
+        let height = worldElevation * worldWeight
+        let bestRegion = worldRegionIndex
+        let bestWeight = worldWeight
+
+        for (const sample of localSamples) {
+          const effectiveWeight = sample.weight * localScale
+          regionWeights[sample.regionIndex][index] = effectiveWeight
+          height += sample.elevation * effectiveWeight
+          if (effectiveWeight > bestWeight) {
+            bestWeight = effectiveWeight
+            bestRegion = sample.regionIndex
+          }
+        }
+
+        const micro = backgroundNoise.fbm(u * 34 + 11.3, v * 34 - 5.7, 3) * 1.1
+          + backgroundNoise.fbm(u * 90 - 2.1, v * 90 + 8.4, 2) * 0.3
+        heights[index] = height + micro
+        if (bestWeight > 0.25) dominant[index] = bestRegion
+        continue
+      }
+
       let totalWeight = 0
       let height = 0
       let bestRegion = -1
