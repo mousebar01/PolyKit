@@ -23,6 +23,33 @@ export const TERRAIN_KINDS = [
 
 export type TerrainKind = typeof TERRAIN_KINDS[number]
 
+/** V2 geometry profiles. Surface/biome semantics do not belong in this list. */
+export const TERRAIN_LANDFORMS = [
+  'mountain',
+  'hills',
+  'plains',
+  'dunes',
+  'canyon',
+  'volcanic',
+  'mesa',
+] as const
+
+export type TerrainLandform = typeof TERRAIN_LANDFORMS[number]
+
+/** Lightweight semantic cover used by material and ecology stages. */
+export const TERRAIN_SURFACES = [
+  'rock',
+  'grass',
+  'sand',
+  'snow',
+  'forest',
+  'swamp',
+  'beach',
+  'water',
+] as const
+
+export type TerrainSurface = typeof TERRAIN_SURFACES[number]
+
 /** Normalized square-map coordinates. u points east (+x), v points south (+z). */
 export type UV = [number, number]
 
@@ -36,7 +63,12 @@ export interface MaterialSpec {
 export interface RegionSpec {
   id: string
   name: string
+  /** Compiled/legacy terrain profile consumed by current runtime terrain math. */
   kind: TerrainKind
+  /** V2 authoring geometry semantic. The server normalizes this into kind. */
+  landform?: TerrainLandform
+  /** V2 authoring surface/biome semantic; it does not directly change elevation. */
+  surface?: TerrainSurface
   center: UV
   radius: number
   irregularity: number
@@ -118,6 +150,7 @@ export interface WorldSpec {
   seaLevel: number
   sky: SkySpec
   regions: RegionSpec[]
+  /** Rivers are the current explicit terrain-modifier contract. */
   rivers: RiverSpec[]
   assets: AssetProtoSpec[]
   relations: RelationSpec[]
