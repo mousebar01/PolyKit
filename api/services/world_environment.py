@@ -1,7 +1,7 @@
 """Normalize authored outdoor environment contracts without changing legacy worlds.
 
 New World documents record the terrain compiler generation they were authored
-for.  When such a world first receives an environment, this module converts the
+for. When such a world first receives an environment, this module converts the
 expressive planner vocabulary into the compact runtime contract consumed by the
 existing browser and production terrain compilers.
 """
@@ -31,6 +31,7 @@ TERRAIN_SURFACES = frozenset({
     "beach",
     "water",
 })
+TERRAIN_COVERAGES = frozenset({"world", "local"})
 
 
 def _semantic_name(value: Any, *, label: str, allowed: frozenset[str]) -> str | None:
@@ -62,13 +63,18 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
     """Normalize one new-generation World environment while preserving legacy worlds.
 
     Worlds without ``authoring.terrain_version`` are intentionally returned
-    unchanged.  For Terrain Compiler v2 worlds:
+    unchanged. For Terrain Compiler v2 worlds:
 
     * ``terrainVersion`` defaults to 2 on the environment;
     * optional ``region.landform`` selects the geometry profile and is compiled
       into the existing ``region.kind`` field;
     * optional ``region.surface`` remains semantic/material information and does
       not alter elevation;
+    * a single authored region defaults to ``coverage=world`` so ordinary scenes
+      are one complete terrain domain rather than a local mask plus background;
+    * multiple authored regions default to ``coverage=local`` unless one is
+      explicitly declared as the world/base region;
+    * at most one region may use ``coverage=world``;
     * regions without either a compiled ``kind`` or explicit ``landform`` use
       the conservative ``plains`` geometry profile.
 
@@ -110,6 +116,8 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
     raw_regions = normalized_environment.get("regions")
     if isinstance(raw_regions, list):
         regions: list[Any] = []
+        world_coverage_count = 0
+        default_coverage = "world" if len(raw_regions) == 1 else "local"
         for index, raw_region in enumerate(raw_regions):
             if not isinstance(raw_region, Mapping):
                 regions.append(raw_region)
@@ -125,6 +133,14 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
                 label=f"regions[{index}].surface",
                 allowed=TERRAIN_SURFACES,
             )
+            coverage = _semantic_name(
+                region.get("coverage"),
+                label=f"regions[{index}].coverage",
+                allowed=TERRAIN_COVERAGES,
+            ) or default_coverage
+            region["coverage"] = coverage
+            if coverage == "world":
+                world_coverage_count += 1
             if landform is not None:
                 region["landform"] = landform
                 region["kind"] = landform
@@ -133,6 +149,8 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
             if surface is not None:
                 region["surface"] = surface
             regions.append(region)
+        if world_coverage_count > 1:
+            raise ValueError("regions may contain at most one coverage=world region")
         normalized_environment["regions"] = regions
 
     build_copy = dict(build)
@@ -145,6 +163,7 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
 
 __all__ = [
     "TERRAIN_COMPILER_VERSION",
+    "TERRAIN_COVERAGES",
     "TERRAIN_LANDFORMS",
     "TERRAIN_SURFACES",
     "normalize_world_environment_contract",
