@@ -148,8 +148,64 @@ class SceneAssetRepresentationTests(unittest.TestCase):
         self.assertEqual(compose.inputs["mesh"], [["asset_pine", "mesh"], ["asset_pine", "mesh"]])
         placements = compose.inputs["params"]["placements"]
         self.assertEqual(len(placements), 2)
+        self.assertEqual(placements[0]["objectId"], "pine")
         self.assertEqual(placements[0]["position"], [-4, 0, 2])
         self.assertEqual(placements[1]["position"], [5, 0, 3])
+
+    def test_scene_composer_propagates_only_surface_support_relations(self) -> None:
+        terrain_path = self.workspace / "Workflows" / "terrain.glb"
+        pine_path = self.workspace / "Workflows" / "pine.glb"
+        crate_path = self.workspace / "Workflows" / "crate.glb"
+        for path in (terrain_path, pine_path, crate_path):
+            path.write_bytes(b"placeholder")
+        world = {
+            "runtime": {
+                "version": 1,
+                "scene": {
+                    "objects": [
+                        {
+                            "id": "terrain",
+                            "name": "Terrain",
+                            "role": "context",
+                            "size": [20, 2, 20],
+                            "asset": {"workspacePath": "Workflows/terrain.glb"},
+                        },
+                        {
+                            "id": "pine",
+                            "name": "Pine",
+                            "role": "context",
+                            "size": [2, 6, 2],
+                            "asset": {"workspacePath": "Workflows/pine.glb"},
+                        },
+                        {
+                            "id": "crate",
+                            "name": "Crate",
+                            "role": "context",
+                            "size": [1, 1, 1],
+                            "asset": {"workspacePath": "Workflows/crate.glb"},
+                        },
+                    ],
+                    "relations": [
+                        {"subject": "pine", "type": "on", "object": "terrain"},
+                        {"subject": "crate", "type": "inside", "object": "terrain"},
+                    ],
+                    "instances": [
+                        {"objectId": "terrain", "position": [0, 0, 0]},
+                        {"objectId": "pine", "position": [3, 0, 4]},
+                        {"objectId": "crate", "position": [-2, 0, 1]},
+                    ],
+                    "metadata": {"layoutQuality": {"status": "pass"}},
+                },
+            }
+        }
+
+        plan = compile_scene_composition_plan(world, world_id="cold-valley")
+        placements = plan.prompt["compose"].inputs["params"]["placements"]
+        by_object = {item["objectId"]: item for item in placements}
+
+        self.assertEqual(by_object["pine"]["supportObjectId"], "terrain")
+        self.assertNotIn("supportObjectId", by_object["terrain"])
+        self.assertNotIn("supportObjectId", by_object["crate"])
 
 
 if __name__ == "__main__":
