@@ -117,6 +117,15 @@
     "focal_object": "hero-communications-terminal",
     "camera_mobility": "bounded_inspection",
     "production_path": "deterministic_blender_builder",
-    "preview_only": false
+    "preview_only": false,
+    "reference_examples": [
+      {
+        "id": "cold-valley-outpost-three-quarter-overview",
+        "file": "visual-reference-example.md",
+        "kind": "visual-quality-and-composition",
+        "source": "user-provided conversation image",
+        "pixel_comparison_ready": false
+      }
+    ]
   }
 }

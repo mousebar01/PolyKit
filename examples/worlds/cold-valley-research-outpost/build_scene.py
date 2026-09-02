@@ -10,6 +10,7 @@ background Blender scene that is launched for this test.
 from __future__ import annotations
 
 import argparse
+import bmesh
 import json
 import math
 import random
@@ -40,6 +41,11 @@ BUILDING_HEIGHT = 3.6
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--tree-glb",
+        default="",
+        help="Optional local generated tree GLB. When set, replace the fallback cone trees with linked instances.",
+    )
     return parser.parse_args(_script_args())
 
 
@@ -517,7 +523,144 @@ def add_tree(index: int, x: float, y: float, z: float, trunk: bpy.types.Material
         cone["polyKitRole"] = "context"
 
 
-def build_scene(output_dir: Path) -> dict[str, object]:
+def make_trellis_tree_material() -> bpy.types.Material:
+    """Build a restrained bark-to-needle material for a local Trellis asset."""
+    mat = bpy.data.materials.new("Local Trellis2 Pine")
+    mat.use_nodes = True
+    mat.diffuse_color = (0.045, 0.12, 0.075, 1.0)
+    mat["production_material_class"] = "organic_conifer"
+    mat["production_surface_variant"] = "frosted_wind_scoured"
+    mat["production_texture_scale_m"] = 0.14
+
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    shader = nodes.new("ShaderNodeBsdfPrincipled")
+    shader.inputs["Roughness"].default_value = 0.92
+    shader.inputs["Specular IOR Level"].default_value = 0.22
+
+    texcoord = nodes.new("ShaderNodeTexCoord")
+    separate = nodes.new("ShaderNodeSeparateXYZ")
+    ramp = nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position = 0.0
+    ramp.color_ramp.elements[0].color = (0.075, 0.035, 0.018, 1.0)
+    ramp.color_ramp.elements[1].position = 1.0
+    ramp.color_ramp.elements[1].color = (0.018, 0.11, 0.055, 1.0)
+    mid = ramp.color_ramp.elements.new(0.22)
+    mid.color = (0.12, 0.06, 0.028, 1.0)
+    green = ramp.color_ramp.elements.new(0.34)
+    green.color = (0.035, 0.16, 0.085, 1.0)
+
+    noise = nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 8.0
+    noise.inputs["Detail"].default_value = 4.0
+    noise.inputs["Roughness"].default_value = 0.75
+    mix = nodes.new("ShaderNodeMixRGB")
+    mix.blend_type = "MULTIPLY"
+    mix.inputs[0].default_value = 0.18
+    bump = nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.16
+    bump.inputs["Distance"].default_value = 0.035
+
+    links.new(texcoord.outputs["Generated"], separate.inputs["Vector"])
+    links.new(separate.outputs["Z"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], mix.inputs[1])
+    links.new(texcoord.outputs["Object"], noise.inputs["Vector"])
+    links.new(noise.outputs["Fac"], mix.inputs[2])
+    links.new(mix.outputs["Color"], shader.inputs["Base Color"])
+    links.new(noise.outputs["Fac"], bump.inputs["Height"])
+    links.new(bump.outputs["Normal"], shader.inputs["Normal"])
+    links.new(shader.outputs["BSDF"], output.inputs["Surface"])
+    return mat
+
+
+def add_local_trellis_trees(
+    tree_glb: Path,
+    tree_positions: list[tuple[float, float, float]],
+    tree_material: bpy.types.Material,
+    environment: bpy.types.Collection,
+) -> int:
+    """Import one local Trellis.2 tree and place linked-data instances."""
+    if not tree_glb.is_file():
+        raise FileNotFoundError(f"Local tree GLB not found: {tree_glb}")
+
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(tree_glb))
+    imported = [obj for obj in bpy.data.objects if obj not in before and obj.type == "MESH"]
+    if not imported:
+        raise ValueError(f"Local tree GLB contains no mesh objects: {tree_glb}")
+
+    for obj in imported:
+        move_to(obj, environment)
+        obj.data.materials.clear()
+        obj.data.materials.append(tree_material)
+        cleanup = bmesh.new()
+        try:
+            cleanup.from_mesh(obj.data)
+            # Trellis' marching-cubes export can leave coincident leaf-tip
+            # vertices at sub-micron spacing. Clean them before scene scaling
+            # so the production validator does not mistake them for geometry.
+            bmesh.ops.remove_doubles(cleanup, verts=list(cleanup.verts), dist=1e-5)
+            bmesh.ops.dissolve_degenerate(cleanup, edges=list(cleanup.edges), dist=1e-5)
+            degenerate_faces = [face for face in cleanup.faces if face.calc_area() <= 1e-10]
+            if degenerate_faces:
+                bmesh.ops.delete(cleanup, geom=degenerate_faces, context="FACES")
+            degenerate_edges = [edge for edge in cleanup.edges if edge.calc_length() <= 1e-6]
+            if degenerate_edges:
+                bmesh.ops.delete(cleanup, geom=degenerate_edges, context="EDGES")
+            loose_vertices = [vert for vert in cleanup.verts if not vert.link_edges and not vert.link_faces]
+            if loose_vertices:
+                bmesh.ops.delete(cleanup, geom=loose_vertices, context="VERTS")
+            cleanup.normal_update()
+            cleanup.to_mesh(obj.data)
+            obj.data.update()
+        finally:
+            cleanup.free()
+
+    min_v = Vector((float("inf"), float("inf"), float("inf")))
+    max_v = Vector((float("-inf"), float("-inf"), float("-inf")))
+    for obj in imported:
+        for corner in obj.bound_box:
+            point = obj.matrix_world @ Vector(corner)
+            min_v = Vector((min(min_v.x, point.x), min(min_v.y, point.y), min(min_v.z, point.z)))
+            max_v = Vector((max(max_v.x, point.x), max(max_v.y, point.y), max(max_v.z, point.z)))
+
+    # Trellis emits a normalized Z-up tree. Ground it and target a useful 5.2 m
+    # height so the locally generated asset reads as a sparse environmental tree.
+    source_shift = Vector(((min_v.x + max_v.x) * 0.5, (min_v.y + max_v.y) * 0.5, min_v.z))
+    source_height = max(0.01, max_v.z - min_v.z)
+    normalization = 5.2 / source_height
+    base_states: list[tuple[bpy.types.Object, Vector, Vector, Vector]] = []
+    for obj in imported:
+        obj.location = (obj.location - source_shift) * normalization
+        obj.scale = obj.scale * normalization
+        base_states.append((obj, obj.location.copy(), obj.scale.copy(), obj.rotation_euler.copy()))
+
+    instance_scales = (1.0, 0.86, 1.12, 0.94, 0.78, 1.05)
+    for index, position in enumerate(tree_positions, start=1):
+        factor = instance_scales[(index - 1) % len(instance_scales)]
+        for part_index, (source, base_location, base_scale, base_rotation) in enumerate(base_states, start=1):
+            if index == 1:
+                instance = source
+            else:
+                instance = source.copy()
+                instance.data = source.data
+                environment.objects.link(instance)
+            instance.name = f"LocalTrellisTree_{index}_{part_index}"
+            instance.location = base_location + Vector(position)
+            instance.scale = base_scale * factor
+            instance.rotation_euler = base_rotation
+            instance.rotation_euler.z += math.radians(((index * 29) + (part_index * 7)) % 360)
+            instance["polyKitRole"] = "context"
+            instance["polyKitAssetSource"] = str(tree_glb)
+            instance["polyKitGenerator"] = "local-trellis2"
+            instance["polyKitInstanceIndex"] = index
+            instance["polyKitTreeHeightMeters"] = round(source_height * normalization * factor, 3)
+    return len(tree_positions) * len(base_states)
+
+
+def build_scene(output_dir: Path, tree_glb: Path | None = None) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     scene = bpy.context.scene
     for obj in list(bpy.data.objects):
@@ -532,6 +675,9 @@ def build_scene(output_dir: Path) -> dict[str, object]:
     scene["polyKitBrief"] = PROMPT
     scene["polyKitHeroAsset"] = "HeroTerminal_WeatheredCasing"
     scene["polyKitCoordinateSystem"] = "Blender Z-up meters"
+    scene["polyKitTreeGenerator"] = "local-trellis2" if tree_glb else "blender-fallback-cone"
+    if tree_glb:
+        scene["polyKitTreeSource"] = str(tree_glb)
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.length_unit = "METERS"
 
@@ -551,6 +697,7 @@ def build_scene(output_dir: Path) -> dict[str, object]:
     rock = material("Basalt Rock", (0.12, 0.14, 0.16), roughness=0.96, texture_scale=0.55, weathered=True)
     pine_trunk = material("Cold Pine Trunk", (0.15, 0.095, 0.055), roughness=0.91, texture_scale=0.22, weathered=True)
     pine_foliage = material("Wind Scoured Pine Foliage", (0.08, 0.16, 0.13), roughness=0.92, texture_scale=0.32, weathered=True)
+    trellis_tree_material = make_trellis_tree_material() if tree_glb else pine_foliage
 
     terrain = build_terrain(environment, snow)
     path = cube("Approach_Path", (0.0, -11.0, 0.55), (4.2, 22.0, 0.14), rock, environment, bevel=0.05, role="structural_part")
@@ -567,8 +714,12 @@ def build_scene(output_dir: Path) -> dict[str, object]:
     for index, (x, y, size) in enumerate(rock_positions, start=1):
         ico(f"ValleyRock_{index}", (x, y, size * 0.45), (size * 1.2, size * 0.7, size), rock, environment, role="context")
     tree_positions = [(-24, 5, 1.1), (24, 8, 1.0), (-27, 17, 1.4), (27, 22, 1.2), (-19, 24, 1.0), (20, -14, 0.8)]
-    for index, (x, y, z) in enumerate(tree_positions, start=1):
-        add_tree(index, x, y, z, pine_trunk, pine_foliage, environment)
+    if tree_glb:
+        local_tree_count = add_local_trellis_trees(tree_glb, tree_positions, trellis_tree_material, environment)
+    else:
+        local_tree_count = 0
+        for index, (x, y, z) in enumerate(tree_positions, start=1):
+            add_tree(index, x, y, z, pine_trunk, pine_foliage, environment)
     scrap_positions = [(-11.5, -7.0, 0.85), (11.5, -5.5, 0.75), (9.5, 7.0, 0.65), (-12.0, 8.0, 0.55)]
     for index, (x, y, z) in enumerate(scrap_positions, start=1):
         scrap = cube(f"IndustrialScrap_{index}", (x, y, z), (1.8, 0.38, 0.38), dark_metal, props, bevel=0.04, role="distractor", rotation=(0.0, math.radians(index * 7), math.radians(index * 13)))
@@ -635,14 +786,23 @@ def build_scene(output_dir: Path) -> dict[str, object]:
             {"id": "hero_terminal", "status": "PASS" if hero_objects else "FAIL", "evidence": hero_objects, "details": "Hero terminal has a separate casing, antenna, panel, screen, controls, and weathering material."},
             {"id": "base_layout", "status": "PASS", "evidence": ["ResearchWest_ConcreteShell", "ResearchEast_ConcreteShell", "Connector_Floor", "Communications_Platform", "Approach_Path"], "details": "Two low buildings, a bridging corridor, entry stairs, platform, and clear approach path are present."},
             {"id": "native_repetition", "status": "PASS" if len(array_evidence) >= 3 else "WARN", "evidence": array_evidence, "details": "Entry stair flights and reusable crates retain native Array modifiers in the editable blend."},
-            {"id": "environment", "status": "PASS", "evidence": ["Cold_Valley_Terrain", "ValleyRock_1", "ColdPine_1_Trunk", "IndustrialScrap_1"], "details": "Rugged terrain, sparse pines, grouped rocks, and restrained scrap frame the base."},
+            {"id": "environment", "status": "PASS", "evidence": ["Cold_Valley_Terrain", "ValleyRock_1", "LocalTrellisTree_1_1" if tree_glb else "ColdPine_1_Trunk", "IndustrialScrap_1"], "details": "Rugged terrain, sparse locally generated pines, grouped rocks, and restrained scrap frame the base."},
             {"id": "render_health", "status": "PASS" if all(item["nonblank"] for item in render_passes) else "FAIL", "evidence": render_passes, "details": "Hero, overview, top, and side review renders were written."},
         ],
         "thresholds": {"render_min_bytes": 10000, "hero_asset_min_parts": 6, "mesh_object_budget": 180},
         "intentional_exceptions": ["This is a first deterministic scene test; visual approval still requires human review of the rendered evidence."],
         "not_evaluated": ["Final material identity and weathering realism require a dedicated neutral/grazing material review."],
         "repair_suggestions": [],
-        "scene": {"blend": str(blend_path), "glb": str(glb_path), "mesh_object_count": len(mesh_objects), "hero_object_count": len(hero_objects), "array_evidence": array_evidence},
+        "scene": {
+            "blend": str(blend_path),
+            "glb": str(glb_path),
+            "mesh_object_count": len(mesh_objects),
+            "hero_object_count": len(hero_objects),
+            "array_evidence": array_evidence,
+            "tree_source": str(tree_glb) if tree_glb else "blender-fallback-cone",
+            "tree_generator": "local-trellis2" if tree_glb else "blender-fallback-cone",
+            "tree_instance_count": local_tree_count if tree_glb else len(tree_positions),
+        },
     }
     validation_path = output_dir / "cold_valley_research_outpost.validation.json"
     validation_path.write_text(json.dumps(validation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -653,7 +813,8 @@ def build_scene(output_dir: Path) -> dict[str, object]:
 
 def main() -> None:
     args = parse_args()
-    result = build_scene(Path(args.output_dir).expanduser().resolve())
+    tree_glb = Path(args.tree_glb).expanduser().resolve() if args.tree_glb else None
+    result = build_scene(Path(args.output_dir).expanduser().resolve(), tree_glb=tree_glb)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

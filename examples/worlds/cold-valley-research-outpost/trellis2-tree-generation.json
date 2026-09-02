@@ -1,0 +1,9 @@
+{
+  "pipeline_type": "1024",
+  "gguf_quant": "Q4_K_M",
+  "ss_steps": 16,
+  "slat_steps": 16,
+  "foreground_ratio": 0.85,
+  "remesh_resolution": 512,
+  "seed": 20260902
+}

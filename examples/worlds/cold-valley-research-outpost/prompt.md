@@ -18,6 +18,10 @@
 - Material intent: cold weathered concrete, painted/corroded steel, frosted glass, compact snow/rock terrain, and restrained emissive cyan controls.
 - Lighting intent: low winter sun from camera-left, cold sky fill, readable dark-side planes, and no dramatic colored lights that hide geometry.
 
+## Visual reference example
+
+The project also includes [`visual-reference-example.md`](./visual-reference-example.md), based on the user-provided three-quarter overview image. Use it as the acceptance reference for composition, focal hierarchy, tree realism, sparse dressing, and cold winter lighting. It describes the image's intent without treating the image as a source mesh or texture.
+
 ## Local test
 
 The first executable test is the deterministic Blender builder next to this file:
