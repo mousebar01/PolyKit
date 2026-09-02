@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "kind": "polykit.scene-plan",
+  "scene_id": "cold-valley-research-outpost",
+  "scene_kind": "outdoor",
+  "prompt": "创建一个建在寒冷山谷中的废弃科幻研究前哨站。",
+  "seed": 20260902,
+  "bounds": { "width": 72, "depth": 60, "height": 30 },
+  "objects": [
+    {
+      "id": "valley-terrain",
+      "name": "Cold valley terrain",
+      "role": "background",
+      "category": "terrain",
+      "description": "Rugged snow-dusted valley floor with raised rocky shoulders and a clear approach corridor.",
+      "size": [72, 5, 60],
+      "constraints": { "seed": 20260902, "production_node": "environment-production/terrain-mesh" }
+    },
+    {
+      "id": "research-building-west",
+      "name": "West low concrete research building",
+      "role": "room",
+      "category": "architecture",
+      "description": "Low rectangular reinforced-concrete laboratory mass with a service door and slit windows.",
+      "size": [9, 4, 7]
+    },
+    {
+      "id": "research-building-east",
+      "name": "East low concrete research building",
+      "role": "room",
+      "category": "architecture",
+      "description": "Matching low concrete annex with a practical entry and service equipment bay.",
+      "size": [9, 4, 7]
+    },
+    {
+      "id": "metal-corridor",
+      "name": "Enclosed metal connector corridor",
+      "role": "context",
+      "category": "architecture",
+      "description": "A covered metal-and-frosted-glass corridor physically joining the two buildings.",
+      "size": [4, 2.5, 3]
+    },
+    {
+      "id": "entry-steps",
+      "name": "Main entry steps",
+      "role": "context",
+      "category": "architecture",
+      "description": "Short repeated stair flights aligned to the approach path.",
+      "size": [3, 1, 2]
+    },
+    {
+      "id": "communications-platform",
+      "name": "Small communications platform",
+      "role": "context",
+      "category": "industrial",
+      "description": "Raised steel platform beside the west entry with guard rails and service clearance.",
+      "size": [4, 1, 3]
+    },
+    {
+      "id": "hero-communications-terminal",
+      "name": "Weathered retro-futurist communications terminal",
+      "role": "hero",
+      "category": "prop",
+      "description": "Large thick steel terminal with antenna mast, dish, tactile control panel, cyan status screen, and exposure wear.",
+      "size": [2.4, 4.5, 1.8],
+      "constraints": { "hero": true, "targetHeight": 4.5, "near": "research-building-west", "visual_priority": 1 }
+    },
+    {
+      "id": "industrial-storage-crates",
+      "name": "Reusable industrial storage crates",
+      "role": "distractor",
+      "category": "prop",
+      "description": "A small repeated cluster of battered storage and equipment boxes.",
+      "size": [1.2, 1.1, 1.2],
+      "constraints": { "count": 5, "max_visual_priority": 3 }
+    },
+    {
+      "id": "cold-pines",
+      "name": "Sparse cold-weather pine group",
+      "role": "context",
+      "category": "vegetation",
+      "description": "A few low-poly wind-bent pines on the valley shoulders.",
+      "size": [2, 4, 2],
+      "constraints": { "count": 6, "avoid": ["base", "approach_path"] }
+    },
+    {
+      "id": "rock-fields",
+      "name": "Rugged rock fields",
+      "role": "context",
+      "category": "rock",
+      "description": "Grouped angular rocks that frame the valley without cluttering the base entrance.",
+      "size": [2.5, 1.5, 2.5],
+      "constraints": { "count": 12 }
+    },
+    {
+      "id": "industrial-scrap",
+      "name": "Sparse industrial scrap",
+      "role": "distractor",
+      "category": "industrial",
+      "description": "A few deliberately placed beams, drums, and panels showing long abandonment.",
+      "size": [2, 1.5, 1.5],
+      "constraints": { "count": 7, "max_visual_priority": 3 }
+    }
+  ],
+  "relations": [
+    { "subject": "research-building-west", "type": "floor", "object": "valley-terrain", "tolerance": 0.35 },
+    { "subject": "research-building-east", "type": "floor", "object": "valley-terrain", "tolerance": 0.35 },
+    { "subject": "metal-corridor", "type": "beside", "object": "research-building-west", "side": "right", "clearance": 0.1 },
+    { "subject": "metal-corridor", "type": "beside", "object": "research-building-east", "side": "left", "clearance": 0.1 },
+    { "subject": "communications-platform", "type": "near", "object": "research-building-west", "distance": 3.5 },
+    { "subject": "hero-communications-terminal", "type": "on", "object": "communications-platform", "tolerance": 0.2 },
+    { "subject": "industrial-storage-crates", "type": "near", "object": "research-building-east", "distance": 4.0 },
+    { "subject": "cold-pines", "type": "away_from", "object": "research-building-west", "distance": 8.0 },
+    { "subject": "rock-fields", "type": "away_from", "object": "communications-platform", "distance": 3.0 }
+  ],
+  "metadata": {
+    "focal_object": "hero-communications-terminal",
+    "camera_mobility": "bounded_inspection",
+    "production_path": "deterministic_blender_builder",
+    "preview_only": false
+  }
+}
