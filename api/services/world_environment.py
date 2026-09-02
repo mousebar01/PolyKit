@@ -117,6 +117,9 @@ def normalize_world_environment_contract(world: Mapping[str, Any]) -> dict[str, 
     if isinstance(raw_regions, list):
         regions: list[Any] = []
         world_coverage_count = 0
+        # Region count itself never enables multi-region behavior. A normal
+        # one-region authored scene is the complete world; an explicitly
+        # multi-region scene keeps each unannotated region local.
         default_coverage = "world" if len(raw_regions) == 1 else "local"
         for index, raw_region in enumerate(raw_regions):
             if not isinstance(raw_region, Mapping):
