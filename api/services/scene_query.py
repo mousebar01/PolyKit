@@ -145,9 +145,6 @@ def _matches_terms(payload: Mapping[str, Any], terms: Sequence[str]) -> bool:
 
 
 def _object_matches(payload: Mapping[str, Any], query: SceneQuery) -> bool:
-    object_id = str(payload.get("id") or "")
-    if query.ids and object_id not in query.ids:
-        return False
     if query.category and _text(payload.get("category")) != _text(query.category):
         return False
     if query.role and _text(payload.get("role")) != _text(query.role):
@@ -195,18 +192,24 @@ def resolve_scene_query(
     objects = {obj.id: obj for obj in plan.objects}
     payloads = {object_id: _object_payload(obj) for object_id, obj in objects.items()}
 
+    instances_by_object: dict[str, list[Any]] = {}
+    for instance in plan.instances:
+        instances_by_object.setdefault(instance.object_id, []).append(instance)
+
+    def id_matches(object_id: str) -> bool:
+        if not parsed_query.ids:
+            return True
+        if object_id in parsed_query.ids:
+            return True
+        return any(instance.id in parsed_query.ids for instance in instances_by_object.get(object_id, []))
+
     candidate_ids = [
         object_id
         for object_id, payload in payloads.items()
-        if _object_matches(payload, parsed_query)
+        if id_matches(object_id)
+        and _object_matches(payload, parsed_query)
         and (relation_subjects is None or object_id in relation_subjects)
     ]
-
-    instances_by_object: dict[str, list[Any]] = {}
-    instances_by_id: dict[str, Any] = {}
-    for instance in plan.instances:
-        instances_by_object.setdefault(instance.object_id, []).append(instance)
-        instances_by_id[instance.id] = instance
 
     anchor_positions: list[Sequence[float]] = []
     if parsed_query.near_object_id:
@@ -241,9 +244,7 @@ def resolve_scene_query(
             continue
 
         for instance in object_instances:
-            if parsed_query.ids and instance.id in parsed_query.ids:
-                pass
-            elif parsed_query.ids and object_id not in parsed_query.ids:
+            if parsed_query.ids and instance.id not in parsed_query.ids and object_id not in parsed_query.ids:
                 continue
             distance = None
             if anchor_positions:
