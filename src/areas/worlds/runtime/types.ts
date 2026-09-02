@@ -53,6 +53,12 @@ export const TERRAIN_SURFACES = [
 
 export type TerrainSurface = typeof TERRAIN_SURFACES[number]
 
+/**
+ * A world region is a base domain; a local region is an optional overlay.
+ * Omitted coverage keeps the legacy/local mask behavior for old descriptors.
+ */
+export type TerrainRegionCoverage = 'world' | 'local'
+
 /** Normalized square-map coordinates. u points east (+x), v points south (+z). */
 export type UV = [number, number]
 
@@ -72,6 +78,8 @@ export interface RegionSpec {
   landform?: TerrainLandform
   /** V2 authoring surface/biome semantic; it does not directly change elevation. */
   surface?: TerrainSurface
+  /** V2 spatial role. Omitted descriptors retain the legacy local-mask behavior. */
+  coverage?: TerrainRegionCoverage
   center: UV
   radius: number
   irregularity: number
