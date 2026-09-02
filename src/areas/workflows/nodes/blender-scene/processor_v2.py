@@ -908,6 +908,40 @@ def render_pass(root, pass_id, view_camera, mode='production', output_path=None)
         light_obj.hide_render = False
     return path, metrics
 
+def apply_semantic_identity():
+    """Attach stable PolyKit IDs before Blender MCP receives the scene.
+
+    Object names remain presentation labels and may be changed by a user. The
+    generated semantic IDs are deterministic for this scene and are the only
+    values consumed by the PolyKit semantic bridge.
+    """
+    used_object_ids = set()
+    part_object_ids = {id(obj): str(part_id) for part_id, obj in part_objects.items()}
+    semantic_objects = [
+        obj for obj in scene.objects
+        if obj.type in {'MESH', 'LIGHT', 'CAMERA'}
+    ]
+    for index, obj in enumerate(semantic_objects, start=1):
+        base = part_object_ids.get(id(obj)) or (obj.type.lower() + '-' + str(index).zfill(4))
+        object_id = 'generated:' + str(BUILDING_SPEC.get('id') or 'scene') + ':' + base
+        if object_id in used_object_ids:
+            suffix = 2
+            while object_id + '_' + str(suffix) in used_object_ids:
+                suffix += 1
+            object_id = object_id + '_' + str(suffix)
+        used_object_ids.add(object_id)
+        obj['polykit_object_id'] = object_id
+        obj['polykit_instance_id'] = object_id + ':instance-1'
+        obj['polykit_name'] = str(obj.get('polyKitSemanticName') or obj.name)
+        obj['polykit_role'] = str(obj.get('polyKitRole') or obj.type.lower())
+        obj['polykit_collections'] = json.dumps(
+            [collection.name for collection in obj.users_collection if collection.name != 'PolyKit'],
+            ensure_ascii=False,
+            separators=(',', ':'),
+        )
+
+apply_semantic_identity()
+
 root = pathlib.Path(tempfile.mkdtemp(prefix='polykit_blender_cabin_v2_'))
 glb_path = root / (SCENE_NAME + '.glb')
 blend_path = root / (SCENE_NAME + '.blend')

@@ -190,12 +190,19 @@ class SceneInstance(BaseModel):
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    id: str
-    object_id: str = Field(alias="objectId")
+    id: str = Field(min_length=1, max_length=120)
+    object_id: str = Field(alias="objectId", min_length=1, max_length=120)
     position: tuple[float, float, float]
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)
     scale: float = Field(default=1.0, gt=0)
     room_id: str | None = Field(default=None, alias="roomId")
+
+    @field_validator("id", "object_id", mode="before")
+    @classmethod
+    def _normalise_ids(cls, value: Any):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Scene instance ids must be non-empty strings")
+        return value.strip()
 
     @field_validator("position", "rotation", mode="before")
     @classmethod
@@ -260,10 +267,11 @@ class ScenePlan(BaseModel):
             raise ValueError(
                 f"Scene object '{conflicting}' must have at most one floor/on/inside/in_room relation"
             )
-        instance_ids = [item.object_id for item in self.instances]
-        if len(instance_ids) != len(set(instance_ids)):
-            raise ValueError("Scene instances must contain at most one transform per object")
-        if not set(instance_ids).issubset(known):
+        stable_instance_ids = [item.id for item in self.instances]
+        if len(stable_instance_ids) != len(set(stable_instance_ids)):
+            raise ValueError("Scene instance ids must be unique")
+        instance_object_ids = [item.object_id for item in self.instances]
+        if not set(instance_object_ids).issubset(known):
             raise ValueError("Scene instances reference unknown objects")
         return self
 
@@ -453,7 +461,9 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
     object_by_id = {item.id: item for item in plan.objects}
     relation_map = _relation_map(plan)
     rng = random.Random(plan.seed)
-    existing = {item.object_id: item for item in plan.instances}
+    existing_by_object: dict[str, list[SceneInstance]] = {}
+    for item in plan.instances:
+        existing_by_object.setdefault(item.object_id, []).append(item)
     placed: list[SceneInstance] = []
     diagnostics = [item for item in plan.diagnostics if item.get("code") != "layout"]
 
@@ -461,7 +471,7 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
     indexed_objects = {obj.id: (index, obj) for index, obj in enumerate(plan.objects)}
     remaining = set(indexed_objects)
     ordered_objects: list[SceneObject] = []
-    placed_ids = set(existing)
+    placed_ids = set(existing_by_object)
     while remaining:
         ready: list[tuple[int, SceneObject]] = []
         for object_id in remaining:
@@ -486,14 +496,17 @@ def solve_scene_layout(plan: ScenePlan, *, spacing: float = 0.12, max_attempts: 
         placed_ids.add(next_object.id)
 
     def parent_instance(target_id: str) -> SceneInstance | None:
-        return next((item for item in placed if item.object_id == target_id), existing.get(target_id))
+        return next(
+            (item for item in placed if item.object_id == target_id),
+            (existing_by_object.get(target_id) or [None])[0],
+        )
 
     floor_cursor = 0
     for obj in ordered_objects:
-        if obj.id in existing and obj.id not in {item.object_id for item in placed}:
-            candidate = existing[obj.id]
-            if _inside_bounds(candidate, plan):
-                placed.append(candidate)
+        if obj.id in existing_by_object and obj.id not in {item.object_id for item in placed}:
+            candidates = existing_by_object[obj.id]
+            if all(_inside_bounds(candidate, plan) for candidate in candidates):
+                placed.extend(candidates)
                 continue
 
         relations = relation_map.get(obj.id, [])
@@ -649,7 +662,13 @@ def _audit_scene_layout(plan: ScenePlan) -> ScenePlan:
     """Audit the whole plan in world space, independently of any camera."""
 
     object_by_id = {item.id: item for item in plan.objects}
-    instance_by_id = {item.object_id: item for item in plan.instances}
+    # Relations are authored between semantic objects.  When a prototype has
+    # multiple instances, use the first declared instance as the deterministic
+    # relation representative; the full instance list remains available to
+    # renderers and semantic queries.
+    instance_by_id: dict[str, SceneInstance] = {}
+    for item in plan.instances:
+        instance_by_id.setdefault(item.object_id, item)
     diagnostics = [item for item in plan.diagnostics if item.get("code") != "layout-quality"]
     errors = sum(1 for item in diagnostics if item.get("severity") == "error")
     warnings = sum(1 for item in diagnostics if item.get("severity") == "warning")

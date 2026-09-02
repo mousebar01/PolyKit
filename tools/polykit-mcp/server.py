@@ -220,6 +220,27 @@ async def list_tools() -> list[Tool]:
             }, ["world_id", "plan"]),
         ),
         Tool(
+            name="polykit_world_query_scene",
+            description=(
+                "Resolve a structured semantic SceneQuery against a saved World and return stable objectId/instanceId matches. "
+                "This is read-only and never starts Blender or edits scene objects."
+            ),
+            inputSchema=_object_schema({
+                "world_id": _string("World id."),
+                "query": {"type": "object", "description": "Structured SceneQuery payload."},
+            }, ["world_id", "query"]),
+        ),
+        Tool(
+            name="polykit_world_blender_projection",
+            description=(
+                "Return Blender-safe semantic IDs, Collections, and JSON custom properties for a saved World scene. "
+                "Blender MCP remains responsible for applying edits."
+            ),
+            inputSchema=_object_schema({
+                "world_id": _string("World id."),
+            }, ["world_id"]),
+        ),
+        Tool(
             name="polykit_world_find_assets",
             description=(
                 "Search only the existing PolyKit workspace for mesh assets matching a semantic query. "
@@ -465,6 +486,17 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             "solve": args.get("solve", True),
             "resolve_assets": args.get("resolve_assets", False),
         })
+
+    if name == "polykit_world_query_scene":
+        world_id = _id_path(_required_text(args, "world_id"))
+        query = args.get("query")
+        if not isinstance(query, dict):
+            raise ValueError("query must be a JSON object")
+        return await _request_json("POST", f"/workspace-library/worlds/{world_id}/scene-query", {"query": query})
+
+    if name == "polykit_world_blender_projection":
+        world_id = _id_path(_required_text(args, "world_id"))
+        return await _request_json("GET", f"/workspace-library/worlds/{world_id}/scene-projection")
 
     if name == "polykit_world_find_assets":
         return await _request_json("POST", "/workspace-library/search", {

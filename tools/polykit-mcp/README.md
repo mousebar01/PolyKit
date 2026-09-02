@@ -128,6 +128,8 @@ A real Agent is useful only for the last step: checking whether the model unders
 - `polykit_workflow_retry` only asks FastAPI to resume a failed/interrupted Run from durable completed-node checkpoints. It never submits a replacement Run.
 - Waiting/retry lifecycle remains owned by the canonical Run/Application layer. MCP does not implement polling loops, checkpoints, retries, or a second pause/resume state machine.
 - `polykit_world_validate` mirrors the server validator surface, including `world.visual.validate` and `world.spatial.validate`.
+- `polykit_world_query_scene` is a read-only structured semantic resolver and returns stable `objectId`/`instanceId` values for Blender MCP.
+- `polykit_world_blender_projection` returns Blender Collections/custom-property metadata; Blender MCP remains responsible for object edits.
 - World validators report quality facts/evidence; they do not return Agent transitions.
 - `polykit_world_compile_repair` is a pure proxy to the ProductionRecipe compiler. It may return `ready`, `blocked`, or `no_workflow`, but it never starts the returned plan.
 - A caller that receives `ready` inspects the result and separately calls `polykit_workflow_execute` if it wants to submit the returned execution plan.

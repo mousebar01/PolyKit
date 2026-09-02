@@ -69,6 +69,8 @@ class BlenderSceneBuiltinTests(unittest.TestCase):
         self.assertIn("polyKitBuildSpec", script)
         self.assertIn("blender_version", script)
         self.assertIn("polyKitBlenderVersion", script)
+        self.assertIn("polykit_object_id", script)
+        self.assertIn("polykit_instance_id", script)
 
     def test_generated_blender_script_declares_inspection_views(self) -> None:
         config = self.processor._cabin_config({})

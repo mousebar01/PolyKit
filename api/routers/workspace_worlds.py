@@ -4,15 +4,17 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from application.world import (
     BuildWorldStructureCommand,
     ComposeWorldCommand,
     ResolveWorldAssetsCommand,
+    compile_world_blender_projection,
     compile_world_asset_resolution,
     prepare_world_composition_run,
     prepare_world_structure_run,
+    query_world_scene,
 )
 from schemas.execution import ExecutionInitiator
 from schemas.workflow import WorkflowExecutionRequest
@@ -67,6 +69,14 @@ class WorldStructureRequest(BuildWorldStructureCommand):
 class WorldValidationRequest(BaseModel):
     capability: str = Field(min_length=1, max_length=160)
     run_id: str | None = Field(default=None, max_length=160)
+
+
+class SceneQueryRequest(BaseModel):
+    """Strict structured semantic query forwarded to the SceneQuery resolver."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: dict[str, Any]
 
 
 def _build_scene_composition_workflow(
@@ -134,6 +144,41 @@ async def compile_world_scene_plan(world_id: str, request: ScenePlanCompileReque
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not compile scene plan: {exc}") from exc
+
+
+@router.post("/{world_id}/scene-query")
+async def query_world_scene_route(world_id: str, request: SceneQueryRequest):
+    """Resolve semantic IDs for a World without starting Blender or mutating it."""
+
+    try:
+        world = get_world(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="World was not found")
+        result = query_world_scene(world, request.query, world_id=world_id)
+        return result.model_dump(mode="json", by_alias=True)
+    except HTTPException:
+        raise
+    except (ScenePlanError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (WorldStoreError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Could not query World scene: {exc}") from exc
+
+
+@router.get("/{world_id}/scene-projection")
+async def project_world_scene_to_blender(world_id: str):
+    """Return Blender-safe semantic metadata for the current World scene."""
+
+    try:
+        world = get_world(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="World was not found")
+        return compile_world_blender_projection(world, world_id=world_id)
+    except HTTPException:
+        raise
+    except (ScenePlanError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (WorldStoreError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Could not project World scene: {exc}") from exc
 
 
 @router.post("/{world_id}/resolve-assets")

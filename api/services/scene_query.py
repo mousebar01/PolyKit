@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from services.scene_planner import ScenePlan, ScenePlanError, normalize_scene_plan
+from services.scene_planner import RELATION_TYPES, ScenePlan, ScenePlanError, normalize_scene_plan
 
 
 def _text(value: Any) -> str:
@@ -22,7 +22,7 @@ def _text(value: Any) -> str:
 
 def _strings(value: Any) -> list[str]:
     if value is None:
-        return []
+        raise ValueError(f"{field_name} must be a string or a list of strings")
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
@@ -31,6 +31,43 @@ def _strings(value: Any) -> list[str]:
     for item in value:
         cleaned = str(item or "").strip()
         if cleaned and cleaned not in result:
+            result.append(cleaned)
+    return result
+
+
+def _query_strings(value: Any, field_name: str) -> list[str]:
+    """Validate a query string filter without silently widening its scope.
+
+    Query filters are commonly authored by an Agent and are part of the
+    selection boundary for an edit.  Coercing a malformed scalar or dropping
+    an invalid item would turn a constrained query into an unfiltered one, so
+    accept only a string (the backwards-compatible singleton form) or a
+    sequence containing non-empty strings.
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values: Sequence[Any] = [value]
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        values = value
+    else:
+        raise ValueError(f"{field_name} must be a string or a list of strings")
+
+    max_item_length = {
+        "ids": 120,
+        "terms": 240,
+        "tags_any": 120,
+        "collections_any": 160,
+    }.get(field_name, 240)
+    result: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{field_name} must contain only non-empty strings")
+        cleaned = item.strip()
+        if len(cleaned) > max_item_length:
+            raise ValueError(f"{field_name} items must be at most {max_item_length} characters")
+        if cleaned not in result:
             result.append(cleaned)
     return result
 
@@ -55,12 +92,21 @@ class SceneQueryRelation(BaseModel):
     @field_validator("type", mode="before")
     @classmethod
     def _normalise_type(cls, value: Any):
-        return str(value or "").strip().lower()
+        if not isinstance(value, str):
+            raise ValueError("relation type must be a string")
+        relation_type = value.strip().lower().replace("-", "_")
+        if relation_type not in RELATION_TYPES:
+            raise ValueError(
+                f"Unknown relation '{relation_type}'; expected one of {', '.join(RELATION_TYPES)}"
+            )
+        return relation_type
 
     @field_validator("object_id", mode="before")
     @classmethod
     def _strip_object_id(cls, value: Any):
-        return str(value or "").strip()
+        if not isinstance(value, str):
+            raise ValueError("relation objectId must be a string")
+        return value.strip()
 
 
 class SceneQuery(BaseModel):
@@ -71,25 +117,27 @@ class SceneQuery(BaseModel):
     target: Literal["instance", "object"] = "instance"
     ids: list[str] = Field(default_factory=list, max_length=256)
     terms: list[str] = Field(default_factory=list, max_length=32)
-    category: str | None = None
-    role: str | None = None
+    category: str | None = Field(default=None, max_length=120)
+    role: str | None = Field(default=None, max_length=120)
     tags_any: list[str] = Field(default_factory=list, alias="tagsAny", max_length=32)
     collections_any: list[str] = Field(default_factory=list, alias="collectionsAny", max_length=32)
     relation: SceneQueryRelation | None = None
-    near_object_id: str | None = Field(default=None, alias="nearObjectId")
+    near_object_id: str | None = Field(default=None, alias="nearObjectId", max_length=120)
     max_distance: float | None = Field(default=None, alias="maxDistance", gt=0, le=100000)
     sort: Literal["id", "name", "distance"] = "id"
     limit: int | None = Field(default=None, ge=1, le=256)
 
     @field_validator("ids", "terms", "tags_any", "collections_any", mode="before")
     @classmethod
-    def _normalise_lists(cls, value: Any):
-        return _strings(value)
+    def _normalise_lists(cls, value: Any, info):
+        return _query_strings(value, info.field_name)
 
     @field_validator("category", "role", "near_object_id", mode="before")
     @classmethod
     def _normalise_optional_text(cls, value: Any):
-        cleaned = str(value or "").strip()
+        if value is not None and not isinstance(value, str):
+            raise ValueError("query text filters must be strings")
+        cleaned = (value or "").strip()
         return cleaned or None
 
     @model_validator(mode="after")
@@ -170,6 +218,8 @@ def _relation_subjects(plan: ScenePlan, query: SceneQuery) -> set[str] | None:
         return None
     expected_type = _text(query.relation.type)
     expected_object = query.relation.object_id
+    if expected_object not in {obj.id for obj in plan.objects}:
+        raise ScenePlanError(f"Scene query relation anchor '{expected_object}' is unknown")
     return {
         relation.subject
         for relation in plan.relations

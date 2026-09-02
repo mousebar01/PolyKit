@@ -6,6 +6,7 @@ small, JSON-safe, and suitable for applying as Blender custom properties.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -43,8 +44,14 @@ def _metadata_list(payload: Mapping[str, Any], key: str) -> list[str]:
 
 
 def _safe_name(value: str) -> str:
-    cleaned = re.sub(r"[^0-9A-Za-z_\-.]+", "_", str(value or "").strip()).strip("_")
-    return cleaned[:120] or "object"
+    original = str(value or "").strip()
+    cleaned = re.sub(r"[^0-9A-Za-z_\-.]+", "_", original).strip("_") or "object"
+    # Blender names are presentation only, but they still need to be unique so
+    # two semantic IDs cannot become ambiguous after sanitisation (for example
+    # ``a/b`` and ``a?b``).  The digest is deterministic and the custom
+    # ``polykit_*_id`` properties remain the source of truth for identity.
+    digest = hashlib.sha1(original.encode("utf-8")).hexdigest()[:10]
+    return f"{cleaned[:108]}_{digest}"
 
 
 def _plan(value: ScenePlan | Mapping[str, Any]) -> ScenePlan:

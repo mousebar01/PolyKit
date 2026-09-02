@@ -34,6 +34,8 @@ class PolyKitMcpTests(unittest.TestCase):
         self.assertIn("polykit_world_validate", names)
         self.assertIn("polykit_world_build_structure", names)
         self.assertIn("polykit_world_compile_repair", names)
+        self.assertIn("polykit_world_query_scene", names)
+        self.assertIn("polykit_world_blender_projection", names)
         self.assertIn("polykit_asset_search_external", names)
         self.assertIn("polykit_asset_import_external", names)
         forbidden = ("agent_workflow", "session_begin", "session_complete", "world_update_stage")
@@ -147,6 +149,39 @@ class PolyKitMcpTests(unittest.TestCase):
             "/workspace-library/worlds/winter%20cabin/validate",
             {"capability": "world.spatial.validate", "run_id": "run-structure"},
         )
+
+    def test_world_scene_query_and_blender_projection_are_read_only_proxies(self) -> None:
+        request = AsyncMock(side_effect=[
+            {"matches": [{"objectId": "pine", "instanceId": "pine-1"}], "total": 1},
+            {"kind": "polykit.blender-scene-projection", "objects": [], "instances": []},
+        ])
+        with patch.object(server_module, "_request_json", request):
+            query = asyncio.run(server_module._dispatch(
+                "polykit_world_query_scene",
+                {"world_id": "winter cabin", "query": {"ids": ["pine-1"]}},
+            ))
+            projection = asyncio.run(server_module._dispatch(
+                "polykit_world_blender_projection",
+                {"world_id": "winter cabin"},
+            ))
+        self.assertEqual(query["total"], 1)
+        self.assertEqual(projection["kind"], "polykit.blender-scene-projection")
+        self.assertEqual(
+            request.await_args_list[0].args,
+            (
+                "POST",
+                "/workspace-library/worlds/winter%20cabin/scene-query",
+                {"query": {"ids": ["pine-1"]}},
+            ),
+        )
+        self.assertEqual(
+            request.await_args_list[1].args,
+            ("GET", "/workspace-library/worlds/winter%20cabin/scene-projection"),
+        )
+
+    def test_world_scene_query_requires_object_payload(self) -> None:
+        with self.assertRaisesRegex(ValueError, "query must be a JSON object"):
+            asyncio.run(server_module._dispatch("polykit_world_query_scene", {"world_id": "world", "query": []}))
 
     def test_external_asset_search_is_read_only_http_proxy(self) -> None:
         request = AsyncMock(return_value={"success": True, "provider": "polyhaven", "matches": []})
