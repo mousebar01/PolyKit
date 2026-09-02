@@ -52,10 +52,15 @@ class SceneQueryRelation(BaseModel):
     type: str = Field(min_length=1, max_length=40)
     object_id: str = Field(alias="objectId", min_length=1, max_length=120)
 
-    @field_validator("type", "object_id", mode="before")
+    @field_validator("type", mode="before")
     @classmethod
-    def _strip(cls, value: Any):
+    def _normalise_type(cls, value: Any):
         return str(value or "").strip().lower()
+
+    @field_validator("object_id", mode="before")
+    @classmethod
+    def _strip_object_id(cls, value: Any):
+        return str(value or "").strip()
 
 
 class SceneQuery(BaseModel):
