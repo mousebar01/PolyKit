@@ -16,7 +16,7 @@ from typing import Any
 
 import processor as legacy
 from surface_fields import SURFACE_KINDS, compile_surface_fields, surface_for_region
-from terrain_fields import compile_fields, parse_program, surface_colors
+from terrain_coverage import compile_fields, parse_program, surface_colors
 
 
 def _requested_resolution(descriptor: dict[str, Any], params: dict[str, Any]) -> int:
@@ -158,6 +158,7 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
             {
                 "id": region.id,
                 "kind": region.kind,
+                "coverage": program.coverage[index],
                 "surface": region_surfaces[index],
                 "center": list(region.center),
                 "radius": round(region.radius, 6),
@@ -178,6 +179,7 @@ def _terrain_mesh_v2(descriptor: dict[str, Any], workspace_dir: Path, params: di
         ],
         "reviewNotes": [
             "Terrain Compiler v2 mirrors browser world-field math so preview and production sample the same seeded terrain.",
+            "A coverage=world region is the complete terrain base; local masks replace its influence only where they are active, so single-region worlds have no implicit background terrain.",
             "Surface channels are compiled from region influence, post-carve altitude, and slope; steep or unsuitable cover falls back to exposed rock.",
             "Region material colors still use the existing influence blend. Texture splatting can consume the fixed surface channels later without changing height generation.",
         ],
