@@ -1,7 +1,7 @@
 """Semantic workspace-asset lookup for Agent-authored scene plans.
 
 EmbodiedGen keeps an indexed asset catalogue instead of asking an LLM to
-guess filenames.  PolyKit's workspace is the source of truth, so this module
+guess filenames. PolyKit's workspace is the source of truth, so this module
 provides a small deterministic index over existing GLB/GLTF and image files.
 Optional ``*.asset.json`` sidecars add aliases and descriptions without
 changing the binary asset contract.
@@ -23,6 +23,12 @@ _MESH_EXTENSIONS = {".glb", ".gltf", ".obj", ".stl", ".ply", ".splat"}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _SKIP_DIRS = {"tmp", "temp", "cache", "thumbnails", ".node-cache", ".artifacts"}
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[\u4e00-\u9fff]")
+
+_REPRESENTATION_POLICIES = frozenset({"auto", "procedural", "mesh_preferred", "mesh_required"})
+_GENERATION_ROLES = frozenset({"hero", "manipulated"})
+_PROCEDURAL_ROLES = frozenset({"room", "background"})
+_MESH_PREFERRED_CATEGORIES = frozenset({"vegetation", "rock"})
+_MESH_PREFERRED_HINTS = frozenset({"tree", "pine", "palm", "cactus", "rock", "boulder"})
 
 
 def _tokens(value: str) -> set[str]:
@@ -136,6 +142,75 @@ def find_asset_candidates(
     return results[: max(1, min(int(limit), 50))]
 
 
+def _asset_policy(obj: SceneObject) -> str:
+    constraints = obj.constraints if isinstance(obj.constraints, dict) else {}
+    return str(constraints.get("assetPolicy") or constraints.get("asset_policy") or "").strip().lower()
+
+
+def _procedural_hint(obj: SceneObject) -> str:
+    constraints = obj.constraints if isinstance(obj.constraints, dict) else {}
+    return str(constraints.get("proceduralHint") or constraints.get("procedural_hint") or "").strip().lower()
+
+
+def infer_asset_representation(obj: SceneObject) -> str:
+    """Infer how an object should be represented without visual scoring.
+
+    The policy is intentionally small: structural geometry stays editable and
+    procedural, hero/manipulated objects require a mesh, and detail-sensitive
+    natural assets prefer a mesh while retaining their procedural proxy as a
+    preview/failure fallback. ``constraints.representation`` can override the
+    defaults without changing the ScenePlan schema.
+    """
+
+    constraints = obj.constraints if isinstance(obj.constraints, dict) else {}
+    explicit = str(
+        constraints.get("representation")
+        or constraints.get("representationPolicy")
+        or constraints.get("representation_policy")
+        or ""
+    ).strip().lower()
+    if explicit in _REPRESENTATION_POLICIES:
+        return explicit
+
+    legacy_policy = _asset_policy(obj)
+    if legacy_policy == "procedural":
+        return "procedural"
+    if legacy_policy == "generate":
+        return "mesh_required"
+
+    category = str(obj.category or "").strip().lower()
+    if obj.role in _PROCEDURAL_ROLES or category == "structure":
+        return "procedural"
+    if obj.role in _GENERATION_ROLES:
+        return "mesh_required"
+    if category in _MESH_PREFERRED_CATEGORIES or _procedural_hint(obj) in _MESH_PREFERRED_HINTS:
+        return "mesh_preferred"
+    return "auto"
+
+
+def _best_asset_for_object(
+    obj: SceneObject,
+    *,
+    workspace: Path | None,
+    min_score: float,
+) -> dict[str, Any] | None:
+    candidates = find_asset_candidates(
+        " ".join([obj.name, *obj.aliases]),
+        workspace=workspace,
+        category=obj.category,
+        limit=1,
+        meshes_only=True,
+    )
+    best = candidates[0] if candidates else None
+    if not best or float(best["score"]) < min_score:
+        return None
+    semantic_query = _tokens(" ".join([obj.name, *obj.aliases]))
+    candidate_terms = _tokens(str(best.get("display_name") or ""))
+    for value in best.get("aliases", []):
+        candidate_terms |= _tokens(str(value))
+    return best if semantic_query & candidate_terms else None
+
+
 def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_score: float = 5.0) -> ScenePlan:
     """Attach only high-confidence workspace matches to objects without assets."""
 
@@ -145,23 +220,8 @@ def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_
         if obj.asset and (obj.asset.workspace_path or obj.asset.asset_id):
             objects.append(obj)
             continue
-        candidates = find_asset_candidates(
-            " ".join([obj.name, *obj.aliases]),
-            workspace=workspace,
-            category=obj.category,
-            limit=1,
-            meshes_only=True,
-        )
-        best = candidates[0] if candidates else None
-        semantic_query = _tokens(" ".join([obj.name, *obj.aliases]))
-        candidate_terms = (
-            _tokens(str(best.get("display_name") or ""))
-            | set().union(*(_tokens(str(value)) for value in best.get("aliases", [])))
-            if best
-            else set()
-        )
-        semantic_overlap = bool(semantic_query & candidate_terms)
-        if best and float(best["score"]) >= min_score and semantic_overlap:
+        best = _best_asset_for_object(obj, workspace=workspace, min_score=min_score)
+        if best:
             objects.append(obj.model_copy(update={
                 "asset": SceneAssetRef(
                     assetId=best["asset_id"],
@@ -188,10 +248,6 @@ def resolve_scene_assets(plan: ScenePlan, *, workspace: Path | None = None, min_
     return plan.model_copy(update={"objects": objects, "diagnostics": diagnostics})
 
 
-_GENERATION_ROLES = frozenset({"hero", "manipulated"})
-_PROCEDURAL_ROLES = frozenset({"room", "background"})
-
-
 def resolve_scene_asset_slots(
     plan: ScenePlan,
     *,
@@ -199,66 +255,127 @@ def resolve_scene_asset_slots(
     min_score: float = 5.0,
     include_context: bool = False,
 ) -> tuple[ScenePlan, list[dict[str, Any]]]:
-    """Resolve scene objects through the product asset policy.
+    """Resolve scene objects through the lightweight representation policy.
 
-    Resolution order is intentionally conservative:
-    existing binding -> procedural structure -> workspace library -> local generation.
-    Context objects generate only when explicitly requested by the caller.
+    Resolution order is deterministic and intentionally conservative:
+    explicit binding -> final procedural structure -> workspace library ->
+    local generation. Mesh-preferred objects are allowed to keep their
+    procedural representation as a preview/failure fallback, but they are
+    still eligible for automatic generation.
     """
 
-    resolved = resolve_scene_assets(plan, workspace=workspace, min_score=min_score)
+    objects: list[SceneObject] = []
     decisions: list[dict[str, Any]] = []
-    for obj in resolved.objects:
+    diagnostics = [item for item in plan.diagnostics if item.get("code") != "asset-resolution"]
+
+    for obj in plan.objects:
+        representation = infer_asset_representation(obj)
+        policy = _asset_policy(obj)
+        hint = _procedural_hint(obj)
         asset = obj.asset
-        if asset and asset.workspace_path:
+
+        if asset and (asset.workspace_path or asset.asset_id):
+            objects.append(obj)
             decisions.append({
                 "object_id": obj.id,
                 "mode": "library" if asset.source == "workspace-library" else "existing",
-                "workspace_path": asset.workspace_path,
-                "source": asset.source,
+                "representation": representation,
+                "status": "final",
+                **({"workspace_path": asset.workspace_path} if asset.workspace_path else {}),
+                **({"source": asset.source} if asset.source else {}),
             })
             continue
 
-        constraints = obj.constraints if isinstance(obj.constraints, dict) else {}
-        policy = str(
-            constraints.get("assetPolicy")
-            or constraints.get("asset_policy")
-            or ""
-        ).strip().lower()
-        procedural_hint = constraints.get("proceduralHint") or constraints.get("procedural_hint")
-
-        if policy == "procedural" or procedural_hint or obj.role in _PROCEDURAL_ROLES:
+        if representation == "procedural":
+            objects.append(obj)
             decisions.append({
                 "object_id": obj.id,
                 "mode": "procedural",
-                **({"procedural_hint": str(procedural_hint)} if procedural_hint else {}),
+                "representation": representation,
+                "status": "final",
+                **({"procedural_hint": hint} if hint else {}),
             })
             continue
 
-        wants_generation = (
-            policy == "generate"
-            or obj.role in _GENERATION_ROLES
-            or (include_context and obj.role == "context")
-        )
-        if policy in {"library", "existing"}:
-            wants_generation = False
+        best = _best_asset_for_object(obj, workspace=workspace, min_score=min_score)
+        if best:
+            resolved_obj = obj.model_copy(update={
+                "asset": SceneAssetRef(
+                    assetId=best["asset_id"],
+                    workspacePath=best["workspace_path"],
+                    source="workspace-library",
+                )
+            })
+            objects.append(resolved_obj)
+            diagnostics.append({
+                "code": "asset-resolution",
+                "severity": "info",
+                "object_id": obj.id,
+                "asset_id": best["asset_id"],
+                "workspace_path": best["workspace_path"],
+                "score": best["score"],
+            })
+            decisions.append({
+                "object_id": obj.id,
+                "mode": "library",
+                "representation": representation,
+                "status": "final",
+                "workspace_path": best["workspace_path"],
+                "source": "workspace-library",
+                "score": best["score"],
+            })
+            continue
+
+        objects.append(obj)
+        diagnostics.append({
+            "code": "asset-resolution",
+            "severity": "info",
+            "object_id": obj.id,
+            "message": "No high-confidence workspace asset found; generation may be required.",
+        })
+
+        generation_blocked = policy in {"library", "existing"}
+        wants_generation = False
+        if not generation_blocked:
+            if representation in {"mesh_preferred", "mesh_required"}:
+                wants_generation = True
+            elif policy == "generate" or obj.role in _GENERATION_ROLES or (include_context and obj.role == "context"):
+                wants_generation = True
 
         if wants_generation:
             decisions.append({
                 "object_id": obj.id,
                 "mode": "generate",
+                "representation": representation,
+                "status": "preview" if representation == "mesh_preferred" else "needs_asset",
                 "prompt": " ".join(
                     part for part in (obj.name, obj.description, obj.category or "") if str(part).strip()
                 ).strip(),
                 "size": list(obj.size),
+                **({"procedural_hint": hint} if hint else {}),
             })
-        else:
-            decisions.append({
-                "object_id": obj.id,
-                "mode": "unresolved",
-                "reason": "No matching workspace asset; generation is not enabled for this object role.",
-            })
+            continue
+
+        decisions.append({
+            "object_id": obj.id,
+            "mode": "unresolved",
+            "representation": representation,
+            "status": "needs_asset" if representation == "mesh_required" else "preview" if representation == "mesh_preferred" else "unresolved",
+            **({"procedural_hint": hint} if hint else {}),
+            "reason": (
+                "Asset policy restricts this object to an existing/library mesh."
+                if generation_blocked
+                else "No matching workspace asset; generation is not enabled for this object role."
+            ),
+        })
+
+    resolved = plan.model_copy(update={"objects": objects, "diagnostics": diagnostics})
     return resolved, decisions
 
 
-__all__ = ["find_asset_candidates", "resolve_scene_assets", "resolve_scene_asset_slots"]
+__all__ = [
+    "find_asset_candidates",
+    "infer_asset_representation",
+    "resolve_scene_assets",
+    "resolve_scene_asset_slots",
+]
