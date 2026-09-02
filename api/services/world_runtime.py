@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from services.world_environment import normalize_world_environment_contract
 from services.world_store import WorldStoreError
 
 
@@ -263,17 +264,20 @@ def _gate_status(checked: bool, issues: list[dict[str, Any]]) -> str:
 
 
 def refresh_runtime_quality(world: Mapping[str, Any]) -> dict[str, Any]:
-    """Recompute construction facts only when the world contains evidence."""
+    """Normalize authoring inputs, then recompute construction facts when evidence exists."""
 
-    result = dict(world)
+    try:
+        result = normalize_world_environment_contract(world)
+    except ValueError as exc:
+        raise WorldStoreError(f"Invalid world environment: {exc}") from exc
     runtime = _runtime(result)
     build_checked, build_issues = evaluate_build_attachments(runtime.get("build"))
     scene_checked, scene_issues = _scene_construction_evidence(runtime.get("scene"))
     issues = [*build_issues, *scene_issues]
     checked = build_checked or scene_checked
 
-    # An empty runtime has nothing to derive. Returning it byte-for-byte stable
-    # preserves ordinary PUT/GET round trips and avoids fake quality timestamps.
+    # An empty runtime has nothing to derive. The environment normalizer above
+    # may still have compiled new authoring semantics into a stable V2 contract.
     if not checked and not issues:
         return result
 
