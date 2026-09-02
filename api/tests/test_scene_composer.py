@@ -118,6 +118,85 @@ class SceneComposerTests(unittest.TestCase):
             scene = trimesh.load(Path(str(output["filePath"])), force="scene")
             self.assertEqual(len(scene.geometry), 1)
 
+    def test_source_processor_snaps_ground_contact_to_sloped_support_mesh(self) -> None:
+        from services.process_runner import run_processor
+
+        with tempfile.TemporaryDirectory(prefix="polykit-scene-composer-grounding-") as temp_dir:
+            root = Path(temp_dir)
+            terrain = root / "terrain.glb"
+            tree = root / "tree.glb"
+            trimesh.Trimesh(
+                vertices=[[-2, 0, -2], [2, 2, -2], [2, 2, 2], [-2, 0, 2]],
+                faces=[[0, 1, 2], [0, 2, 3]],
+                process=False,
+            ).export(terrain)
+            trimesh.creation.box(extents=(1, 1, 1)).export(tree)
+
+            output = run_processor(
+                self.source_pack,
+                "processor.py",
+                {"filePaths": [str(terrain), str(tree)]},
+                {
+                    "output_name": "grounded",
+                    "placements": json.dumps([
+                        {
+                            "objectId": "terrain",
+                            "position": [0, 0, 0],
+                            "size": [4, 2, 4],
+                        },
+                        {
+                            "objectId": "tree",
+                            "supportObjectId": "terrain",
+                            "position": [1, 0, 0],
+                            "size": [1, 1, 1],
+                        },
+                    ]),
+                },
+                str(root / "workspace"),
+                str(root / "tmp"),
+            )
+
+            scene = trimesh.load(Path(str(output["filePath"])), force="scene")
+            tree_node = next(name for name in scene.graph.nodes_geometry if name.startswith("tree/"))
+            transform, geometry_name = scene.graph[tree_node]
+            tree_geometry = scene.geometry[geometry_name].copy()
+            tree_geometry.apply_transform(transform)
+
+            self.assertAlmostEqual(float(tree_geometry.bounds[0][1]), 1.5, places=5)
+            self.assertEqual(
+                scene.metadata["polyKit"]["grounding"],
+                {"attempted": 1, "snapped": 1, "missed": 0},
+            )
+
+    def test_source_processor_preserves_three_repeated_mesh_instances(self) -> None:
+        from services.process_runner import run_processor
+
+        with tempfile.TemporaryDirectory(prefix="polykit-scene-composer-repeat-") as temp_dir:
+            root = Path(temp_dir)
+            tree = root / "tree.glb"
+            trimesh.creation.box(extents=(1, 1, 1)).export(tree)
+            output = run_processor(
+                self.source_pack,
+                "processor.py",
+                {"filePaths": [str(tree), str(tree), str(tree)]},
+                {
+                    "output_name": "forest",
+                    "placements": json.dumps([
+                        {"objectId": "tree", "position": [0, 0, 0]},
+                        {"objectId": "tree", "position": [2, 0, 0]},
+                        {"objectId": "tree", "position": [4, 0, 0]},
+                    ]),
+                },
+                str(root / "workspace"),
+                str(root / "tmp"),
+            )
+            scene = trimesh.load(Path(str(output["filePath"])), force="scene")
+            tree_nodes = [name for name in scene.graph.nodes_geometry if name.startswith("tree/")]
+            self.assertEqual(len(tree_nodes), 3)
+            self.assertEqual(len(scene.geometry), 3)
+            x_positions = sorted(float(scene.graph[name][0][0, 3]) for name in tree_nodes)
+            self.assertEqual(x_positions, [0.0, 2.0, 4.0])
+
     def test_workflow_engine_fans_in_mesh_references_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
