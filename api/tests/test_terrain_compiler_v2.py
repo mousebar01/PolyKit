@@ -15,24 +15,34 @@ from services.process_runner import run_processor
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "src/areas/workflows/nodes/environment-production"
 FIXTURE_PATH = REPO_ROOT / "fixtures/terrain/compiler-v2.json"
+SURFACE_FIXTURE_PATH = REPO_ROOT / "fixtures/terrain/surface-fields-v1.json"
 
 
-def _load_compiler():
-    module_name = "polykit_test_terrain_fields"
-    spec = importlib.util.spec_from_file_location(module_name, PACK_DIR / "terrain_fields.py")
+def _load_module(module_name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(module_name, PACK_DIR / filename)
     if spec is None or spec.loader is None:
-        raise RuntimeError("Could not load terrain_fields.py")
+        raise RuntimeError(f"Could not load {filename}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
 
+def _load_compiler():
+    return _load_module("polykit_test_terrain_fields", "terrain_fields.py")
+
+
+def _load_surface_compiler():
+    return _load_module("polykit_test_surface_fields", "surface_fields.py")
+
+
 class TerrainCompilerV2Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+        cls.surface_fixture = json.loads(SURFACE_FIXTURE_PATH.read_text(encoding="utf-8"))
         cls.compiler = _load_compiler()
+        cls.surface_compiler = _load_surface_compiler()
 
     def _run(self, root: Path, descriptor: dict, *, entry: str = "processor_v2.py", include_water: bool = False) -> dict:
         workspace = root / "workspace"
@@ -60,18 +70,52 @@ class TerrainCompilerV2Tests(unittest.TestCase):
             for actual_weight, expected_weight in zip(actual["weights"], expected["weights"]):
                 self.assertAlmostEqual(actual_weight, expected_weight, places=6)
 
+    def test_surface_fields_match_shared_browser_fixture(self) -> None:
+        fixture = self.surface_fixture
+        self.assertEqual(list(self.surface_compiler.SURFACE_KINDS), fixture["surfaceOrder"])
+        surface_weights, dominant_surface = self.surface_compiler.compile_surface_fields(
+            heights=np.asarray(fixture["heights"], dtype=np.float32),
+            region_weights=[np.asarray(weights, dtype=np.float32) for weights in fixture["regionWeights"]],
+            region_surfaces=fixture["regionSurfaces"],
+            resolution=fixture["resolution"],
+            size=fixture["size"],
+            sea_level=fixture["seaLevel"],
+        )
+        for sample in fixture["samples"]:
+            actual = self.surface_compiler.grid_surface_sample(
+                surface_weights,
+                dominant_surface,
+                *sample["grid"],
+                fixture["resolution"],
+            )
+            expected = sample["expected"]
+            self.assertEqual(actual["dominantSurface"], expected["dominantSurface"])
+            self.assertEqual(len(actual["surfaceWeights"]), len(expected["surfaceWeights"]))
+            for actual_weight, expected_weight in zip(actual["surfaceWeights"], expected["surfaceWeights"]):
+                self.assertAlmostEqual(actual_weight, expected_weight, places=6)
+
     def test_v2_processor_exports_region_blended_terrain(self) -> None:
+        descriptor = copy.deepcopy(self.fixture["spec"])
+        descriptor["regions"][0]["surface"] = "snow"
+        descriptor["regions"][1]["surface"] = "forest"
+        descriptor["regions"][2]["surface"] = "grass"
         with tempfile.TemporaryDirectory() as td:
-            result = self._run(Path(td), self.fixture["spec"])
+            result = self._run(Path(td), descriptor)
             report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
             scene = trimesh.load(Path(str(result["filePath"])), force="scene", process=False)
             terrain = scene.geometry["terrain"]
             colors = np.asarray(terrain.visual.vertex_colors)[:, :3]
             self.assertEqual(result["metadata"]["terrain_version"], 2)
             self.assertEqual(result["metadata"]["compiler_version"], 2)
+            self.assertEqual(result["metadata"]["surface_field_mode"], "region-altitude-slope")
             self.assertEqual(report["compiler"]["version"], 2)
             self.assertEqual(report["surface"]["materialMode"], "region-vertex-blend")
+            self.assertEqual(report["surface"]["fieldMode"], "region-altitude-slope")
+            self.assertEqual(report["surface"]["channels"], list(self.surface_compiler.SURFACE_KINDS))
             self.assertEqual(report["source"]["terrainVersion"], 2)
+            self.assertEqual(report["regions"][0]["surface"], "snow")
+            self.assertEqual(sum(report["surface"]["dominantSurfaceCounts"].values()), self.fixture["resolution"] ** 2)
+            self.assertEqual(report["surface"]["fieldHash"], result["metadata"]["surface_field_hash"])
             self.assertGreater(len(np.unique(colors, axis=0)), 3)
             self.assertEqual(len(terrain.vertices), self.fixture["resolution"] ** 2)
 
