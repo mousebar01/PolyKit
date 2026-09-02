@@ -29,7 +29,11 @@ def _load_module(module_name: str, filename: str):
 
 
 def _load_compiler():
-    return _load_module("polykit_test_terrain_fields", "terrain_fields.py")
+    return _load_module("terrain_fields", "terrain_fields.py")
+
+
+def _load_coverage_compiler():
+    return _load_module("polykit_test_terrain_coverage", "terrain_coverage.py")
 
 
 def _load_surface_compiler():
@@ -42,6 +46,7 @@ class TerrainCompilerV2Tests(unittest.TestCase):
         cls.fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         cls.surface_fixture = json.loads(SURFACE_FIXTURE_PATH.read_text(encoding="utf-8"))
         cls.compiler = _load_compiler()
+        cls.coverage_compiler = _load_coverage_compiler()
         cls.surface_compiler = _load_surface_compiler()
 
     def _run(self, root: Path, descriptor: dict, *, entry: str = "processor_v2.py", include_water: bool = False) -> dict:
@@ -94,6 +99,47 @@ class TerrainCompilerV2Tests(unittest.TestCase):
             for actual_weight, expected_weight in zip(actual["surfaceWeights"], expected["surfaceWeights"]):
                 self.assertAlmostEqual(actual_weight, expected_weight, places=6)
 
+    def test_world_coverage_fills_the_domain_and_local_regions_consume_base_weight(self) -> None:
+        base_region = copy.deepcopy(self.fixture["spec"]["regions"][2])
+        base_region.update({
+            "id": "base",
+            "kind": "plains",
+            "coverage": "world",
+            "center": [0.5, 0.5],
+            "radius": 0.3,
+            "irregularity": 0,
+        })
+        local_region = copy.deepcopy(self.fixture["spec"]["regions"][0])
+        local_region.update({
+            "id": "local",
+            "coverage": "local",
+            "center": [0.5, 0.5],
+            "radius": 0.2,
+            "irregularity": 0,
+        })
+        descriptor = copy.deepcopy(self.fixture["spec"])
+        descriptor["regions"] = [base_region, local_region]
+        descriptor["rivers"] = []
+
+        program = self.coverage_compiler.parse_program(descriptor, resolution=self.fixture["resolution"])
+        fields = self.coverage_compiler.compile_fields(program)
+        res = self.fixture["resolution"]
+        center = (res // 2) * res + res // 2
+        corner = 0
+        self.assertAlmostEqual(float(fields.region_weights[0][corner]), 1.0, places=6)
+        self.assertAlmostEqual(float(fields.region_weights[1][corner]), 0.0, places=6)
+        self.assertAlmostEqual(float(fields.region_weights[0][center]), 0.0, places=6)
+        self.assertAlmostEqual(float(fields.region_weights[1][center]), 1.0, places=6)
+        for index in range(res * res):
+            self.assertAlmostEqual(sum(float(weights[index]) for weights in fields.region_weights), 1.0, places=6)
+        self.assertFalse(np.any(fields.dominant < 0))
+
+        descriptor["regions"] = [base_region]
+        single_program = self.coverage_compiler.parse_program(descriptor, resolution=self.fixture["resolution"])
+        single_fields = self.coverage_compiler.compile_fields(single_program)
+        self.assertTrue(np.allclose(single_fields.region_weights[0], 1.0))
+        self.assertTrue(np.all(single_fields.dominant == 0))
+
     def test_v2_processor_exports_region_blended_terrain(self) -> None:
         descriptor = copy.deepcopy(self.fixture["spec"])
         descriptor["regions"][0]["surface"] = "snow"
@@ -114,6 +160,7 @@ class TerrainCompilerV2Tests(unittest.TestCase):
             self.assertEqual(report["surface"]["channels"], list(self.surface_compiler.SURFACE_KINDS))
             self.assertEqual(report["source"]["terrainVersion"], 2)
             self.assertEqual(report["regions"][0]["surface"], "snow")
+            self.assertEqual(report["regions"][0]["coverage"], "local")
             self.assertEqual(sum(report["surface"]["dominantSurfaceCounts"].values()), self.fixture["resolution"] ** 2)
             self.assertEqual(report["surface"]["fieldHash"], result["metadata"]["surface_field_hash"])
             self.assertGreater(len(np.unique(colors, axis=0)), 3)
