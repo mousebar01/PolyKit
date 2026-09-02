@@ -13,6 +13,10 @@ export interface WorldAssetArtifact {
   mesh?: WorldMeshArtifact
 }
 
+export interface WorldAuthoringSpec {
+  terrain_version: 2
+}
+
 /**
  * Server-owned editable world document.
  *
@@ -28,6 +32,8 @@ export interface WorldDocument {
   updated_at: string
   run_id?: string
   parent_world_id?: string
+  /** Creation-time defaults; omitted legacy worlds are never silently upgraded. */
+  authoring?: WorldAuthoringSpec
   runtime: WorldRuntime
   artifacts: Record<string, WorldAssetArtifact>
 }
