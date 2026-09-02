@@ -14,6 +14,7 @@ from services.world_store import WorldStoreError, new_world_id, validate_workspa
 
 
 WORLD_QUALITY_GATE_IDS = ("construction", "visual", "gameplay")
+CURRENT_TERRAIN_AUTHORING_VERSION = 2
 
 
 def _now() -> str:
@@ -86,6 +87,9 @@ def create_world_document(
         "name": title,
         "created_at": timestamp,
         "updated_at": timestamp,
+        # Creation-time defaults are explicit so later saves never have to
+        # guess whether an older world should be migrated to new terrain math.
+        "authoring": {"terrain_version": CURRENT_TERRAIN_AUTHORING_VERSION},
         "runtime": _initial_runtime(intent),
         "artifacts": {},
     }
@@ -167,6 +171,7 @@ def attach_world_artifact(
 
 
 __all__ = [
+    "CURRENT_TERRAIN_AUTHORING_VERSION",
     "WORLD_QUALITY_GATE_IDS",
     "attach_world_artifact",
     "create_world_document",
