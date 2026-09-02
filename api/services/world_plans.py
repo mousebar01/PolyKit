@@ -42,6 +42,34 @@ def _runtime_scene(world: Mapping[str, Any]) -> dict[str, Any]:
     return plan
 
 
+def _surface_supports(scene: Mapping[str, Any]) -> dict[str, str]:
+    """Return semantic subject -> surface support links used during composition.
+
+    ``on`` and ``floor`` are surface-contact relations.  Containment relations
+    such as ``inside`` and ``in_room`` deliberately stay layout-only because
+    snapping them to an arbitrary mesh surface would change their meaning.
+    """
+
+    supports: dict[str, str] = {}
+    raw_relations = scene.get("relations")
+    for relation in raw_relations if isinstance(raw_relations, list) else []:
+        if not isinstance(relation, Mapping):
+            continue
+        if str(relation.get("type") or "").strip().lower() not in {"on", "floor"}:
+            continue
+        subject = relation.get("subject")
+        support = relation.get("object")
+        if (
+            isinstance(subject, str)
+            and subject.strip()
+            and isinstance(support, str)
+            and support.strip()
+            and subject.strip() != support.strip()
+        ):
+            supports.setdefault(subject.strip(), support.strip())
+    return supports
+
+
 def compile_scene_composition_plan(
     world: Mapping[str, Any],
     *,
@@ -69,6 +97,7 @@ def compile_scene_composition_plan(
         for item in raw_objects
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
+    support_by_subject = _surface_supports(scene)
     instances_by_object: dict[str, list[dict[str, Any]]] = {}
     for item in raw_instances if isinstance(raw_instances, list) else []:
         if not isinstance(item, dict):
@@ -104,14 +133,17 @@ def compile_scene_composition_plan(
         object_instances = instances_by_object.get(object_id) or [{}]
         for instance in object_instances:
             mesh_refs.append([node_id, "mesh"])
-            placements.append(
-                {
-                    "position": instance.get("position", [0, 0, 0]),
-                    "rotation": instance.get("rotation", [0, 0, 0]),
-                    "scale": instance.get("scale", 1),
-                    "size": object_data.get("size", [1, 1, 1]),
-                }
-            )
+            placement: dict[str, Any] = {
+                "objectId": object_id,
+                "position": instance.get("position", [0, 0, 0]),
+                "rotation": instance.get("rotation", [0, 0, 0]),
+                "scale": instance.get("scale", 1),
+                "size": object_data.get("size", [1, 1, 1]),
+            }
+            support_id = support_by_subject.get(object_id)
+            if support_id:
+                placement["supportObjectId"] = support_id
+            placements.append(placement)
 
     if missing and not allow_missing:
         raise ScenePlanError("Scene objects are missing mesh assets: " + ", ".join(sorted(missing)))
