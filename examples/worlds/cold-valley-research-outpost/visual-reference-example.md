@@ -2,7 +2,9 @@
 
 ## Cold valley outpost / three-quarter overview
 
-This example is the user-provided 16:9 reference image from the project conversation. It is a visual-quality and composition reference, not a source mesh or texture.
+This example is the user-provided 16:9 reference image from the project conversation. The original PNG is committed at [`references/cold-valley-outpost-three-quarter-overview.png`](./references/cold-valley-outpost-three-quarter-overview.png). It is a visual-quality and composition reference, not a source mesh or texture.
+
+![Cold valley outpost three-quarter overview](./references/cold-valley-outpost-three-quarter-overview.png)
 
 ### What the reference establishes
 
@@ -37,4 +39,4 @@ The scene should fail review when any of these are true:
 5. Dark-side lighting hides the connector, entry, or hero asset.
 6. Random debris fills the negative space or becomes a stronger focal point than the terminal.
 
-The reference can be copied into a local `references/` folder later if pixel-level comparison is required. Until then, this document is the stable, reviewable representation of the image's intent.
+The committed image and this document together provide a stable, reviewable representation of the reference and its intent.
