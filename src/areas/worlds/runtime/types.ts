@@ -112,6 +112,8 @@ export interface WorldSpec {
   name: string
   logline: string
   seed: number
+  /** Opt into versioned terrain math. Omitted worlds keep legacy production terrain. */
+  terrainVersion?: 2
   size: number
   seaLevel: number
   sky: SkySpec
