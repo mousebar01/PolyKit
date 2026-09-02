@@ -8,7 +8,8 @@
 
 import { clamp, lerp, Noise2D, smoothstep } from './noise'
 import { hashString } from './rng'
-import type { RegionSpec, RiverSpec, WorldSpec } from './types'
+import { compileSurfaceFields, surfaceForRegion } from './surfaceFields'
+import { TERRAIN_SURFACES, type RegionSpec, type RiverSpec, type TerrainSurface, type WorldSpec } from './types'
 
 export const TERRAIN_RES = 256
 
@@ -26,6 +27,10 @@ export interface BuiltTerrain {
   regionWeights: Float32Array[]
   /** Dominant region per cell, or -1 where no region has enough weight. */
   dominant: Int16Array
+  /** Per-cell biome/material weights in TERRAIN_SURFACES order. */
+  surfaceWeights: Float32Array[]
+  /** Dominant surface index in TERRAIN_SURFACES. */
+  dominantSurface: Int8Array
   cellSize: number
   minHeight: number
   maxHeight: number
@@ -33,6 +38,7 @@ export interface BuiltTerrain {
   normalAt(x: number, z: number): [number, number, number]
   slopeAt(x: number, z: number): number
   regionWeightAt(regionIndex: number, x: number, z: number): number
+  surfaceWeightAt(surface: TerrainSurface, x: number, z: number): number
   /** Approximate distance to the nearest sea cell or river centerline. */
   waterDistanceAt(x: number, z: number): number
 }
@@ -209,6 +215,14 @@ export function buildTerrain(spec: WorldSpec, options: TerrainBuildOptions = {})
     minHeight = Math.min(minHeight, height)
     maxHeight = Math.max(maxHeight, height)
   }
+  const { surfaceWeights, dominantSurface } = compileSurfaceFields({
+    heights,
+    regionWeights,
+    regionSurfaces: spec.regions.map(surfaceForRegion),
+    res,
+    size,
+    seaLevel: spec.seaLevel,
+  })
 
   const worldToGrid = (x: number, z: number): [number, number] => [
     clamp((x / size + 0.5) * (res - 1), 0, res - 1),
@@ -248,6 +262,12 @@ export function buildTerrain(spec: WorldSpec, options: TerrainBuildOptions = {})
     const [gridX, gridZ] = worldToGrid(x, z)
     return sampleGrid(regionWeights[regionIndex], gridX, gridZ)
   }
+  const surfaceWeightAt = (surface: TerrainSurface, x: number, z: number): number => {
+    const surfaceIndex = TERRAIN_SURFACES.indexOf(surface)
+    if (surfaceIndex < 0) return 0
+    const [gridX, gridZ] = worldToGrid(x, z)
+    return sampleGrid(surfaceWeights[surfaceIndex], gridX, gridZ)
+  }
   const waterDistanceAt = (x: number, z: number): number => {
     const [gridX, gridZ] = worldToGrid(x, z)
     const river = riverDistance ? sampleGrid(riverDistance, gridX, gridZ) : Infinity
@@ -273,6 +293,8 @@ export function buildTerrain(spec: WorldSpec, options: TerrainBuildOptions = {})
     heights,
     regionWeights,
     dominant,
+    surfaceWeights,
+    dominantSurface,
     cellSize,
     minHeight,
     maxHeight,
@@ -280,6 +302,7 @@ export function buildTerrain(spec: WorldSpec, options: TerrainBuildOptions = {})
     normalAt,
     slopeAt,
     regionWeightAt,
+    surfaceWeightAt,
     waterDistanceAt,
   }
 }
