@@ -17,12 +17,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - name: Install JavaScript dependencies
+        run: npm ci
       - name: Install Python dependencies
         run: uv sync --locked --python 3.11
       - name: Run Python, CLI, and MCP tests
