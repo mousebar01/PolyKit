@@ -132,11 +132,16 @@ class SceneQueryTests(unittest.TestCase):
             pass
 
         object_a = FakeObject()
+        object_a_copy = FakeObject()
         object_b = FakeObject()
         bridge.apply_custom_properties(object_a, {
             "polykit_object_id": "pine-a",
             "polykit_instance_id": "pine-a-i",
             "tags": ["pine", "tree"],
+        })
+        bridge.apply_custom_properties(object_a_copy, {
+            "polykit_object_id": "pine-a",
+            "polykit_instance_id": "pine-a-i-2",
         })
         bridge.apply_custom_properties(object_b, {
             "polykit_object_id": "rock-a",
@@ -144,16 +149,17 @@ class SceneQueryTests(unittest.TestCase):
         })
 
         class FakeData:
-            objects = [object_a, object_b]
+            objects = [object_a, object_a_copy, object_b]
 
         class FakeBpy:
             data = FakeData()
 
         index = bridge.semantic_index(FakeBpy())
         self.assertIs(index["instances"]["pine-a-i"], object_a)
+        self.assertEqual(index["objects"]["pine-a"], [object_a, object_a_copy])
         self.assertEqual(
-            bridge.resolve_semantic_objects(FakeBpy(), instance_ids=["rock-a-i", "pine-a-i"]),
-            [object_b, object_a],
+            bridge.resolve_semantic_objects(FakeBpy(), instance_ids=["rock-a-i"], object_ids=["pine-a"]),
+            [object_b, object_a, object_a_copy],
         )
         self.assertNotIn("pine", index["objects"])
 
