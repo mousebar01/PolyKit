@@ -38,12 +38,14 @@ def ensure_collection(bpy: Any, name: str, *, root_name: str = ROOT_COLLECTION) 
     root = bpy.data.collections.get(root_name)
     if root is None:
         root = bpy.data.collections.new(root_name)
+    if scene_collection.children.get(root.name) is None:
         scene_collection.children.link(root)
     if name == root_name:
         return root
     collection = bpy.data.collections.get(name)
     if collection is None:
         collection = bpy.data.collections.new(name)
+    if root.children.get(collection.name) is None:
         root.children.link(collection)
     return collection
 
@@ -56,7 +58,7 @@ def link_object_collections(bpy: Any, obj: Any, collection_names: Iterable[str])
         if not cleaned:
             continue
         collection = ensure_collection(bpy, cleaned)
-        if obj not in collection.objects:
+        if collection.objects.get(obj.name) is None:
             collection.objects.link(obj)
 
 
@@ -70,15 +72,19 @@ def apply_projection_entry(bpy: Any, obj: Any, entry: Mapping[str, Any]) -> None
 
 
 def semantic_index(bpy: Any) -> dict[str, dict[str, Any]]:
-    """Build an exact-ID lookup from Blender custom properties in one scan."""
+    """Build exact semantic-ID lookups from Blender custom properties in one scan.
 
-    objects: dict[str, Any] = {}
+    ``objectId`` is one-to-many because multiple Blender instances may share one
+    semantic prototype. ``instanceId`` is unique and maps to one Blender object.
+    """
+
+    objects: dict[str, list[Any]] = {}
     instances: dict[str, Any] = {}
     for obj in bpy.data.objects:
         object_id = obj.get(OBJECT_ID_PROP)
         instance_id = obj.get(INSTANCE_ID_PROP)
         if isinstance(object_id, str) and object_id:
-            objects.setdefault(object_id, obj)
+            objects.setdefault(object_id, []).append(obj)
         if isinstance(instance_id, str) and instance_id:
             instances[instance_id] = obj
     return {"objects": objects, "instances": instances}
@@ -101,10 +107,10 @@ def resolve_semantic_objects(
             result.append(obj)
             seen.add(id(obj))
     for object_id in object_ids:
-        obj = index["objects"].get(str(object_id))
-        if obj is not None and id(obj) not in seen:
-            result.append(obj)
-            seen.add(id(obj))
+        for obj in index["objects"].get(str(object_id), []):
+            if id(obj) not in seen:
+                result.append(obj)
+                seen.add(id(obj))
     return result
 
 
