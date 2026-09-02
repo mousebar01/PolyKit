@@ -36,7 +36,10 @@ export const TERRAIN_LANDFORMS = [
 
 export type TerrainLandform = typeof TERRAIN_LANDFORMS[number]
 
-/** Lightweight semantic cover used by material and ecology stages. */
+/**
+ * Fixed V2 surface-channel order. Compiled surface fields always use this
+ * bounded vocabulary, so adding regions never adds runtime material layers.
+ */
 export const TERRAIN_SURFACES = [
   'rock',
   'grass',
