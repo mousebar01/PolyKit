@@ -85,6 +85,52 @@ test('terrain compiler v2 matches the shared production fixture', () => {
   }
 })
 
+test('world coverage makes single-region terrain complete and local regions consume base weight', () => {
+  const baseRegion = {
+    ...DEMO_SPEC.regions[0],
+    id: 'base',
+    kind: 'plains' as const,
+    landform: 'plains' as const,
+    surface: 'grass' as const,
+    coverage: 'world' as const,
+    center: [0.5, 0.5] as [number, number],
+    radius: 0.3,
+    irregularity: 0,
+  }
+  const localRegion = {
+    ...DEMO_SPEC.regions[1],
+    id: 'local',
+    kind: 'mountain' as const,
+    landform: 'mountain' as const,
+    surface: 'rock' as const,
+    coverage: 'local' as const,
+    center: [0.5, 0.5] as [number, number],
+    radius: 0.2,
+    irregularity: 0,
+  }
+  const baseSpec: WorldSpec = {
+    ...DEMO_SPEC,
+    terrainVersion: 2,
+    rivers: [],
+    regions: [baseRegion],
+  }
+  const single = buildTerrain(baseSpec, { resolution: 17 })
+  assert.ok(single.regionWeights[0].every((weight) => Math.abs(weight - 1) < 1e-6))
+  assert.ok(single.dominant.every((regionIndex) => regionIndex === 0))
+
+  const overlaid = buildTerrain({ ...baseSpec, regions: [baseRegion, localRegion] }, { resolution: 17 })
+  const center = 8 * 17 + 8
+  const corner = 0
+  assert.ok(Math.abs(overlaid.regionWeights[0][corner] - 1) < 1e-6)
+  assert.ok(Math.abs(overlaid.regionWeights[1][corner]) < 1e-6)
+  assert.ok(Math.abs(overlaid.regionWeights[0][center]) < 1e-6)
+  assert.ok(Math.abs(overlaid.regionWeights[1][center] - 1) < 1e-6)
+  for (let index = 0; index < overlaid.heights.length; index += 1) {
+    const total = overlaid.regionWeights.reduce((sum, weights) => sum + weights[index], 0)
+    assert.ok(Math.abs(total - 1) < 1e-6)
+  }
+})
+
 test('surface field compiler matches the shared production fixture', () => {
   const fixture = JSON.parse(readFileSync(
     new URL('../../../../fixtures/terrain/surface-fields-v1.json', import.meta.url),
