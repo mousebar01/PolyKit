@@ -58,6 +58,21 @@ class LibrarySearchRequest(BaseModel):
     meshesOnly: bool = True
 
 
+def _read_asset_sidecar(path: Path) -> dict:
+    """Read bounded asset provenance metadata without making it list state."""
+
+    for candidate in (path.with_name(f"{path.name}.asset.json"), path.with_name(f"{path.stem}.asset.json")):
+        try:
+            if not candidate.is_file() or candidate.stat().st_size > 256 * 1024:
+                continue
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                return value
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    return {}
+
+
 def _safe_path(raw: str) -> tuple[str, Path]:
     normalized = str(raw or "").replace("\\", "/").strip()
     parts = [part for part in normalized.split("/") if part and part != "."]
@@ -120,6 +135,22 @@ def _entry(workspace_path: str, path: Path) -> dict:
         # than copying them into a second thumbnail store.
         entry["thumbnail"] = f"/workspace/{workspace_path}"
         entry["preview"] = f"/workspace/{workspace_path}"
+    metadata = _read_asset_sidecar(path)
+    if str(metadata.get("provider") or metadata.get("source") or "").lower() == "polyhaven":
+        # Keep external attribution attached to the normal workspace entry;
+        # remote provider candidates themselves are never listed here.
+        entry["provenance"] = {
+            "source": "polyhaven",
+            "provider": "polyhaven",
+            "assetId": metadata.get("asset_id") or metadata.get("assetId"),
+            "sourceUrl": metadata.get("source_url") or metadata.get("sourceUrl"),
+            "license": metadata.get("license", "CC0"),
+            "licenseUrl": metadata.get("license_url") or metadata.get("licenseUrl"),
+            "resolution": metadata.get("resolution"),
+            "filesHash": metadata.get("files_hash") or metadata.get("filesHash"),
+        }
+        if entry["provenance"].get("assetId") is None:
+            entry["provenance"].pop("assetId")
     return entry
 
 

@@ -1,0 +1,97 @@
+{
+  "id": "environment-production",
+  "name": "Environment Production",
+  "type": "process",
+  "capability_kind": "generator",
+  "generator_kind": "procedural",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Builds deterministic server-owned environment meshes from explicit terrain, city, vegetation, and room specifications.",
+  "requirements": [],
+  "i18n": {
+    "zh-CN": { "name": "环境制作", "description": "根据明确的地形、城市、植被和房间规范生成确定性的服务端环境网格。" },
+    "en-US": { "name": "Environment Production", "description": "Builds deterministic server-owned environment meshes from explicit terrain, city, vegetation, and room specifications." }
+  },
+  "nodes": [
+    {
+      "id": "terrain-mesh",
+      "name": "Terrain Mesh",
+      "input": "text",
+      "output": "mesh",
+      "description": "Compiles seeded regions, edge falloff, rivers, and an optional water plane into a GLB terrain mesh.",
+      "i18n": {
+        "zh-CN": { "name": "地形网格生成" },
+        "en-US": { "name": "Terrain Mesh" }
+      },
+      "params_schema": [
+        { "id": "resolution", "label": "Resolution", "type": "int", "default": 64, "min": 8, "max": 256, "tooltip": "Grid resolution per side. Higher values add geometry and build time." },
+        { "id": "include_water", "label": "Include Water", "type": "boolean", "default": true, "tooltip": "Add a separate water plane at the declared seaLevel." },
+        { "id": "water_thickness", "label": "Water Thickness", "type": "float", "default": 0.04, "min": 0.01, "max": 2.0, "tooltip": "Thickness of the exported water slab." }
+      ]
+    },
+    {
+      "id": "city-blockout",
+      "name": "Procedural City Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds a deterministic flat city blockout with roads, setbacks, and varied building masses.",
+      "i18n": {
+        "zh-CN": { "name": "程序化城市块面" },
+        "en-US": { "name": "Procedural City Blockout" }
+      },
+      "params_schema": [
+        { "id": "rows", "label": "Block Rows", "type": "int", "default": 4, "min": 1, "max": 24, "tooltip": "Number of city blocks along the depth axis." },
+        { "id": "columns", "label": "Block Columns", "type": "int", "default": 4, "min": 1, "max": 24, "tooltip": "Number of city blocks along the width axis." },
+        { "id": "building_density", "label": "Building Density", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "tooltip": "Chance that each lot receives a building mass." },
+        { "id": "include_ground", "label": "Include Ground", "type": "boolean", "default": true, "tooltip": "Add a single ground slab beneath the road grid." }
+      ]
+    },
+    {
+      "id": "vegetation-scatter",
+      "name": "Vegetation Scatter",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds deterministic low-poly vegetation and rock instances that can be composed over a terrain mesh.",
+      "i18n": {
+        "zh-CN": { "name": "植被散布" },
+        "en-US": { "name": "Vegetation Scatter" }
+      },
+      "params_schema": [
+        { "id": "count", "label": "Instance Count", "type": "int", "default": 32, "min": 1, "max": 500, "tooltip": "Maximum number of placed vegetation or rock instances." },
+        { "id": "min_distance", "label": "Minimum Distance", "type": "float", "default": 0.8, "min": 0.0, "max": 20.0, "tooltip": "Minimum horizontal separation between instance origins." },
+        { "id": "include_ground", "label": "Include Ground", "type": "boolean", "default": false, "tooltip": "Add a thin reference ground slab; leave off when composing over terrain-mesh." }
+      ]
+    },
+    {
+      "id": "room-blockout",
+      "name": "Room Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Builds a deterministic room shell with floor, walls, optional ceiling, and explicit door/window openings.",
+      "i18n": {
+        "zh-CN": { "name": "房间块面" },
+        "en-US": { "name": "Room Blockout" }
+      },
+      "params_schema": [
+        { "id": "include_floor", "label": "Include Floor", "type": "boolean", "default": true, "tooltip": "Add the floor slab at y=0." },
+        { "id": "include_ceiling", "label": "Include Ceiling", "type": "boolean", "default": true, "tooltip": "Add the ceiling slab; turn off for an open camera view." }
+      ]
+    },
+    {
+      "id": "multi-room-blockout",
+      "name": "Multi-room Blockout",
+      "input": "text",
+      "output": "mesh",
+      "description": "Composes multiple deterministic room shells at explicit world positions while preserving room and opening names.",
+      "i18n": {
+        "zh-CN": { "name": "多房间块面" },
+        "en-US": { "name": "Multi-room Blockout" }
+      },
+      "params_schema": [
+        { "id": "include_floor", "label": "Include Floors", "type": "boolean", "default": true, "tooltip": "Add a floor slab to each room." },
+        { "id": "include_ceiling", "label": "Include Ceilings", "type": "boolean", "default": true, "tooltip": "Add a ceiling slab to each room; turn off for an open camera view." }
+      ]
+    }
+  ]
+}

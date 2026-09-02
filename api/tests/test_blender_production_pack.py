@@ -64,6 +64,21 @@ class BlenderProductionManifestTests(unittest.TestCase):
             if operation == "surface":
                 self.assertIn("zlib.decompress", script)
                 self.assertIn("ShaderNodeBsdfPrincipled", script)
+            if operation == "npr":
+                self.assertIn("ShaderNodeRaycast", script)
+                self.assertIn("GeometryNodeExtrudeMesh", script)
+                self.assertIn("GeometryNodeSwitch", script)
+                self.assertIn("transform.vector_type = 'VECTOR'", script)
+                self.assertIn("Outline Mask", script)
+                self.assertIn("ShaderNodeBsdfToon", script)
+                self.assertIn("polyKitNprToonColor", script)
+                self.assertIn("line_mode must be 'silhouette', 'structure', or 'hybrid'", script)
+                self.assertIn("preserved_with_toon_variant", script)
+                self.assertIn("polyKitPresentationObjectCount", script)
+                self.assertIn("metadata['renderEvidence']", script)
+                self.assertIn("generic camera helper silently switch that run back to Eevee", script)
+                self.assertIn("original_indices = [int(index) for index in indices]", script)
+                self.assertIn("Render while the renderer-native graph is still active", script)
 
         report = processor._report_script("/tmp/input.glb", "", {})
         compile(report, "geometry-report.py", "exec")

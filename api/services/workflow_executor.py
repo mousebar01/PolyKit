@@ -618,36 +618,51 @@ async def _run_process_node(
     pack_dir, process_manifest, node_manifest = process
 
     input_data: Dict[str, Any] = {}
-    image_value = node.inputs.get("image")
-    if image_value is not None:
-        resolved = resolve(image_value)
-        if isinstance(resolved, Path):
-            input_data["filePath"] = str(resolved)
-        elif isinstance(resolved, bytes):
-            img_path = temp_dir / f"proc-image-{uuid.uuid4().hex[:8]}.png"
-            img_path.write_bytes(resolved)
-            input_data["filePath"] = str(img_path)
+    declared_inputs = node_manifest.get("inputs")
+    if isinstance(declared_inputs, list):
+        input_names = [str(value) for value in declared_inputs if str(value or "").strip()]
+    else:
+        declared_input = node_manifest.get("input")
+        input_names = [str(declared_input)] if declared_input else []
+    if not input_names:
+        input_names = [name for name in ("image", "mesh", "text") if name in node.inputs]
 
-    if mesh_value is not None:
-        resolved = resolved_mesh
-        if batch_input == "mesh" and isinstance(resolved, list):
+    resolved_inputs: Dict[str, Any] = {}
+    for input_name in input_names:
+        raw_value = node.inputs.get(input_name)
+        if raw_value is None:
+            continue
+        resolved_inputs[input_name] = resolved_mesh if input_name == "mesh" else resolve(raw_value)
+
+    def _path_for_value(input_name: str, value: Any) -> str | None:
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, str) and value.strip():
+            return value
+        if isinstance(value, bytes):
+            suffix = ".png" if input_name == "image" else ".bin"
+            path = temp_dir / f"proc-{input_name}-{uuid.uuid4().hex[:8]}{suffix}"
+            path.write_bytes(value)
+            return str(path)
+        return None
+
+    for input_name, resolved in resolved_inputs.items():
+        if batch_input == input_name and isinstance(resolved, list):
             paths: list[str] = []
             for item in resolved:
-                if isinstance(item, Path):
-                    paths.append(str(item))
-                elif isinstance(item, str) and item.strip():
-                    paths.append(item)
-                else:
-                    raise WorkflowError(f"Process node '{class_type}' received a non-file mesh item")
-            input_data["filePaths"] = paths
-        elif isinstance(resolved, Path):
-            input_data["filePath"] = str(resolved)
-        elif isinstance(resolved, str):
-            input_data["filePath"] = resolved
-
-    text_value = node.inputs.get("text")
-    if text_value is not None:
-        input_data["text"] = str(resolve(text_value))
+                path = _path_for_value(input_name, item)
+                if path is None:
+                    raise WorkflowError(f"Process node '{class_type}' received a non-file {input_name} item")
+                paths.append(path)
+            input_data["filePaths" if len(input_names) == 1 else f"{input_name}Paths"] = paths
+            continue
+        if input_name == "text":
+            input_data["text" if len(input_names) == 1 else input_name] = str(resolved)
+            continue
+        path = _path_for_value(input_name, resolved)
+        if path is None:
+            raise WorkflowError(f"Process node '{class_type}' received an invalid {input_name} input")
+        input_data["filePath" if len(input_names) == 1 else f"{input_name}Path"] = path
 
     params_value = resolve(node.inputs.get("params", {}))
     params = dict(params_value) if isinstance(params_value, dict) else {}

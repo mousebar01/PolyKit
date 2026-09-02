@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from fastapi import BackgroundTasks
 
+from application.world import ResolveWorldAssetsCommand, compile_world_asset_resolution
+
 from routers.workspace_worlds import (
     SceneComposeRequest,
     ScenePlanCompileRequest,
@@ -14,8 +16,9 @@ from routers.workspace_worlds import (
 )
 from services.runtime_paths import runtime_paths
 from services.scene_planner import ScenePlanError, compile_scene_plan, normalize_scene_plan
-from services.scene_assets import find_asset_candidates, resolve_scene_assets
+from services.scene_assets import find_asset_candidates, resolve_scene_assets, resolve_scene_asset_slots
 from services.world_domain import create_world_document
+from services.world_plans import compile_scene_asset_generation_plan
 from services.world_runtime import attach_scene_plan_to_runtime
 from services.world_store import save_world
 
@@ -192,6 +195,106 @@ class ScenePlannerTests(unittest.TestCase):
             plan = normalize_scene_plan({"objects": [{"id": "stove", "name": "Stove", "category": "prop"}]})
             resolved = resolve_scene_assets(plan, workspace=workspace)
             self.assertEqual(resolved.objects[0].asset.workspace_path, "Workflows/hero_prop.glb")
+
+
+    def test_asset_resolution_prefers_structure_then_library_then_generation(self):
+        plan = normalize_scene_plan({
+            "objects": [
+                {"id": "room", "name": "Room", "role": "room"},
+                {"id": "hero", "name": "Unique vending machine", "role": "hero"},
+                {"id": "chair", "name": "Chair", "role": "context"},
+            ]
+        })
+        with tempfile.TemporaryDirectory(prefix="polykit-empty-assets-") as td:
+            workspace = Path(td)
+            (workspace / "Workflows").mkdir()
+            resolved, decisions = resolve_scene_asset_slots(plan, workspace=workspace)
+            self.assertEqual([item["mode"] for item in decisions], ["procedural", "generate", "unresolved"])
+            self.assertIsNone(next(item for item in resolved.objects if item.id == "hero").asset)
+
+            _, with_context = resolve_scene_asset_slots(
+                plan,
+                workspace=workspace,
+                include_context=True,
+            )
+            self.assertEqual(with_context[2]["mode"], "generate")
+
+
+    def test_environment_resolution_generates_hero_and_leaves_scatter_procedural_by_default(self):
+        world = create_world_document(name="Valley", prompt="cold ruined mountain valley")
+        world["runtime"]["build"]["environment"] = {
+            "name": "Valley",
+            "logline": "A cold valley",
+            "seed": 1,
+            "size": 100,
+            "seaLevel": 0,
+            "sky": {},
+            "regions": [],
+            "rivers": [],
+            "relations": [],
+            "assets": [
+                {
+                    "id": "keep",
+                    "name": "Ruined Keep",
+                    "category": "structure",
+                    "imagePrompt": "weathered ruined stone keep",
+                    "targetHeight": 18,
+                    "tier": "hero",
+                    "proceduralHint": "hut",
+                    "placements": [],
+                },
+                {
+                    "id": "pine",
+                    "name": "Frost Pine",
+                    "category": "vegetation",
+                    "imagePrompt": "snowy pine tree",
+                    "targetHeight": 9,
+                    "tier": "scatter",
+                    "proceduralHint": "pine",
+                    "placements": [],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory(prefix="polykit-world-resolution-") as td:
+            original = runtime_paths.snapshot()
+            try:
+                workspace = Path(td)
+                (workspace / "Workflows").mkdir()
+                runtime_paths.update(workspace_dir=workspace)
+                compiled = compile_world_asset_resolution(
+                    world,
+                    world_id=world["id"],
+                    command=ResolveWorldAssetsCommand(
+                        enable_texture=False,
+                        enable_optimize=False,
+                    ),
+                )
+            finally:
+                runtime_paths.update(
+                    models_dir=original.models,
+                    workspace_dir=original.workspace,
+                    workflows_dir=original.workflows,
+                    node_packs_dir=original.node_packs,
+                )
+        self.assertIsNone(compiled.scene)
+        self.assertEqual([item["mode"] for item in compiled.decisions], ["generate", "procedural"])
+        self.assertEqual(len(compiled.generation_plans), 1)
+        self.assertEqual(compiled.generation_plans[0].metadata["proto_id"], "keep")
+
+    def test_generated_scene_asset_plan_normalizes_and_validates_before_binding(self):
+        plan = compile_scene_asset_generation_plan(
+            world_id="metro",
+            object_id="ticket-machine",
+            prompt="weathered retro ticket machine",
+            enable_texture=False,
+            enable_optimize=False,
+        )
+        self.assertEqual(plan.source.kind, "world")
+        self.assertEqual(plan.metadata["proto_id"], "ticket-machine")
+        self.assertTrue(plan.metadata["bind_world_artifact"])
+        self.assertEqual(plan.prompt["normalize"].class_type, "asset-evidence/normalize-mesh")
+        self.assertEqual(plan.prompt["integrity"].class_type, "mesh-production/geometry-integrity")
+        self.assertEqual(plan.prompt["output"].inputs["mesh"], ["integrity", "mesh"])
 
 
 class ScenePlanRouteTests(unittest.IsolatedAsyncioTestCase):

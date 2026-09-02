@@ -29,7 +29,13 @@ python tools/polykit-cli/polykit.py asset from-image ./chair.png --texture
 python tools/polykit-cli/polykit.py asset from-text "stylized wooden chair"
 python tools/polykit-cli/polykit.py image generate "isolated low-poly lantern"
 python tools/polykit-cli/polykit.py image remove-background Workflows/lantern.png
+python tools/polykit-cli/polykit.py asset search-external "wooden chair" --category furniture
+python tools/polykit-cli/polykit.py asset import-external Chair_01 --resolution 1k
 ```
+
+External search is read-only. Import is explicit, downloads the selected
+Poly Haven glTF bundle through FastAPI, publishes a GLB, and records CC0
+attribution/provenance in the workspace.
 
 ## World domain
 

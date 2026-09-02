@@ -1,0 +1,47 @@
+{
+  "id": "game-exporter",
+  "name": "Game Exporter",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Builds honest Unity and Unreal import bundles while keeping the mesh available for downstream workflow nodes.",
+  "requirements": [],
+  "i18n": {
+    "zh-CN": { "name": "游戏引擎导出", "description": "生成 Unity 与 Unreal 导入包，同时保留可继续处理的网格主输出。" },
+    "en-US": { "name": "Game Exporter", "description": "Builds honest Unity and Unreal import bundles while keeping the mesh available for downstream workflow nodes." }
+  },
+  "nodes": [
+    {
+      "id": "unity-import-bundle",
+      "name": "Unity Import Bundle",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Packages the mesh under Assets/PolyKit with a Unity .meta file and importer guidance. FBX/OBJ use Unity's built-in model importer; glTF needs a glTF package.",
+      "i18n": {
+        "zh-CN": { "name": "Unity 导入包" },
+        "en-US": { "name": "Unity Import Bundle" }
+      },
+      "params_schema": [
+        { "id": "asset_folder", "label": "Asset Folder", "type": "string", "default": "Assets/PolyKit", "tooltip": "Project-relative folder inside the Unity bundle." },
+        { "id": "include_readme", "label": "Include Readme", "type": "boolean", "default": true, "tooltip": "Include concise import instructions and capability limits." }
+      ]
+    },
+    {
+      "id": "unreal-import-bundle",
+      "name": "Unreal Import Bundle",
+      "input": "mesh",
+      "output": "mesh",
+      "description": "Packages the mesh under Content/PolyKit with Unreal import settings and a repeatable import manifest. Unreal still performs the final editor import and asset cooking.",
+      "i18n": {
+        "zh-CN": { "name": "Unreal 导入包" },
+        "en-US": { "name": "Unreal Import Bundle" }
+      },
+      "params_schema": [
+        { "id": "content_folder", "label": "Content Folder", "type": "string", "default": "Content/PolyKit", "tooltip": "Project-relative folder inside the Unreal bundle." },
+        { "id": "include_readme", "label": "Include Readme", "type": "boolean", "default": true, "tooltip": "Include concise import instructions and capability limits." },
+        { "id": "auto_generate_collision", "label": "Auto Collision", "type": "boolean", "default": false, "tooltip": "Request auto-generated collision in the Unreal import settings manifest." }
+      ]
+    }
+  ]
+}

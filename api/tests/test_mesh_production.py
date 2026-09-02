@@ -1,0 +1,508 @@
+import asyncio
+import base64
+import json
+import math
+import struct
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import trimesh
+from PIL import Image
+
+from schemas.workflow import WorkflowExecutionNode
+from services.process_runner import run_processor
+from services.workflow_executor import _run_process_node
+
+
+PACK_DIR = Path(__file__).resolve().parents[2] / "src/areas/workflows/nodes/mesh-production"
+
+
+class MeshProductionProcessorTests(unittest.TestCase):
+    def test_executor_preserves_named_image_and_mesh_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            image = root / "reference.png"
+            mesh = root / "model.glb"
+            output = root / "result.glb"
+            image.write_bytes(b"image")
+            mesh.write_bytes(b"mesh")
+            output.write_bytes(b"result")
+            process_tuple = (
+                PACK_DIR,
+                {"entry": "processor.py"},
+                {"id": "projection-bake", "inputs": ["image", "mesh"], "output": "mesh"},
+            )
+
+            with patch("services.workflow_executor.process_node_pack", return_value=process_tuple), patch(
+                "services.workflow_executor.run_processor",
+                return_value={"filePath": str(output)},
+            ) as run:
+                async def execute():
+                    return await _run_process_node(
+                        asyncio.get_running_loop(),
+                        WorkflowExecutionNode(
+                            class_type="mesh-production/projection-bake",
+                            inputs={"image": image, "mesh": mesh, "params": {}},
+                        ),
+                        lambda value: value,
+                        root,
+                        root,
+                        None,
+                        lambda *_args: None,
+                    )
+
+                result = asyncio.run(execute())
+
+            input_data = run.call_args.args[2]
+            self.assertEqual(input_data["imagePath"], str(image))
+            self.assertEqual(input_data["meshPath"], str(mesh))
+            self.assertEqual(result["mesh"], output)
+
+    def test_executor_preserves_batched_image_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reference = root / "reference.png"
+            candidate = root / "candidate.png"
+            output = root / "comparison.png"
+            reference.write_bytes(b"reference")
+            candidate.write_bytes(b"candidate")
+            output.write_bytes(b"comparison")
+            process_tuple = (
+                PACK_DIR,
+                {"entry": "processor.py"},
+                {"id": "reference-compare", "input": "image", "batch_input": "image", "output": "image"},
+            )
+
+            with patch("services.workflow_executor.process_node_pack", return_value=process_tuple), patch(
+                "services.workflow_executor.run_processor",
+                return_value={"filePath": str(output)},
+            ) as run:
+                async def execute():
+                    return await _run_process_node(
+                        asyncio.get_running_loop(),
+                        WorkflowExecutionNode(
+                            class_type="reference-evidence/reference-compare",
+                            inputs={"image": [reference, candidate], "params": {}},
+                        ),
+                        lambda value: value,
+                        root,
+                        root,
+                        None,
+                        lambda *_args: None,
+                    )
+
+                result = asyncio.run(execute())
+
+            input_data = run.call_args.args[2]
+            self.assertEqual(input_data["filePaths"], [str(reference), str(candidate)])
+            self.assertEqual(result["image"], output)
+
+    def test_projection_bake_embeds_reference_texture_and_uvs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            image = root / "reference.png"
+            mesh = root / "model.glb"
+            Image.new("RGBA", (32, 24), (220, 80, 60, 255)).save(image)
+            trimesh.creation.box(extents=(1, 1, 1)).export(mesh)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"imagePath": str(image), "meshPath": str(mesh)},
+                {
+                    "_node_id": "projection-bake",
+                    "projection_mode": "orthographic-front-projection",
+                    "texture_size": 64,
+                    "unseen_strategy": "leave-unprojected",
+                },
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            baked = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(baked, trimesh.Trimesh)
+            self.assertIsNotNone(getattr(baked.visual, "uv", None))
+            texture = getattr(baked.visual.material, "baseColorTexture", None)
+            self.assertIsNotNone(texture)
+            self.assertEqual(texture.size, (32, 24))
+            self.assertEqual(report["kind"], "polykit.projection-bake")
+            self.assertTrue(report["texture"]["embedded"])
+            self.assertEqual(report["texture"]["actualSize"], [32, 24])
+            self.assertEqual(result["metadata"]["evidence_kind"], "projection-bake")
+
+    def test_uv_unwrap_exports_explicit_seam_safe_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.glb"
+            trimesh.creation.box(extents=(2, 1, 1)).export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "uv-unwrap", "method": "flat-plane"},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            unwrapped = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(unwrapped, trimesh.Trimesh)
+            self.assertIsNotNone(getattr(unwrapped.visual, "uv", None))
+            self.assertEqual(unwrapped.visual.uv.shape, (len(unwrapped.vertices), 2))
+            self.assertEqual(report["kind"], "polykit.uv-unwrap")
+            self.assertTrue(report["uv"]["hasWedgeCoordinates"])
+            self.assertEqual(result["metadata"]["evidence_kind"], "uv-unwrap")
+
+    def test_surface_map_bake_writes_normal_and_ao_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.glb"
+            trimesh.creation.icosphere(subdivisions=1, radius=1.0).export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "surface-map-bake", "resolution": 64},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith(".json"))
+            normal_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith("_normal.png"))
+            ao_path = next(Path(str(path)) for path in result["sidecars"] if str(path).endswith("_ao.png"))
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            baked = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsNotNone(getattr(baked.visual, "uv", None))
+            with Image.open(normal_path) as normal, Image.open(ao_path) as ao:
+                self.assertEqual(normal.size, (64, 64))
+                self.assertEqual(normal.mode, "RGB")
+                self.assertEqual(ao.size, (64, 64))
+                self.assertEqual(ao.mode, "L")
+            self.assertEqual(report["kind"], "polykit.surface-map-bake")
+            self.assertEqual(report["maps"]["normal"]["space"], "world")
+            self.assertEqual(result["metadata"]["evidence_kind"], "surface-map-bake")
+
+    def test_geometry_integrity_distinguishes_closed_and_open_meshes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            closed = root / "closed.glb"
+            trimesh.creation.box().export(closed)
+            closed_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(closed)},
+                {"_node_id": "geometry-integrity", "require_watertight": True},
+                str(workspace),
+                str(temp),
+            )
+            closed_report = json.loads(Path(str(closed_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(closed_report["status"], "pass")
+            self.assertTrue(closed_report["checks"]["watertight"])
+            self.assertEqual(closed_report["counts"]["boundaryEdges"], 0)
+
+            open_mesh = root / "open.glb"
+            # A single triangle is unambiguously open and keeps this test
+            # independent of trimesh's face-removal mutation semantics.
+            trimesh.Trimesh(
+                vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+                faces=[[0, 1, 2]],
+                process=False,
+            ).export(open_mesh)
+            open_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(open_mesh)},
+                {"_node_id": "geometry-integrity", "require_watertight": True},
+                str(workspace),
+                str(temp),
+            )
+            open_report = json.loads(Path(str(open_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(open_report["status"], "needs_review")
+            self.assertFalse(open_report["checks"]["watertight"])
+            self.assertEqual(open_report["counts"]["boundaryEdges"], 3)
+
+    def test_self_intersection_audit_flags_crossing_triangles(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            clean = root / "clean.glb"
+            trimesh.creation.box().export(clean)
+            clean_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(clean)},
+                {"_node_id": "self-intersection-audit"},
+                str(workspace),
+                str(temp),
+            )
+            clean_report = json.loads(Path(str(clean_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(clean_report["status"], "pass")
+            self.assertEqual(clean_report["check"]["intersectingFaceCount"], 0)
+
+            crossing = root / "crossing.glb"
+            trimesh.Trimesh(
+                vertices=[
+                    [0.0, 0.0, 0.0],
+                    [2.0, 0.0, 0.0],
+                    [0.0, 2.0, 0.0],
+                    [0.5, -0.5, -1.0],
+                    [0.5, 1.5, -1.0],
+                    [0.5, 0.5, 1.0],
+                ],
+                faces=[[0, 1, 2], [3, 4, 5]],
+                process=False,
+            ).export(crossing)
+            crossing_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(crossing)},
+                {"_node_id": "self-intersection-audit", "max_reported_faces": 1},
+                str(workspace),
+                str(temp),
+            )
+            crossing_report = json.loads(Path(str(crossing_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(crossing_report["status"], "fail")
+            self.assertEqual(crossing_report["check"]["intersectingFaceCount"], 2)
+            self.assertEqual(len(crossing_report["check"]["reportedFaceIndices"]), 1)
+            self.assertTrue(crossing_report["check"]["truncated"])
+            self.assertEqual(crossing_result["metadata"]["evidence_kind"], "self-intersection-audit")
+
+    def test_animation_audit_checks_skin_clips_and_morph_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+            rigged = root / "rigged.gltf"
+            rigged.write_text(
+                json.dumps(
+                    {
+                        "asset": {"version": "2.0"},
+                        "nodes": [{"name": "root"}, {"name": "joint"}],
+                        "skins": [{"joints": [1], "skeleton": 0}],
+                        "meshes": [
+                            {
+                                "primitives": [
+                                    {
+                                        "attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2},
+                                        "targets": [{"POSITION": 3}],
+                                    }
+                                ]
+                            }
+                        ],
+                        "animations": [{"name": "idle", "channels": [{"sampler": 0, "target": {"node": 1, "path": "rotation"}}]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(rigged)},
+                {"_node_id": "animation-audit", "require_animation": True},
+                str(workspace),
+                str(temp),
+            )
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "pass")
+            self.assertTrue(report["rig"]["bound"])
+            self.assertEqual(report["animation"]["clipCount"], 1)
+            self.assertTrue(report["morphTargets"]["present"])
+
+            plain = root / "plain.gltf"
+            plain.write_text(json.dumps({"asset": {"version": "2.0"}, "nodes": [{}], "meshes": []}), encoding="utf-8")
+            plain_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(plain)},
+                {"_node_id": "animation-audit", "require_animation": True},
+                str(workspace),
+                str(temp),
+            )
+            plain_report = json.loads(Path(str(plain_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(plain_report["status"], "needs_review")
+            self.assertFalse(plain_report["rig"]["bound"])
+
+    def test_animation_audit_validates_binary_skin_weights(self) -> None:
+        def write_skinned_gltf(path: Path, weight_row: tuple[float, float, float, float]) -> None:
+            positions = struct.pack(
+                "<9f",
+                -0.5, 0.0, 0.0,
+                0.5, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+            )
+            joints = bytes([0, 0, 0, 0] * 3)
+            weights = struct.pack("<12f", *(weight_row * 3))
+            payload = positions + joints + weights
+            document = {
+                "asset": {"version": "2.0"},
+                "buffers": [{
+                    "byteLength": len(payload),
+                    "uri": "data:application/octet-stream;base64," + base64.b64encode(payload).decode("ascii"),
+                }],
+                "bufferViews": [
+                    {"buffer": 0, "byteOffset": 0, "byteLength": len(positions)},
+                    {"buffer": 0, "byteOffset": len(positions), "byteLength": len(joints)},
+                    {"buffer": 0, "byteOffset": len(positions) + len(joints), "byteLength": len(weights)},
+                ],
+                "accessors": [
+                    {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                    {"bufferView": 1, "componentType": 5121, "count": 3, "type": "VEC4"},
+                    {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4"},
+                ],
+                "nodes": [{"mesh": 0, "skin": 0, "children": [1]}, {"name": "joint"}],
+                "skins": [{"joints": [1], "skeleton": 0}],
+                "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2}}]}],
+            }
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            valid = root / "valid.gltf"
+            write_skinned_gltf(valid, (1.0, 0.0, 0.0, 0.0))
+            valid_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(valid)},
+                {"_node_id": "animation-audit"},
+                str(workspace),
+                str(temp),
+            )
+            valid_report = json.loads(Path(str(valid_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(valid_report["status"], "pass")
+            self.assertEqual(valid_report["rig"]["weights"]["checkedPrimitiveCount"], 1)
+            self.assertEqual(valid_report["rig"]["weights"]["validPrimitiveCount"], 1)
+            self.assertEqual(valid_report["rig"]["weights"]["invalidPrimitiveCount"], 0)
+
+            invalid = root / "invalid.gltf"
+            write_skinned_gltf(invalid, (0.5, 0.0, 0.0, 0.0))
+            invalid_result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(invalid)},
+                {"_node_id": "animation-audit"},
+                str(workspace),
+                str(temp),
+            )
+            invalid_report = json.loads(Path(str(invalid_result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertEqual(invalid_report["status"], "fail")
+            self.assertEqual(invalid_report["rig"]["weights"]["invalidPrimitiveCount"], 1)
+            self.assertIn("sum to", invalid_report["rig"]["weights"]["errors"][0])
+
+    def test_collision_mesh_builds_convex_proxy_and_report(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "assembly.glb"
+            scene = trimesh.Scene()
+            scene.add_geometry(trimesh.creation.box(extents=(2, 1, 1)), geom_name="body", node_name="body")
+            scene.add_geometry(
+                trimesh.creation.icosphere(subdivisions=1, radius=0.4),
+                geom_name="cap",
+                node_name="cap",
+                transform=trimesh.transformations.translation_matrix((1.1, 0.0, 0.0)),
+            )
+            scene.export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "collision-mesh", "method": "convex_hull"},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            collider = trimesh.load(output, force="mesh", process=False)
+            self.assertTrue(output.is_file())
+            self.assertIsInstance(collider, trimesh.Trimesh)
+            self.assertGreater(len(collider.faces), 0)
+            self.assertEqual(report["kind"], "polykit.collision-mesh")
+            self.assertEqual(report["method"]["used"], "convex_hull")
+            self.assertEqual(report["source"]["componentCount"], 2)
+            self.assertEqual(result["metadata"]["evidence_kind"], "collision-mesh")
+
+    def test_lod_generate_writes_three_levels_with_reduced_faces(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "dense.glb"
+            scene = trimesh.Scene()
+            scene.add_geometry(
+                trimesh.creation.icosphere(subdivisions=3, radius=1.0),
+                geom_name="body",
+                node_name="body",
+            )
+            scene.export(source)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            temp = root / "tmp"
+            temp.mkdir()
+
+            result = run_processor(
+                PACK_DIR,
+                "processor.py",
+                {"filePath": str(source)},
+                {"_node_id": "lod-generate", "lod1_ratio": 0.5, "lod2_ratio": 0.2, "min_faces": 20},
+                str(workspace),
+                str(temp),
+            )
+
+            output = Path(str(result["filePath"]))
+            report = json.loads(Path(str(result["sidecars"][0])).read_text(encoding="utf-8"))
+            self.assertTrue(output.is_file())
+            self.assertEqual(report["kind"], "polykit.lod-generation")
+            self.assertEqual([level["level"] for level in report["levels"]], ["LOD0", "LOD1", "LOD2"])
+            self.assertGreater(report["levels"][0]["faces"], report["levels"][1]["faces"])
+            self.assertGreater(report["levels"][1]["faces"], report["levels"][2]["faces"])
+            self.assertEqual(len(result["sidecars"]), 3)
+            for path in result["sidecars"][1:]:
+                self.assertTrue(Path(str(path)).is_file())
+                self.assertGreater(len(trimesh.load(path, force="mesh", process=False).faces), 0)
+            self.assertEqual(result["metadata"]["level_count"], 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

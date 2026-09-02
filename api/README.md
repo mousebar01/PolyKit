@@ -71,9 +71,19 @@ behind authentication and TLS termination.
 | GET | `/workspace-library/worlds/{world_id}` | Read one server-owned world plan/manifest |
 | PUT | `/workspace-library/worlds/{world_id}` | Create or replace one world plan/manifest |
 | POST | `/workspace-library/worlds` | Allocate a fresh server-owned World document |
+| POST | `/workspace-library/providers/polyhaven/search` | Read-only Poly Haven model metadata search |
+| POST | `/workspace-library/providers/polyhaven/import` | Explicitly download, verify, and publish one Poly Haven model |
 
 `/generate/*` remains mounted only as an explicit compatibility surface for
 older CLI callers. New product code must use `/workflow-runs/*`.
+
+`/health/ready.status=ready` means the FastAPI control plane and workspace are
+available. Use `inference_capable` (or the detailed `/doctor` response) before
+starting a real model run; it remains `false` until the active model has usable
+weights and the selected runtime can access CUDA. For isolated node packs,
+`/doctor.runtime.active_model_runtime` reports that pack's interpreter and GPU
+instead of the lightweight API environment. The explicit `fake` executor is
+the exception and is intended only for smoke tests.
 
 ## Workflow definitions and execution
 

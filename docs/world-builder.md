@@ -54,11 +54,38 @@ compose final scene
 
 ScenePlan is renderer-neutral. Object identity is stable and must not depend on filenames.
 
+### Asset slot resolution
+
+World asset filling follows one deterministic product policy:
+
+```text
+programmatic structure / placement
+        ↓
+existing World artifact
+        ↓
+Workspace library match
+        ↓
+local generation for missing hero slots
+        ↓
+normalize → geometry integrity → attach to stable object id
+```
+
+For `runtime.build.environment.assets`, `proceduralHint` geometry is a preview-only
+blockout. The viewer uses it until a workspace mesh exists; a resolved or generated
+artifact then replaces the blockout automatically while keeping the same placement
+instances and `targetHeight`. One generated prototype can therefore serve many
+scatter/row/cluster instances. Hero prototypes generate by default; scatter generation
+is explicit so large worlds do not enqueue unnecessary GPU work.
+
+The Web viewer exposes this flow as **Fill assets**. The same server operation is
+`POST /workspace-library/worlds/{world_id}/resolve-assets`, so Web, Agent and CLI
+share the same resolver and Run lifecycle.
+
 ## Building construction
 
 `runtime.build` stores the authored construction facts. `POST /workspace-library/worlds/{world_id}/build-structure` compiles one supported building into the canonical Workflow Engine.
 
-The current Blender bridge uses the official `blender-scene/build` process node and publishes a GLB plus optional inspection render. FastAPI owns the WorkflowRun, output naming, artifact paths, cancellation, and persistence.
+The current Blender bridge uses the official `blender-scene/build` process node and publishes a GLB plus optional production/gray inspection renders. The node also records a render-evidence sidecar with camera, light-role, color-management, and non-blank metrics; this is render evidence for a later `VisualValidationReport`, not a replacement for that domain report. It does not own WorkflowRun state. FastAPI owns the WorkflowRun, output naming, artifact paths, cancellation, and persistence.
 
 Construction validators inspect facts and evidence; they never advance a task.
 
@@ -83,9 +110,8 @@ The Spatial Judge can prove bounded facts such as BuildSpec contact tolerances, 
 See `docs/visual-validation.md` and `docs/spatial-validation.md`.
 
 Reusable Blender construction and finishing operations (openings, stairs,
-curves, assemblies, surfacing, lighting, deformation, simulation setup, NPR,
-and factual geometry reports) are available as official process nodes. See
-`docs/blender-production.md`.
+curves, assemblies, surfacing, lighting, and bounded deformation) are available
+as official process nodes. See `docs/blender-production.md`.
 
 ## Repair scopes and production recipes
 

@@ -1,0 +1,124 @@
+{
+  "id": "rigging-evidence",
+  "name": "Rigging Evidence",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Checks declarative attachment relationships before rigging and export.",
+  "requirements": [],
+  "i18n": {
+    "zh-CN": {
+      "name": "绑定证据",
+      "description": "在绑定和导出前检查附件与组件/骨骼的声明关系。"
+    },
+    "en-US": {
+      "name": "Rigging Evidence",
+      "description": "Checks declarative attachment relationships before rigging and export."
+    }
+  },
+  "nodes": [
+    {
+      "id": "attachment-anchor-audit",
+      "name": "Attachment Anchor Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Validates attachment anchors, root parenting, cycles, and optional measured proximity.",
+      "i18n": {
+        "zh-CN": {
+          "name": "附件锚点审计"
+        },
+        "en-US": {
+          "name": "Attachment Anchor Audit"
+        }
+      },
+      "params_schema": []
+    },
+    {
+      "id": "rig-payload-audit",
+      "name": "Rig Payload Audit",
+      "input": "text",
+      "output": "text",
+      "description": "Validates portable skeleton hierarchy, coordinate system, local matrices, and four-influence skin weights before export.",
+      "i18n": {
+        "zh-CN": {
+          "name": "绑定载荷审计"
+        },
+        "en-US": {
+          "name": "Rig Payload Audit"
+        }
+      },
+      "params_schema": []
+    },
+    {
+      "id": "geodesic-bind",
+      "name": "Geodesic Skin Bind",
+      "input": "text",
+      "output": "text",
+      "description": "Generates normalized four-slot skin weights by propagating bone distance through the mesh solid instead of across air gaps.",
+      "i18n": {
+        "zh-CN": {
+          "name": "测地线蒙皮绑定"
+        },
+        "en-US": {
+          "name": "Geodesic Skin Bind"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "resolution",
+          "label": "Voxel Resolution",
+          "type": "int",
+          "default": 24,
+          "min": 8,
+          "max": 96,
+          "tooltip": "Largest axis voxel resolution used for the solid distance field."
+        },
+        {
+          "id": "falloff_power",
+          "label": "Falloff Power",
+          "type": "float",
+          "default": 3,
+          "min": 0.5,
+          "max": 8,
+          "tooltip": "Higher values keep influence tighter around each bone."
+        }
+      ]
+    },
+    {
+      "id": "ik-solve",
+      "name": "FABRIK IK Solve",
+      "input": "text",
+      "output": "text",
+      "description": "Solves an explicitly ordered joint chain toward a target with CPU FABRIK and reports convergence or reach limits.",
+      "i18n": {
+        "zh-CN": {
+          "name": "FABRIK 逆向运动学"
+        },
+        "en-US": {
+          "name": "FABRIK IK Solve"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "iterations",
+          "label": "Iterations",
+          "type": "int",
+          "default": 32,
+          "min": 1,
+          "max": 256,
+          "tooltip": "Maximum forward/backward FABRIK iterations."
+        },
+        {
+          "id": "tolerance",
+          "label": "Tolerance",
+          "type": "float",
+          "default": 0.001,
+          "min": 0.000001,
+          "max": 1,
+          "tooltip": "Target distance at which the chain is considered converged."
+        }
+      ]
+    }
+  ]
+}

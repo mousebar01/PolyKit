@@ -5,6 +5,7 @@ import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitl
 import { useAppStore } from '@shared/stores/appStore'
 import { useI18n } from '@shared/i18n'
 import { isRenderableWorldSpec } from '../runtime/types'
+import { getWorldResolutionRunStatus, loadWorld, resolveWorldAssets } from '../worldApi'
 import { isRenderableScenePlan } from '../runtime/scenePlan'
 import WorldCanvas, { WORLD_VIEWER_BACKGROUND_COLOR } from './WorldCanvas'
 import ScenePlanCanvas from './ScenePlanCanvas'
@@ -22,11 +23,13 @@ interface WorldAssetViewerProps {
 export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JSX.Element {
   const { t } = useI18n()
   const apiUrl = useAppStore((state) => state.apiUrl)
+  const showError = useAppStore((state) => state.showError)
   const {
     document, instances, selectedProtoId, saving, error,
-    setSelectedProtoId, save, clearError,
+    setSelectedProtoId, replaceDocument, save, clearError,
   } = useWorldStore()
   const [infoOpen, setInfoOpen] = useState(false)
+  const [resolvingAssets, setResolvingAssets] = useState(false)
 
   const buildSpec = document?.runtime.build
   const environmentSpec = buildSpec?.environment
@@ -48,6 +51,36 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
       : [],
     [environmentSpec, instances, renderableEnvironment],
   )
+
+
+  async function handleResolveAssets(): Promise<void> {
+    if (!document || resolvingAssets) return
+    setResolvingAssets(true)
+    try {
+      const result = await resolveWorldAssets(document.id)
+      replaceDocument(result.world)
+      const runIds = result.generation_runs.map((run) => run.run_id)
+      if (runIds.length > 0) {
+        const pending = new Set(runIds)
+        while (pending.size > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+          const statuses = await Promise.all([...pending].map((runId) => getWorldResolutionRunStatus(runId)))
+          for (const status of statuses) {
+            if (status.status === 'done') pending.delete(status.run_id)
+            else if (['error', 'cancelled', 'interrupted'].includes(status.status)) {
+              pending.delete(status.run_id)
+              if (status.error) showError(status.error)
+            }
+          }
+        }
+        replaceDocument(await loadWorld(document.id))
+      }
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setResolvingAssets(false)
+    }
+  }
 
   if (!document) return <div className="h-full min-h-0 flex-1 bg-card" />
 
@@ -119,10 +152,24 @@ export default function WorldAssetViewer({ onClose }: WorldAssetViewerProps): JS
             <p className="truncate text-sm font-semibold text-foreground">{t('worlds.scene')}</p>
             <p className="truncate text-[11px] text-muted-foreground">{(renderableEnvironment ? environmentSpec.logline : scenePrompt) || document.name}</p>
           </div>
-          <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => void save()} disabled={saving || !apiUrl}>
-            {saving ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Save className="size-3.5" aria-hidden="true" />}
-            {saving ? t('worlds.saving') : t('worlds.save')}
-          </Button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => void handleResolveAssets()}
+              disabled={resolvingAssets || !apiUrl}
+              title={t('worlds.fillAssetsHint')}
+            >
+              {resolvingAssets ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Sparkles className="size-3.5" aria-hidden="true" />}
+              {resolvingAssets ? t('worlds.fillingAssets') : t('worlds.fillAssets')}
+            </Button>
+            <Button type="button" size="sm" className="h-8 gap-1.5" onClick={() => void save()} disabled={saving || !apiUrl}>
+              {saving ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : <Save className="size-3.5" aria-hidden="true" />}
+              {saving ? t('worlds.saving') : t('worlds.save')}
+            </Button>
+          </div>
         </div>
 
         {renderableEnvironment ? (

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from schemas.execution import ExecutionNode, ExecutionPlan, ExecutionSource
+from application.generate_asset import GenerateAssetCommand, compile_generate_asset_plan
 from services.runtime_paths import runtime_paths
 from services.scene_planner import ScenePlanError
 from services.workspace_paths import normalize_collection, resolve_workspace_path
@@ -147,4 +148,70 @@ def compile_scene_composition_plan(
     )
 
 
-__all__ = ["compile_scene_composition_plan"]
+def compile_scene_asset_generation_plan(
+    *,
+    world_id: str,
+    object_id: str,
+    prompt: str,
+    collection: str = "WorldAssets",
+    image_model_id: str = "anima/generate",
+    mesh_model_id: str = "trellis2/generate",
+    enable_texture: bool = True,
+    enable_optimize: bool = True,
+    target_faces: int = 100_000,
+) -> ExecutionPlan:
+    """Compile one unresolved semantic scene slot into the shared local model pipeline."""
+
+    object_prompt = str(prompt or "").strip()
+    if not object_prompt:
+        raise ScenePlanError(f"Scene object '{object_id}' has no generation prompt")
+    plan = compile_generate_asset_plan(
+        GenerateAssetCommand(
+            prompt=object_prompt,
+            image_model_id=image_model_id,
+            mesh_model_id=mesh_model_id,
+            enable_texture=enable_texture,
+            enable_optimize=enable_optimize,
+            target_faces=target_faces,
+            collection=collection,
+            world_id=world_id,
+            proto_id=object_id,
+        )
+    )
+
+    output = plan.prompt.get("output")
+    if output is None:
+        raise ScenePlanError("Generated asset plan is missing its output node")
+    source_ref = output.inputs.get("mesh")
+    if not isinstance(source_ref, list) or len(source_ref) != 2:
+        raise ScenePlanError("Generated asset plan has no final mesh reference")
+
+    plan.prompt["normalize"] = ExecutionNode(
+        class_type="asset-evidence/normalize-mesh",
+        inputs={
+            "mesh": source_ref,
+            "params": {"target_size": 1.0, "up_axis": "Y", "center_horizontal": True, "ground": True},
+        },
+    )
+    plan.prompt["integrity"] = ExecutionNode(
+        class_type="mesh-production/geometry-integrity",
+        inputs={
+            "mesh": ["normalize", "mesh"],
+            "params": {"require_watertight": False},
+        },
+    )
+    output.inputs["mesh"] = ["integrity", "mesh"]
+    plan.source = ExecutionSource(kind="world", id=world_id)
+    plan.workflow_id = "world-generate-scene-asset"
+    plan.metadata.update({
+        "world_id": world_id,
+        "proto_id": object_id,
+        "artifact_kind": "mesh",
+        "workflow_recipe": "world-generate-scene-asset",
+        "bind_world_artifact": True,
+        "asset_resolution": "generate",
+    })
+    return plan
+
+
+__all__ = ["compile_scene_composition_plan", "compile_scene_asset_generation_plan"]

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from application.world import (
     BuildWorldStructureCommand,
     ComposeWorldCommand,
+    ResolveWorldAssetsCommand,
+    compile_world_asset_resolution,
     prepare_world_composition_run,
     prepare_world_structure_run,
 )
@@ -17,9 +19,10 @@ from schemas.workflow import WorkflowExecutionRequest
 from services.execution_runtime import run_execution
 from services.run_coordinator import run_coordinator
 from services.scene_planner import ScenePlanError, compile_scene_plan
-from services.world_domain import create_world_document
+from services.world_domain import attach_world_artifact, create_world_document
 from services.world_plans import compile_scene_composition_plan
 from services.world_runtime import attach_scene_plan_to_runtime
+from application.execution import prepare_execution_run
 from services.world_store import (
     WorldNotFoundError,
     WorldStoreError,
@@ -131,6 +134,58 @@ async def compile_world_scene_plan(world_id: str, request: ScenePlanCompileReque
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not compile scene plan: {exc}") from exc
+
+
+@router.post("/{world_id}/resolve-assets")
+async def resolve_world_assets(
+    world_id: str,
+    request: ResolveWorldAssetsCommand,
+    background_tasks: BackgroundTasks,
+):
+    """Resolve semantic scene slots through existing, procedural, library, then local generation."""
+
+    try:
+        world = get_world(world_id)
+        if world is None:
+            raise HTTPException(status_code=404, detail="World was not found")
+        compiled = compile_world_asset_resolution(world, world_id=world_id, command=request)
+        updated = attach_scene_plan_to_runtime(world, compiled.scene) if compiled.scene is not None else dict(world)
+        for proto_id, workspace_path in compiled.library_bindings:
+            updated = attach_world_artifact(
+                updated,
+                proto_id=proto_id,
+                workspace_path=workspace_path,
+            )
+        saved = save_world(world_id, updated)
+
+        runs: list[dict[str, Any]] = []
+        for plan in compiled.generation_plans:
+            prepared = prepare_execution_run(
+                plan,
+                initiator=ExecutionInitiator(type="user", surface="worlds.resolve-assets"),
+            )
+            background_tasks.add_task(run_execution, prepared.run_id, prepared.request)
+            runs.append({
+                "run_id": prepared.run_id,
+                "proto_id": prepared.request.metadata.get("proto_id"),
+                "status": "pending",
+                "queued_nodes": prepared.queued_nodes,
+            })
+
+        return {
+            "world_id": world_id,
+            "decisions": compiled.decisions,
+            "generation_runs": runs,
+            "world": saved,
+        }
+    except HTTPException:
+        raise
+    except WorldTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except (ScenePlanError, WorldStoreError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not resolve World assets: {exc}") from exc
 
 
 @router.post("/{world_id}/compose")

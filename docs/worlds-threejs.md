@@ -17,12 +17,15 @@ There are two deliberately different viewport paths:
   treated as a successful build.
 
 The files under `src/areas/worlds/runtime/` still contain deterministic terrain
-and placement planning plus low-poly preview/test fixtures. They are not a
-production mesh path: their output is never exported, persisted as production
-mesh evidence, or used to replace a Blender artifact in `WorldCanvas`.
+and placement planning plus low-poly preview/test fixtures. They remain a
+planning path rather than the production exporter: their output is not used to
+replace a workspace artifact in `WorldCanvas`. For a production terrain mesh,
+use the server-owned `environment-production/terrain-mesh` node, which emits a
+GLB and an evidence sidecar from the same JSON-first world vocabulary.
 
 The server-side `scene-composer` and `mesh-exporter` nodes perform GLB/export
-work. They do not delegate modeling to browser Three.js code. This distinction
+work, including a Blender-backed FBX export when the local Blender executable
+is available. They do not delegate modeling to browser Three.js code. This distinction
 keeps a fast local blockout useful without allowing a browser placeholder to be
 mistaken for the production Blender result.
 

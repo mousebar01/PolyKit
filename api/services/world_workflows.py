@@ -114,7 +114,6 @@ def _structure_params(
             "roof_overhang": _number(parameters, "roofOverhang", "roof_overhang"),
             "contact_tolerance": _number(parameters, "contactTolerance", "contact_tolerance"),
         }
-
     result.update({key: value for key, value in mapped.items() if value is not None})
     return result
 

@@ -153,3 +153,12 @@ polykit_workflow_status
 ```
 
 The current surface includes server health/model discovery, Run control through stable `polykit_workflow_*` tool names, text-to-asset generation, mesh processing, schema-v2 World operations, evidence-first visual/spatial validation, and ProductionRecipe repair compilation.
+
+External asset discovery is intentionally a separate, two-step surface:
+
+- `polykit_asset_search_external` performs a read-only search of Poly Haven's public model API. It does not change the workspace or create a WorkflowRun.
+- `polykit_asset_import_external` downloads one selected model, verifies the declared bundle, normalizes it to a workspace GLB, and records CC0 attribution/provenance. It is an explicit side effect and requires the `asset_id` returned by search.
+
+The local `polykit_world_find_assets` tool remains workspace-only. This keeps
+provider results out of the server-owned library listing and makes the Agent's
+read-before-write choice explicit.

@@ -292,6 +292,22 @@ def cmd_mesh_import(args: argparse.Namespace) -> Any:
     return _api_json(args.api_url, "POST", "/optimize/import-by-path", {"path": args.path})
 
 
+def cmd_asset_search_external(args: argparse.Namespace) -> Any:
+    return _api_json(args.api_url, "POST", "/workspace-library/providers/polyhaven/search", {
+        "query": args.query,
+        "category": args.category or None,
+        "limit": args.limit,
+        "refresh": args.refresh,
+    })
+
+
+def cmd_asset_import_external(args: argparse.Namespace) -> Any:
+    return _api_json(args.api_url, "POST", "/workspace-library/providers/polyhaven/import", {
+        "asset_id": args.asset_id,
+        "resolution": args.resolution,
+    }, timeout=180.0)
+
+
 def cmd_settings_paths(args: argparse.Namespace) -> Any:
     return _api_json(args.api_url, "GET", "/settings/paths")
 
@@ -466,6 +482,18 @@ def build_parser() -> argparse.ArgumentParser:
     from_text.add_argument("--mesh-params")
     from_text.add_argument("--texture-params")
     _set_handler(from_text, cmd_asset_from_text)
+
+    external_search = asset.add_parser("search-external", help="Read-only Poly Haven model metadata search")
+    external_search.add_argument("query")
+    external_search.add_argument("--category", default="")
+    external_search.add_argument("--limit", type=int, default=5)
+    external_search.add_argument("--refresh", action="store_true")
+    _set_handler(external_search, cmd_asset_search_external)
+
+    external_import = asset.add_parser("import-external", help="Explicitly import one Poly Haven model")
+    external_import.add_argument("asset_id")
+    external_import.add_argument("--resolution", choices=("1k", "2k", "4k", "8k"), default="2k")
+    _set_handler(external_import, cmd_asset_import_external)
 
     image = sub.add_parser("image", help="Image workflow helpers").add_subparsers(dest="image_command", required=True)
     image_generate = image.add_parser("generate")

@@ -1,0 +1,430 @@
+{
+  "id": "reference-evidence",
+  "name": "Reference Evidence",
+  "type": "process",
+  "entry": "processor.py",
+  "version": "1.0.0",
+  "author": "PolyKit",
+  "description": "Creates a reviewable detail grid, region crops, and a machine-readable detail inventory from a reference image.",
+  "requirements": [
+    "Pillow"
+  ],
+  "i18n": {
+    "zh-CN": {
+      "name": "参考图证据",
+      "description": "从参考图生成细节分区、裁剪图和可复核的细节清单。"
+    },
+    "en-US": {
+      "name": "Reference Evidence",
+      "description": "Creates a reviewable detail grid, region crops, and a machine-readable detail inventory from a reference image."
+    }
+  },
+  "nodes": [
+    {
+      "id": "reference-quality",
+      "name": "Reference Quality Gate",
+      "input": "image",
+      "output": "image",
+      "description": "Measures resolution, contrast, dynamic range, edge energy, and alpha coverage before detail matching.",
+      "i18n": {
+        "zh-CN": {
+          "name": "参考图质量门"
+        },
+        "en-US": {
+          "name": "Reference Quality Gate"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "min_width",
+          "label": "Minimum Width",
+          "type": "int",
+          "default": 512,
+          "min": 32,
+          "max": 16384,
+          "tooltip": "Images below this width are flagged as insufficient reference resolution."
+        },
+        {
+          "id": "min_height",
+          "label": "Minimum Height",
+          "type": "int",
+          "default": 512,
+          "min": 32,
+          "max": 16384,
+          "tooltip": "Images below this height are flagged as insufficient reference resolution."
+        },
+        {
+          "id": "min_contrast",
+          "label": "Minimum Contrast",
+          "type": "float",
+          "default": 12,
+          "min": 0,
+          "max": 128,
+          "tooltip": "Minimum luminance standard deviation used by the low-contrast warning."
+        }
+      ]
+    },
+    {
+      "id": "material-palette",
+      "name": "Material Palette",
+      "input": "image",
+      "output": "image",
+      "description": "Extracts dominant reference colors and writes a swatch board plus JSON palette evidence.",
+      "i18n": {
+        "zh-CN": {
+          "name": "材质色板"
+        },
+        "en-US": {
+          "name": "Material Palette"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "colors",
+          "label": "Palette Colors",
+          "type": "select",
+          "default": 8,
+          "options": [
+            {
+              "value": 4,
+              "label": "4"
+            },
+            {
+              "value": 6,
+              "label": "6"
+            },
+            {
+              "value": 8,
+              "label": "8"
+            },
+            {
+              "value": 12,
+              "label": "12"
+            }
+          ],
+          "tooltip": "Number of dominant colors to extract from the reference."
+        },
+        {
+          "id": "sample_size",
+          "label": "Sample Max Dimension",
+          "type": "int",
+          "default": 512,
+          "min": 64,
+          "max": 2048,
+          "tooltip": "Downsamples large references before palette extraction to keep the node responsive."
+        }
+      ]
+    },
+    {
+      "id": "material-region",
+      "name": "Material Region",
+      "input": "image",
+      "output": "image",
+      "description": "Extracts localized color, luminance, saturation, edge, and cautious PBR evidence from a normalized image crop.",
+      "i18n": {
+        "zh-CN": {
+          "name": "材质区域分析"
+        },
+        "en-US": {
+          "name": "Material Region"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "material_id",
+          "label": "Material ID",
+          "type": "string",
+          "default": "material-region",
+          "tooltip": "Stable material or component id recorded in the evidence report."
+        },
+        {
+          "id": "x",
+          "label": "Region X",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized left coordinate."
+        },
+        {
+          "id": "y",
+          "label": "Region Y",
+          "type": "float",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized top coordinate."
+        },
+        {
+          "id": "width",
+          "label": "Region Width",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop width."
+        },
+        {
+          "id": "height",
+          "label": "Region Height",
+          "type": "float",
+          "default": 1,
+          "min": 0.001,
+          "max": 1,
+          "step": 0.01,
+          "tooltip": "Normalized crop height."
+        },
+        {
+          "id": "colors",
+          "label": "Palette Colors",
+          "type": "int",
+          "default": 5,
+          "min": 2,
+          "max": 8,
+          "tooltip": "Number of dominant crop colors recorded as evidence."
+        }
+      ]
+    },
+    {
+      "id": "pbr-evidence",
+      "name": "PBR Evidence Maps",
+      "input": "image",
+      "output": "image",
+      "description": "Derives reviewable albedo, roughness, height, image-gradient normal, and AO PNG sidecars from one reference image.",
+      "i18n": {
+        "zh-CN": {
+          "name": "PBR 证据贴图"
+        },
+        "en-US": {
+          "name": "PBR Evidence Maps"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "max_dimension",
+          "label": "Max Dimension",
+          "type": "int",
+          "default": 1024,
+          "min": 64,
+          "max": 4096,
+          "tooltip": "Downsamples oversized references before map derivation."
+        },
+        {
+          "id": "ao_blur_radius",
+          "label": "AO Blur Radius",
+          "type": "float",
+          "default": 6,
+          "min": 1,
+          "max": 64,
+          "tooltip": "Low-frequency scale used by the AO evidence approximation."
+        }
+      ]
+    },
+    {
+      "id": "camera-fit",
+      "name": "Reference Camera Fit",
+      "inputs": [
+        "image",
+        "text"
+      ],
+      "input_labels": [
+        "Reference Image",
+        "3D↔2D Correspondences JSON"
+      ],
+      "output": "image",
+      "description": "Fits FOV, Euler orientation, and camera position from six or more 3D-to-2D landmark correspondences.",
+      "i18n": {
+        "zh-CN": {
+          "name": "参考相机拟合"
+        },
+        "en-US": {
+          "name": "Reference Camera Fit"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "initial_fov_degrees",
+          "label": "Initial FOV",
+          "type": "float",
+          "default": 35,
+          "min": 10,
+          "max": 120,
+          "tooltip": "Starting vertical field of view for the numerical fit."
+        },
+        {
+          "id": "initial_yaw",
+          "label": "Initial Yaw",
+          "type": "float",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "tooltip": "Starting horizontal orientation."
+        },
+        {
+          "id": "initial_pitch",
+          "label": "Initial Pitch",
+          "type": "float",
+          "default": 0,
+          "min": -89,
+          "max": 89,
+          "tooltip": "Starting vertical orientation."
+        },
+        {
+          "id": "initial_roll",
+          "label": "Initial Roll",
+          "type": "float",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "tooltip": "Starting camera roll."
+        },
+        {
+          "id": "initial_position_x",
+          "label": "Initial X",
+          "type": "float",
+          "default": 0,
+          "min": -100000,
+          "max": 100000,
+          "tooltip": "Starting camera X position."
+        },
+        {
+          "id": "initial_position_y",
+          "label": "Initial Y",
+          "type": "float",
+          "default": 0,
+          "min": -100000,
+          "max": 100000,
+          "tooltip": "Starting camera Y position."
+        },
+        {
+          "id": "initial_position_z",
+          "label": "Initial Z",
+          "type": "float",
+          "default": 2.5,
+          "min": 0.01,
+          "max": 100000,
+          "tooltip": "Starting camera distance/position."
+        },
+        {
+          "id": "maximum_iterations",
+          "label": "Iterations",
+          "type": "int",
+          "default": 60,
+          "min": 1,
+          "max": 200,
+          "tooltip": "Maximum damped least-squares iterations."
+        },
+        {
+          "id": "max_rms_pixels",
+          "label": "Pass RMS (px)",
+          "type": "float",
+          "default": 1,
+          "min": 0,
+          "max": 100000,
+          "tooltip": "Maximum final reprojection RMS for a pass status."
+        }
+      ]
+    },
+    {
+      "id": "delight-albedo",
+      "name": "De-light Albedo",
+      "input": "image",
+      "output": "image",
+      "description": "Suppresses broad illumination with deterministic low-frequency division before projection texturing.",
+      "i18n": {
+        "zh-CN": {
+          "name": "去光照底色"
+        },
+        "en-US": {
+          "name": "De-light Albedo"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "blur_radius",
+          "label": "Illumination Blur",
+          "type": "float",
+          "default": 24,
+          "min": 1,
+          "max": 128,
+          "tooltip": "Scale of lighting variation to suppress; use a larger radius for broad studio lighting."
+        },
+        {
+          "id": "strength",
+          "label": "Correction Strength",
+          "type": "float",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "tooltip": "Blend between the original reference and the de-lit approximation."
+        }
+      ]
+    },
+    {
+      "id": "reference-compare",
+      "name": "Reference Compare",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Compares two connected images with a resized candidate panel and a deterministic difference heatmap.",
+      "i18n": {
+        "zh-CN": {
+          "name": "参考图对比"
+        },
+        "en-US": {
+          "name": "Reference Compare"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "pixel_threshold",
+          "label": "Pixel Threshold",
+          "type": "int",
+          "default": 16,
+          "min": 0,
+          "max": 255,
+          "tooltip": "Difference intensity counted as changed in the heatmap metrics; 0 means any non-zero difference."
+        }
+      ]
+    },
+    {
+      "id": "multi-view-evidence",
+      "name": "Multi-view Evidence",
+      "input": "image",
+      "batch_input": "image",
+      "output": "image",
+      "description": "Normalizes two or more connected reference images into a labeled contact sheet and view manifest.",
+      "i18n": {
+        "zh-CN": {
+          "name": "多视图参考证据"
+        },
+        "en-US": {
+          "name": "Multi-view Evidence"
+        }
+      },
+      "params_schema": [
+        {
+          "id": "columns",
+          "label": "Columns",
+          "type": "int",
+          "default": 3,
+          "min": 1,
+          "max": 6,
+          "tooltip": "Contact-sheet columns."
+        },
+        {
+          "id": "cell_height",
+          "label": "Cell Height",
+          "type": "int",
+          "default": 256,
+          "min": 64,
+          "max": 2048,
+          "tooltip": "Normalized pixel height for each reference view."
+        }
+      ]
+    }
+  ]
+}
