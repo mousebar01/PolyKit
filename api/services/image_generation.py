@@ -9,12 +9,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import traceback
-import uuid
 from pathlib import Path
 
-from fastapi import BackgroundTasks
-
-from schemas.generation import JobStatus
 from services.asset_names import output_name
 from services.model_runtime_registry import model_runtime_registry
 from services.generators.base import GenerationCancelled, smooth_progress
@@ -39,15 +35,6 @@ def workspace_url(path: Path, collection: str) -> str:
         return f"/workspace/{collection}/{path.name}"
 
 
-def _executor_meta(model_id: str) -> dict | None:
-    if model_id != "fake":
-        return None
-    return {
-        "executor": "fake",
-        "warning": "Synthetic CPU test artifact; not an inference result or performance benchmark.",
-    }
-
-
 def texture_refiner_id(model_id: str) -> str | None:
     """Return the sibling image+mesh node used to texture a generated mesh."""
     if "/" not in model_id:
@@ -66,32 +53,6 @@ def texture_refiner_id(model_id: str) -> str | None:
     if manifest.get("output") == "mesh" and "image" in inputs and "mesh" in inputs:
         return candidate
     return None
-
-
-def enqueue_generation_job(
-    background_tasks: BackgroundTasks,
-    image_bytes: bytes,
-    params: dict,
-    collection: str,
-    model_id: str,
-    metadata: dict | None = None,
-) -> str:
-    """Validate and enqueue one model generation for any API caller."""
-    model_runtime_registry.get_generator(model_id)
-
-    run_coordinator.purge_old_jobs()
-    job_id = str(uuid.uuid4())
-    job_meta = dict(metadata or {})
-    executor_meta = _executor_meta(model_id)
-    if executor_meta:
-        job_meta.update(executor_meta)
-    job_meta.setdefault("collection", collection)
-
-    job = JobStatus(job_id=job_id, status="pending", progress=0, meta=job_meta)
-    run_coordinator.register(job)
-    model_runtime_registry.begin_generation(job_id)
-    background_tasks.add_task(run_generation, job_id, image_bytes, params, collection, model_id)
-    return job_id
 
 
 async def run_generation(

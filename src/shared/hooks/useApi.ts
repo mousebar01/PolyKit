@@ -76,26 +76,6 @@ export function useApi() {
     return { url: data.url }
   }
 
-  async function transformMesh(
-    path: string,
-    matrix: number[][],
-  ): Promise<{ url: string }> {
-    const { data } = await client.post<{ url: string }>('/optimize/transform', {
-      path,
-      matrix,
-    })
-    return { url: data.url }
-  }
-
-  async function exportMesh(outputUrl: string, format: string): Promise<Blob> {
-    const path = outputUrl.replace(/^\/workspace\//, '')
-    const { data } = await client.get(`/export/${format}`, {
-      params: { path },
-      responseType: 'blob',
-    })
-    return data as Blob
-  }
-
   return {
     generateFromImage,
     pollJobStatus,
@@ -103,7 +83,5 @@ export function useApi() {
     optimizeMesh,
     smoothMesh,
     importMesh,
-    transformMesh,
-    exportMesh,
   }
 }

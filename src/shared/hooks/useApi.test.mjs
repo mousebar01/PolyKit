@@ -63,7 +63,7 @@ test('exposes the browser-safe methods consumed by the app', () => {
   const api = loadUseApi()()
   for (const name of [
     'generateFromImage', 'pollJobStatus', 'cancelJob', 'optimizeMesh', 'smoothMesh',
-    'importMesh', 'transformMesh', 'exportMesh',
+    'importMesh',
   ]) {
     assert.equal(typeof api[name], 'function', `useApi() must expose ${name}`)
   }

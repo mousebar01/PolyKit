@@ -131,28 +131,3 @@ export function createWorkflowRunsClient(apiUrl = '', instance?: AxiosInstance):
 
   return { submit, execute: submit, status, poll, cancel }
 }
-
-/** Standalone aliases make the common one-shot operations easy to test/use. */
-export async function submitWorkflowRun(
-  apiUrl: string,
-  payload: unknown,
-  options?: WorkflowRunRequestOptions,
-): Promise<WorkflowRunSubmission> {
-  return createWorkflowRunsClient(apiUrl).submit(payload, options)
-}
-
-export async function pollWorkflowRun(
-  apiUrl: string,
-  runId: string,
-  options?: WorkflowRunPollOptions,
-): Promise<WorkflowRunStatus> {
-  return createWorkflowRunsClient(apiUrl).poll(runId, options)
-}
-
-export async function cancelWorkflowRun(
-  apiUrl: string,
-  runId: string,
-  options?: WorkflowRunRequestOptions,
-): Promise<void> {
-  return createWorkflowRunsClient(apiUrl).cancel(runId, options)
-}

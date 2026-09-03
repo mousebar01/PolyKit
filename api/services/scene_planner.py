@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import math
 import random
-import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
@@ -50,11 +49,6 @@ def _clean_text(value: Any, label: str, *, max_length: int = 240) -> str:
     if len(text) > max_length:
         raise ValueError(f"{label} is too long")
     return text
-
-
-def _slug(value: str) -> str:
-    result = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip().lower()).strip("_")
-    return result or "object"
 
 
 def _vector(value: Any, label: str, *, length: int, positive: bool = False) -> tuple[float, ...]:
