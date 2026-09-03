@@ -1,8 +1,9 @@
-"""Server-owned model generation jobs shared by API surfaces.
+"""Compatibility image-first generation worker and shared output URL helper.
 
-The canonical workflow API and the legacy ``/generate`` compatibility router
-both enqueue work here so model lifecycle, persistence, cancellation and output
-naming have one implementation.
+Canonical workflow and legacy HTTP routes now execute through the shared
+``ExecutionEngine``. This module retains the older image-first worker for
+compatibility coverage while exposing the URL projection used by the canonical
+execution runtime.
 """
 from __future__ import annotations
 
