@@ -9,6 +9,10 @@ from routers.workflow_runs import (
     create_text_to_asset_run,
     list_runs,
 )
+from application.generate_asset import (
+    GenerateAssetFromImageCommand,
+    compile_generate_asset_from_image_plan,
+)
 from schemas.generation import JobStatus
 from schemas.workflow import WorkflowExecutionNode, WorkflowExecutionRequest
 from services.capability_registry import resolve_capability
@@ -77,6 +81,29 @@ def _texture_pair_request() -> WorkflowExecutionRequest:
 
 
 class ServerWorkflowValidationTests(unittest.TestCase):
+    def test_image_to_asset_preserves_faces_by_default(self) -> None:
+        request = compile_generate_asset_from_image_plan(
+            GenerateAssetFromImageCommand(
+                image={"kind": "workspace_path", "path": "inputs/reference.png"},
+                enable_texture=True,
+            )
+        )
+        self.assertNotIn("optimize", request.prompt)
+        self.assertEqual(request.prompt["mesh"].inputs["params"]["remesh"], "none")
+        self.assertEqual(request.prompt["texture"].inputs["params"]["texture_resolution"], 1024)
+        self.assertEqual(request.prompt["output"].inputs["mesh"], ["texture", "mesh"])
+
+    def test_image_to_asset_can_opt_in_to_face_budget(self) -> None:
+        request = compile_generate_asset_from_image_plan(
+            GenerateAssetFromImageCommand(
+                image={"kind": "workspace_path", "path": "inputs/reference.png"},
+                enable_optimize=True,
+                target_faces=250_000,
+            )
+        )
+        self.assertEqual(request.prompt["optimize"].inputs["params"]["target_faces"], 250_000)
+        self.assertEqual(request.prompt["output"].inputs["mesh"], ["optimize", "mesh"])
+
     def test_text_to_asset_builder_matches_reference_chain(self) -> None:
         request = build_text_to_asset_workflow(
             TextToAssetRequest(

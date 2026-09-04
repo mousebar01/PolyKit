@@ -74,6 +74,13 @@ behind authentication and TLS termination.
 | POST | `/workspace-library/providers/polyhaven/search` | Read-only Poly Haven model metadata search |
 | POST | `/workspace-library/providers/polyhaven/import` | Explicitly download, verify, and publish one Poly Haven model |
 
+`/workflow-runs/from-image` preserves generated geometry by default. Set
+`enable_texture=true` to run texture refinement; mesh simplification is only
+performed when `enable_optimize=true` is explicitly supplied (with
+`target_faces`). `remesh=none` is the default transport setting. Trellis2 may
+still perform its internal narrow-band reconstruction to close sparse-grid
+holes; that is topology repair, not a face-budget decimation pass.
+
 `/generate/*` remains mounted only as an explicit compatibility surface for
 older CLI callers. New product code must use `/workflow-runs/*`.
 

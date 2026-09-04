@@ -25,7 +25,10 @@ python tools/polykit-cli/polykit.py workflow-run execute workflow-request.json
 ## Assets and images
 
 ```bash
+# Image generation keeps the generated mesh by default.
 python tools/polykit-cli/polykit.py asset from-image ./chair.png --texture
+# Simplification is explicit when a face budget is desired.
+python tools/polykit-cli/polykit.py asset from-image ./chair.png --texture --optimize --target-faces 250000
 python tools/polykit-cli/polykit.py asset from-text "stylized wooden chair"
 python tools/polykit-cli/polykit.py image generate "isolated low-poly lantern"
 python tools/polykit-cli/polykit.py image remove-background Workflows/lantern.png

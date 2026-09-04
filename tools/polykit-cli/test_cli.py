@@ -29,6 +29,8 @@ class ParserTests(unittest.TestCase):
     def test_default_generation_collection_is_not_agent_named(self) -> None:
         args = cli.build_parser().parse_args(["asset", "from-image", "input.png"])
         self.assertEqual(args.collection, "Workflows")
+        self.assertEqual(args.remesh, "none")
+        self.assertFalse(args.optimize)
 
     def test_external_asset_commands_are_explicit(self) -> None:
         search = cli.build_parser().parse_args(["asset", "search-external", "wooden chair", "--category", "furniture"])

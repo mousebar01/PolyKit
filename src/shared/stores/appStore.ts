@@ -35,6 +35,8 @@ export interface GenerationOptions {
   modelId: string
   remesh: 'quad' | 'triangle' | 'none'
   enableTexture: boolean
+  enableOptimize?: boolean
+  targetFaces?: number
   textureResolution: number
   modelParams: Record<string, any>
 }
@@ -56,8 +58,10 @@ export interface AppToast {
 
 const DEFAULT_OPTIONS: GenerationOptions = {
   modelId: '',
-  remesh: 'quad',
+  remesh: 'none',
   enableTexture: false,
+  enableOptimize: false,
+  targetFaces: 1_000_000,
   textureResolution: 512,
   modelParams: {},
 }
@@ -293,6 +297,22 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'polykit-store',
+      version: 2,
+      migrate: (persistedState: unknown, version) => {
+        const state = (persistedState ?? {}) as Partial<AppState>
+        // Existing installations persisted the old `quad` default.  Upgrade
+        // that state once so a refresh cannot silently re-enable remeshing.
+        if (version < 2 && state.generationOptions) {
+          state.generationOptions = {
+            ...DEFAULT_OPTIONS,
+            ...state.generationOptions,
+            remesh: 'none',
+            enableOptimize: false,
+            targetFaces: 1_000_000,
+          }
+        }
+        return state as Pick<AppState, 'currentJob' | 'generationOptions' | 'language' | 'showRamIndicator' | 'lightSettings'>
+      },
       partialize: (state) => ({
         // An upload has no server task yet; persisting it would leave a
         // permanent "uploading" spinner if the browser is refreshed mid-upload.

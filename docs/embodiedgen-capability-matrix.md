@@ -8,9 +8,9 @@
 
 | 参考能力 | EmbodiedGen 的实现 | PolyKit 当前落点 | 决策 |
 | --- | --- | --- | --- |
-| 文本/图片 → 3D 资产 | `textto3d.py` / `imageto3d.py`，文生图后接 SAM3D、TRELLIS 或 Hunyuan3D | `/workflow-runs/text-to-asset`：`polykit.text → anima/generate → remove-background → trellis2/generate → trellis2/refine? → mesh-optimizer → polykit.output` | 复刻编排；保留现有本地模型节点 |
+| 文本/图片 → 3D 资产 | `textto3d.py` / `imageto3d.py`，文生图后接 SAM3D、TRELLIS 或 Hunyuan3D | 文本链：`polykit.text → anima/generate → remove-background → trellis2/generate → trellis2/refine? → mesh-optimizer? → polykit.output`；图片链默认不接 `mesh-optimizer` | 复刻编排；保留现有本地模型节点 |
 | 纹理生成/精修 | `gen_texture.py` 与 `texture_model.py` | `trellis2/refine`，由工作流参数决定是否启用 | 复刻，默认可关闭 |
-| 资产质量与面数控制 | 重试、几何检查、碰撞网格和面数约束 | `mesh-optimizer/optimize`，默认目标 100k 三角面；结果仍登记为 workspace 资产 | 先复刻可展示的质量门槛，不引入第二套运行时 |
+| 资产质量与面数控制 | 重试、几何检查、碰撞网格和面数约束 | 文本资产仍可按默认 100k 三角面优化；图片资产默认保留生成几何，调用方显式启用 `mesh-optimizer/optimize` 后才按目标面数处理 | 先复刻可展示的质量门槛，不引入第二套运行时 |
 | 任务 → 场景图 | `LayoutDesigner` 的 disassemble + hierarchy 两步 GPT 提示词 | Agent 通过 MCP 生成 `polykit.scene-plan`；服务端校验对象 ID、关系和边界 | 复刻语义契约；LLM 决策仍由 Agent 负责 |
 | 关系布局 | `bfs_placement`，基于父子树、表面包围盒、可达性和随机种子放置 | `solve_scene_layout`：确定性种子、支撑/包含/相对关系、2D AABB 避碰；`layoutQuality` 做相机无关的边界、接触、包含、关系和重叠审计 | 复刻核心；当前不是完整 navmesh/物理求解 |
 | 多资产场景合成 | `compose_mesh_scene` 将背景和对象按变换写入一个 `Iscene.glb` | `scene-composer/compose` 批量接收 Mesh、保留源节点名和变换；`POST /workspace-library/worlds/{id}/compose` 编译并提交 | 复刻可展示 GLB 合成；不改变可编辑 ScenePlan |

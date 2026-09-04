@@ -216,7 +216,11 @@ python tools/polykit-cli/polykit.py workflow-run execute workflow-request.json
 Assets / images：
 
 ```bash
+# Image-to-3D preserves generated geometry by default; --texture only adds
+# Trellis2 texture refinement.  Use --optimize explicitly when a face budget
+# is required.
 python tools/polykit-cli/polykit.py asset from-image ./chair.png --texture
+python tools/polykit-cli/polykit.py asset from-image ./chair.png --texture --optimize --target-faces 250000
 python tools/polykit-cli/polykit.py asset from-text "stylized wooden chair"
 python tools/polykit-cli/polykit.py image generate "isolated low-poly lantern"
 ```

@@ -191,6 +191,8 @@ def cmd_asset_from_image(args: argparse.Namespace) -> Any:
         "remesh": args.remesh,
         "collection": args.collection,
         "enable_texture": str(args.texture).lower(),
+        "enable_optimize": str(args.optimize).lower(),
+        "target_faces": str(args.target_faces),
         "texture_resolution": str(args.texture_resolution),
     }
     optional = {
@@ -457,8 +459,10 @@ def build_parser() -> argparse.ArgumentParser:
     from_image = asset.add_parser("from-image")
     from_image.add_argument("image")
     from_image.add_argument("--model-id", default="")
-    from_image.add_argument("--remesh", choices=("quad", "triangle", "none"), default="quad")
+    from_image.add_argument("--remesh", choices=("quad", "triangle", "none"), default="none")
     from_image.add_argument("--texture", action="store_true")
+    from_image.add_argument("--optimize", action="store_true", help="Opt in to mesh simplification")
+    from_image.add_argument("--target-faces", type=int, default=1_000_000)
     from_image.add_argument("--texture-resolution", type=int, default=1024)
     from_image.add_argument("--collection", default="Workflows")
     from_image.add_argument("--workflow-id", default="")

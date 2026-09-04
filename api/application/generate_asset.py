@@ -39,6 +39,10 @@ class GenerateAssetFromImageCommand(BaseModel):
     image: dict[str, Any]
     mesh_model_id: str = "trellis2/generate"
     enable_texture: bool = False
+    # Image-to-asset generation preserves the model output by default.  Mesh
+    # simplification is an explicit opt-in capability, not an implicit step.
+    enable_optimize: bool = False
+    target_faces: int = Field(default=1_000_000, ge=100, le=1_000_000)
     collection: str = "Workflows"
     workflow_id: Optional[str] = None
     node_id: Optional[str] = None
@@ -199,6 +203,16 @@ def compile_generate_asset_from_image_plan(
             },
         )
         final_node_id = "texture"
+
+    if command.enable_optimize:
+        nodes["optimize"] = ExecutionNode(
+            class_type="mesh-optimizer/optimize",
+            inputs={
+                "mesh": [final_node_id, "mesh"],
+                "params": {"target_faces": command.target_faces},
+            },
+        )
+        final_node_id = "optimize"
 
     nodes["output"] = ExecutionNode(
         class_type="polykit.output",

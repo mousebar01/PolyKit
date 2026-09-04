@@ -24,6 +24,10 @@ export function useApi() {
     formData.append('model_id', options.modelId)
     formData.append('remesh', options.remesh)
     formData.append('enable_texture', String(options.enableTexture))
+    formData.append('enable_optimize', String(options.enableOptimize ?? false))
+    if (options.enableOptimize) {
+      formData.append('target_faces', String(options.targetFaces ?? 1_000_000))
+    }
     formData.append('texture_resolution', String(options.textureResolution))
     formData.append('params', JSON.stringify(options.modelParams))
 

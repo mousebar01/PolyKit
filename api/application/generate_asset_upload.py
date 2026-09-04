@@ -39,6 +39,8 @@ def prepare_uploaded_image_asset_run(
     texture_resolution: int,
     model_params: dict[str, Any] | None,
     initiator: ExecutionInitiator,
+    enable_optimize: bool = False,
+    target_faces: int = 1_000_000,
     workflow_id: str | None = None,
     node_id: str | None = None,
     world_id: str | None = None,
@@ -61,6 +63,8 @@ def prepare_uploaded_image_asset_run(
         raise ValueError("remesh must be 'quad', 'triangle', or 'none'")
     if texture_resolution < 64 or texture_resolution > 8192:
         raise ValueError("texture_resolution must be between 64 and 8192")
+    if target_faces < 100 or target_faces > 1_000_000:
+        raise ValueError("target_faces must be between 100 and 1000000")
 
     collection = normalize_collection(collection)
     model_runtime_registry.get_generator(model_id)
@@ -82,6 +86,8 @@ def prepare_uploaded_image_asset_run(
             image={"kind": "workspace_path", "path": relative_input},
             mesh_model_id=model_id,
             enable_texture=enable_texture,
+            enable_optimize=enable_optimize,
+            target_faces=target_faces,
             collection=collection,
             workflow_id=(workflow_id or "").strip() or None,
             node_id=(node_id or "").strip() or None,
